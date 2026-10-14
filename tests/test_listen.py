@@ -524,7 +524,7 @@ def run_update_tests(tmp):
     # 6. ZXNR flavor: a ZX Next Remote listener (1.0.3+) updates its own
     # .nex over the same macro. Everything the sync5 flow hardcoded now
     # derives from the file's BASE name; the staged build's version rides
-    # the CONTAINING folder's itch.io-extract name (zxnextremote-9.9.9,
+    # the CONTAINING folder's itch.io-extract name (zxnextremote-1.5.9,
     # the .nex has no parseable banner); and the macro ends with the
     # MARKED quit ('Q'+'X') - the .nex saves its settings and soft-resets
     # the Next into NextZXOS, where the swapped build relaunches.
@@ -545,11 +545,17 @@ def run_update_tests(tmp):
               tmp, "zxnextremote-zxnextremote-1.1.8",
               "zxnextremote-n2n.nex")))
 
-    zdir = os.path.join(tmp, "zxnextremote-9.9.9")
+    # The package is a 1.5.9 one ON PURPOSE (9.7.49): it holds the two
+    # original flavors only, and 1.5.9 sits below ZXNR_FLAVOR_SINCE["zxnt"]
+    # (1.6.0), so it is a WHOLE package and every exact-wire pin below
+    # keeps the one-sibling shape it was written in. A 9.9.9 folder with
+    # the same two files would now be a half extract and refuse ("has no
+    # zxnextremote-zxnt.nex"); section 10 pins that.
+    zdir = os.path.join(tmp, "zxnextremote-1.5.9")
     os.makedirs(zdir, exist_ok=True)
     nexfile = os.path.join(zdir, "zxnextremote-n2n.nex")
     nex_bytes = (b"Next\x00" + bytes(range(256)) * 6
-                 + b"ZXNextRemote\x00" + b"9.9.9\x00tail")
+                 + b"ZXNextRemote\x00" + b"1.5.9\x00tail")
     with open(nexfile, "wb") as f:
         f.write(nex_bytes)
     # 9.7.7: the package's OTHER flavor rides first - both builds on the
@@ -558,7 +564,7 @@ def run_update_tests(tmp):
     # staged build).
     sibfile = os.path.join(zdir, "zxnextremote-httpbridge.nex")
     sib_bytes = (b"Next\x00" + bytes(range(256)) * 4
-                 + b"ZXNextRemote\x00" + b"9.9.9\x00sib")
+                 + b"ZXNextRemote\x00" + b"1.5.9\x00sib")
     with open(sibfile, "wb") as f:
         f.write(sib_bytes)
     zsib = "c:/apps/zxnextremote-httpbridge.nex"
@@ -1071,7 +1077,7 @@ def run_update_tests(tmp):
         cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.8"))
         check("updSibSt : a stale sibling refuses before a byte moves",
               cap.get('wire') == [('Q', '')]
-              and "does not look like a ZXNextRemote 9.9.9 build" in out and done,
+              and "does not look like a ZXNextRemote 1.5.9 build" in out and done,
               f"{cap.get('wire')} / {out}")
     finally:
         with open(sibfile, "wb") as f:
@@ -1110,6 +1116,149 @@ def run_update_tests(tmp):
           "could not rename" in out
           and "The other flavor's build " + zsib + " had already been replaced on the card too" in out
           and done,
+          f"{cap.get('wire')} / {out}")
+
+    # 10. The third flavor (9.7.49): ZX Next Transfer, ident "zxnt", first
+    # shipped in ZXNR 1.6.0, title banner "ZXNextTransfer" (the other two
+    # read "ZXNextRemote"). A package holds every flavor its VERSION is
+    # due (ZXNR_FLAVOR_SINCE): a 1.6.0 package sends TWO siblings, in
+    # ZXNR_FLAVORS order, each checked against ITS OWN banner; one missing
+    # its zxnt build refuses on plain 'update' and 'force' sends what is
+    # there; the 1.5.9 package above never needed one. The trap the
+    # per-file banner exists for: the real zxnt binary still carries the
+    # word "ZXNextRemote" in a message, so a zxnt-named file holding only
+    # that word is an n2n build misnamed - refused.
+    check("updZXNT  : the twins agree on the flavors, their first releases "
+          "and the banners",
+          ns.ZXNR_FLAVORS == ("httpbridge", "n2n", "zxnt")
+          and ns.ZXNR_FLAVOR_SINCE["zxnt"] == (1, 6, 0)
+          and ns._zxnr_nex_banner("zxnextremote-zxnt.nex") == "ZXNextTransfer"
+          and ns._zxnr_nex_banner("ZXNEXTREMOTE-ZXNT.NEX") == "ZXNextTransfer"
+          and ns._zxnr_nex_banner("zxnextremote-n2n.nex") == "ZXNextRemote"
+          and ns._zxnr_nex_banner("zxnextremote-httpbridge.nex") == "ZXNextRemote"
+          and ns._zxnr_nex_banner("c:/x/zxnextremote-zxnt.nex") == "ZXNextTransfer"
+          and ns._zxnr_nex_banner("mybuild.nex") == "ZXNextRemote"
+          and ns._zxnr_flavors_due("1.5.9") == ("httpbridge", "n2n")
+          and ns._zxnr_flavors_due("1.6.0") == ("httpbridge", "n2n", "zxnt")
+          and ns._zxnr_flavors_due("") == ("httpbridge", "n2n", "zxnt")
+          and ns._zxnr_flavors_due("beta") == ("httpbridge", "n2n", "zxnt")
+          and ns._peer_answers_crc(("zxnt", "1.6.0"))
+          and not ns._peer_answers_crc(("zxnt", "1.5.9")),
+          str((ns.ZXNR_FLAVORS, ns.ZXNR_FLAVOR_SINCE)))
+    # A 1.6.1 package, not 1.6.0: the first zxnt build IS 1.6.0, and 10b
+    # has that listener update itself, which the older-than-staged gate
+    # only allows from a newer package.
+    z16 = os.path.join(tmp, "zxnextremote-1.6.1")
+    os.makedirs(z16, exist_ok=True)
+    nex16 = os.path.join(z16, "zxnextremote-n2n.nex")
+    nex16_bytes = (b"Next\x00" + bytes(range(256)) * 5
+                   + b"ZXNextRemote\x00" + b"1.6.1\x00tail")
+    sib16 = os.path.join(z16, "zxnextremote-httpbridge.nex")
+    sib16_bytes = (b"Next\x00" + bytes(range(256)) * 4
+                   + b"ZXNextRemote\x00" + b"1.6.1\x00sib")
+    zt16 = os.path.join(z16, "zxnextremote-zxnt.nex")
+    zt16_bytes = (b"Next\x00" + bytes(range(256)) * 3
+                  + b"ZXNextTransfer\x00" + b"1.6.1\x00"
+                  + b"ZXNextRemote listener with OS protect on")   # the trap
+    for p, data in ((nex16, nex16_bytes), (sib16, sib16_bytes),
+                    (zt16, zt16_bytes)):
+        with open(p, "wb") as f:
+            f.write(data)
+    zzt = "c:/apps/zxnextremote-zxnt.nex"
+    zhb = "c:/apps/zxnextremote-httpbridge.nex"
+    zn2 = "c:/apps/zxnextremote-n2n.nex"
+    # 10a. An n2n machine, a 1.6.x package: both siblings first, in
+    # ZXNR_FLAVORS order (httpbridge, then zxnt), each P+K, then the swap.
+    cap, out, done = run([("update", nex16, "c:/apps")], ("n2n", "1.0.8"))
+    check("updZXNT3 : a 1.6.x package sends BOTH siblings first, in flavor order",
+          cap.get('wire') == [('P', zhb), ('K', zhb), ('P', zzt), ('K', zzt),
+                              ('P', zn2 + ".new"), ('K', zn2 + ".new"), ('U', ''),
+                              ('X', zn2 + ".bak"),
+                              ('V', zn2 + "\x00" + zn2 + ".bak"),
+                              ('V', zn2 + ".new\x00" + zn2), ('Q', 'X')]
+          and cap.get('puts') == [(zhb, sib16_bytes), (zzt, zt16_bytes),
+                                  (zn2 + ".new", nex16_bytes)]
+          and "sending the other flavor's build " + zhb in out
+          and "sending the other flavor's build " + zzt in out
+          and "update COMPLETE" in out and done,
+          f"{cap.get('wire')} / {out}")
+    # 10b. A zxnt 1.6.0 machine updates its own .nex: the ident is
+    # accepted, the staged blob is held to the ZXNextTransfer banner, the
+    # other two ride first (httpbridge, n2n), 'K' is drawn (zxnt answers it
+    # from its first build) and the quit is the marked one.
+    cap, out, done = run([("update", zt16, "c:/apps")], ("zxnt", "1.6.0"))
+    check("updZXNTme: a zxnt listener updates zxnextremote-zxnt.nex, the other two first",
+          cap.get('wire') == [('P', zhb), ('K', zhb), ('P', zn2), ('K', zn2),
+                              ('P', zzt + ".new"), ('K', zzt + ".new"), ('U', ''),
+                              ('X', zzt + ".bak"),
+                              ('V', zzt + "\x00" + zzt + ".bak"),
+                              ('V', zzt + ".new\x00" + zzt), ('Q', 'X')]
+          and cap.get('puts')[-1] == (zzt + ".new", zt16_bytes)
+          and "update COMPLETE" in out and "soft-reset" in out and done,
+          f"{cap.get('wire')} / {out}")
+    # 10c. The older-than-staged gate applies to the new ident like the
+    # other two, and names ZXNR (the product, not the flavor).
+    cap, out, done = run([("update", zt16, "c:/apps")], ("zxnt", "1.6.1"))
+    check("updZXNTsm: a zxnt already at or past the staged build refuses without 'force'",
+          cap.get('wire') == [('Q', '')]
+          and "the Next already runs ZXNR 1.6.1" in out and done,
+          f"{cap.get('wire')} / {out}")
+    # 10d. A zxnt-NAMED file carrying only the ZXNextRemote word (an n2n
+    # build misnamed): refused by the per-file banner, nothing sent.
+    zmis = os.path.join(tmp, "zxnextremote-1.6.2")
+    os.makedirs(zmis, exist_ok=True)
+    mis = os.path.join(zmis, "zxnextremote-zxnt.nex")
+    with open(mis, "wb") as f:
+        f.write(b"Next\x00" + bytes(range(256)) * 3
+                + b"ZXNextRemote\x00" + b"1.6.2\x00misnamed")
+    cap, out, done = run([("update", mis, "c:/apps")], ("zxnt", "1.6.0"))
+    check("updZXNTmis: a zxnt-named file without the ZXNextTransfer banner refuses",
+          cap.get('wire') == [('Q', '')]
+          and "does not look like a ZXNextTransfer 1.6.2 build" in out and done,
+          f"{cap.get('wire')} / {out}")
+    # 10e. The sibling check follows the SIBLING's name: a zxnt sibling
+    # holding only ZXNextRemote refuses the n2n update before a byte
+    # moves - the message names ZXNextTransfer.
+    with open(zt16, "wb") as f:
+        f.write(sib16_bytes)
+    try:
+        cap, out, done = run([("update", nex16, "c:/apps")], ("n2n", "1.0.8"))
+        check("updZXNTsb: a stale zxnt sibling refuses naming its own banner",
+              cap.get('wire') == [('Q', '')]
+              and "does not look like a ZXNextTransfer 1.6.1 build" in out
+              and done,
+              f"{cap.get('wire')} / {out}")
+    finally:
+        with open(zt16, "wb") as f:
+            f.write(zt16_bytes)
+    # 10f. A 1.6.x package WITHOUT its zxnt build is a half extract: plain
+    # 'update' refuses naming the missing file; 'force' sends the one
+    # sibling it has and says the other is not updated.
+    os.rename(zt16, zt16 + ".away")
+    try:
+        cap, out, done = run([("update", nex16, "c:/apps")], ("n2n", "1.0.8"))
+        check("updZXNTno: a 1.6.x package missing zxnextremote-zxnt.nex refuses",
+              cap.get('wire') == [('Q', '')]
+              and "has no zxnextremote-zxnt.nex" in out and done,
+              f"{cap.get('wire')} / {out}")
+        cap, out, done = run([("update_force", nex16, "c:/apps")], ("n2n", "1.0.8"))
+        check("updZXNTfrc: 'force' sends the httpbridge sibling it has and says zxnt is not updated",
+              cap.get('wire', [])[:4] == [('P', zhb), ('K', zhb),
+                                          ('P', zn2 + ".new"), ('K', zn2 + ".new")]
+              and "no zxnextremote-zxnt.nex beside zxnextremote-n2n.nex" in out
+              and "the other flavor is NOT updated (force)" in out
+              and "update COMPLETE" in out and done,
+              f"{cap.get('wire')} / {out}")
+    finally:
+        os.rename(zt16 + ".away", zt16)
+    # 10g. ...while the 1.5.9 package above (two flavors, no zxnt) was
+    # never asked for one: the whole of sections 6-9 ran on it. Pinned
+    # once more, explicitly, with the zxnt message as the tripwire.
+    cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.8"))
+    check("updZXNT15: a 1.5.x package without zxnt still updates an n2n machine",
+          cap.get('wire', [])[:2] == [('P', zsib), ('K', zsib)]
+          and "zxnextremote-zxnt.nex" not in out
+          and "update COMPLETE" in out and done,
           f"{cap.get('wire')} / {out}")
     return ok
 

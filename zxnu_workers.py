@@ -29,7 +29,7 @@ from zxnu_config import (IGNOREFILE, MAX_PAYLOAD, PORT, SYNCPOINT,
                          log_size,
                          is_filetype_a_directory, mame_autostart_staging_dir,
                          mame_can_autostart, qlnextremote_blob_has_header,
-                         qlnr_wire_to_qdos)
+                         qlnr_wire_to_qdos, zxnextremote_nex_banner)
 from PySide6.QtCore import (
     QEvent, QItemSelection, QItemSelectionModel, QObject, QPoint, QRect,
     QRunnable, QSize, QSortFilterProxyModel, QTimer, Qt, Signal, Slot,
@@ -921,8 +921,9 @@ class RemoteExplorerSignals(QObject):
     # e.g. ("C", ["C", "M"]). ("", []) when the dot predates the 'W' command.
     drives       = Signal(str, object)
     # (type, number): the far responder's identity from the 'Y' version
-    # query - ("httpbridge"/"n2n", "1.0.2") for a ZX Next Remote listener,
-    # ("sync", "5.8.0") for a dot. ("", "") when the far build predates the
+    # query - ("httpbridge"/"n2n"/"zxnt", "1.0.2") for a ZX Next Remote
+    # listener (ZXNR_NEX_FLAVORS), ("sync", "5.8.0") for a dot. ("", "")
+    # when the far build predates the
     # command (ZXNR < 1.0.2 / dot < 5.8) - the pane then shows nothing,
     # exactly the pre-ident behaviour.
     ident        = Signal(str, str)
@@ -1214,7 +1215,7 @@ PEER_SILENCE_LIMIT = 620.0
 #: peer gave): its type, stripped and lower-cased, must equal THIS exactly.
 #: An ident never asked (None), a listener too old for 'Y' (("", "")) and
 #: every other brand - the .sync5 dot "sync", ZX Next Remote "httpbridge" /
-#: "n2n", CSpect/MAME Nexts running either - keep PEER_SILENCE_LIMIT and
+#: "n2n" / "zxnt", CSpect/MAME Nexts running any - keep PEER_SILENCE_LIMIT and
 #: the code path above untouched, except a ZX Spectrum Next dialing from
 #: another machine since 9.7.47 (RE_NEXT_IDENT_TYPES and the NEXT_*
 #: numbers below). Hand-kept twin of the widget's QLNR_IDENT_TYPE
@@ -1483,9 +1484,13 @@ RE_LINK_RETRY_OPS = frozenset(("ls", "get", "put", "mkdir", "rmdir", "rm",
                                "rename", "rcpy", "fsize"))
 
 #: Listener builds that answer the 'K' (crc) op, by 'Y' ident type:
-#: the .sync5 dot from v5.9.2, ZX Next Remote (httpbridge/n2n) from 1.0.8.
+#: the .sync5 dot from v5.9.2, ZX Next Remote (httpbridge/n2n) from 1.0.8,
+#: ZX Next Transfer (zxnt, the third ZXNR flavor) from its first build, 1.6.0
+#: (9.7.49). Every key but sync/qlnextremote must be a ZXNR_NEX_FLAVORS
+#: entry: RE_NEXT_IDENT_TYPES is derived from that tuple and
+#: tests/test_next_stale_seat.py asserts each of its kinds has a floor here.
 RE_CRC_FLOORS = {"sync": (5, 9, 2), "httpbridge": (1, 0, 8), "n2n": (1, 0, 8),
-                 "qlnextremote": (0, 1, 0)}
+                 "zxnt": (1, 6, 0), "qlnextremote": (0, 1, 0)}
 #: Verify-after-put reply wait = floor + size/rate (the HTTP bridge's /crc
 #: formula, 15 KB/s worst case plus a minute), capped at the crc op's hour.
 #: Read at CALL time so the test suite can shorten the floor.
@@ -3945,8 +3950,10 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         # "ZXNextRemote", marked_exit=True (the Q+'X' quit
                         # soft-resets the Next into NextZXOS so the swapped
                         # .nex can relaunch) and the companions plan: the
-                        # OTHER flavor's build as a ("sibling", local, rel)
-                        # step (9.7.7 — both .nex on the card stay in step)
+                        # OTHER flavors' builds, one ("sibling", local, rel)
+                        # step each in ZXNR_NEX_FLAVORS order (9.7.7, three
+                        # flavors since 9.7.49 — every .nex on the card
+                        # stays in step; the widget decides which are due)
                         # followed, when the package carries a deploypak.txt,
                         # by the read_deploypak mkdir/put steps — all sent
                         # BEFORE the staging put, each put crc-checked and
@@ -3969,17 +3976,32 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 brand)
                             _idle()
                             continue
-                        # The brand + version are embedded verbatim in the
+                        # The banner + version are embedded verbatim in the
                         # binary (the dot's banner is contiguous; ZXNR's title
                         # and ZXNR_VERSION are separate literals): a blob
                         # without them is the wrong file or a stale build —
-                        # refuse before a single byte moves.
+                        # refuse before a single byte moves. For a ZXNR
+                        # build the banner is PER FILE (9.7.49): the zxnt
+                        # build's title is "ZXNextTransfer", the other two
+                        # read "ZXNextRemote" — and the zxnt binary still
+                        # carries the word ZXNextRemote in a message, so the
+                        # brand alone would pass an n2n build misnamed as the
+                        # zxnt one. The BRAND stays what it was: the toast's
+                        # title (dot_update_toast_title) and the QL gate.
                         bad = False
+                        # ...keyed off the LOCAL file, the bytes being
+                        # read — never the typed target (base), which
+                        # may name another flavor: nextsync5 keys its twin
+                        # off os.path.basename(a1) the same way, and the
+                        # typed-vs-local rule below refuses such a target.
+                        banner = (zxnextremote_nex_banner(
+                                      os.path.basename(local))
+                                  if brand == "ZXNextRemote" else brand)
                         if brand == "NextSync":
                             bad = bool(dver) and (
                                 b"NextSync " + dver.encode()) not in blob
                         else:
-                            bad = (brand.encode() not in blob or
+                            bad = (banner.encode() not in blob or
                                    (bool(dver) and
                                     dver.encode() not in blob))
                         if bad:
@@ -3987,11 +4009,38 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 "Remote {name} update refused: {path} does "
                                 "not look like a {brand} {version} build — "
                                 "wrong or stale file.").format(
-                                    name=disp, path=local, brand=brand,
+                                    name=disp, path=local, brand=banner,
                                     version=dver),
                                 brand)
                             _idle()
                             continue
+                        # The typed target may not be ANOTHER flavor's
+                        # canonical name (9.7.49): the banner above follows
+                        # the local file, so an n2n build typed as
+                        # zxnextremote-zxnt.nex passes it and would land
+                        # under the zxnt name — and a 1.5.x package has no
+                        # zxnt sibling for the companion clash check below
+                        # (or the widget's) to catch. Refuse naming the
+                        # TYPED path, before a byte moves.
+                        if brand == "ZXNextRemote":
+                            _lbase = os.path.basename(local).lower()
+                            _other = next(
+                                (f for f in ZXNR_NEX_FLAVORS
+                                 if base.lower()
+                                 == "zxnextremote-{}.nex".format(f)
+                                 and base.lower() != _lbase), "")
+                            if _other:
+                                sig.dot_update.emit(False, ui_tr_now(
+                                    "Remote {name} update refused: {path} "
+                                    "is the {flavor} build's file name, but "
+                                    "the file being sent is {local} — a "
+                                    "build may only replace its own .nex; "
+                                    "nothing was sent.").format(
+                                        name=disp, path=rdir + "/" + base,
+                                        flavor=_other, local=local),
+                                    brand)
+                                _idle()
+                                continue
                         # QLNextRemote only (the Sinclair QL port): the
                         # file must be the package's qemulator form, which
                         # starts with the 30-byte "]!QDOS File Header" of
@@ -4016,12 +4065,17 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         # put (see _upd_extra_step). Checked whole here so a
                         # broken plan refuses before a byte moves, like the
                         # blob above.
-                        # A ("sibling", local, rel) step (9.7.7) is the
-                        # OTHER flavor's build, sent alongside so both .nex
-                        # on the card stay in step: a put like any manifest
-                        # file, but its blob is held to the same brand +
-                        # version check as the staged build — a stale
-                        # sibling refuses before a byte moves.
+                        # A ("sibling", local, rel) step (9.7.7) is ANOTHER
+                        # flavor's build, sent alongside so every .nex on
+                        # the card stays in step (two such steps for a
+                        # three-flavor package, 9.7.49): a put like any
+                        # manifest file, but its blob is held to the same
+                        # banner + version check as the staged build — a
+                        # stale sibling refuses before a byte moves. The
+                        # banner is the SIBLING's own, by its canonical
+                        # name (rel), never the staged file's: an n2n
+                        # update sends zxnextremote-zxnt.nex, whose title
+                        # is ZXNextTransfer.
                         extras = []
                         bad_extra = ""
                         bad_why = "deploypak.txt names a file that is not there"
@@ -4049,7 +4103,10 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                     except OSError as ex:
                                         bad_extra, bad_why = step[1], str(ex)
                                         break
-                                    if (brand.encode() not in sblob
+                                    sban = (zxnextremote_nex_banner(step[2])
+                                            if brand == "ZXNextRemote"
+                                            else brand)
+                                    if (sban.encode() not in sblob
                                             or (bool(dver)
                                                 and dver.encode() not in sblob)):
                                         bad_extra = ""
@@ -4059,7 +4116,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                             "{brand} {version} build — wrong "
                                             "or stale file.").format(
                                                 name=disp, path=step[1],
-                                                brand=brand, version=dver),
+                                                brand=sban, version=dver),
                                             brand)
                                         bad = True
                                         break
@@ -4084,6 +4141,10 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         # sibling from the session's ident, the target from
                         # what was typed) would be put, then renamed aside
                         # and overwritten by itself — reported as success.
+                        # The typed-vs-local rule above meets that case
+                        # first (9.7.49); this one still covers a plan that
+                        # lists the staged build itself, its .new/.bak, or
+                        # a manifest file named like the target.
                         _taken = {base.lower(), (base + ".new").lower(),
                                   (base + ".bak").lower()}
                         clash = next((s[-1] for s in extras

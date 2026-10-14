@@ -640,16 +640,21 @@ zxnrmonkeys0.spr
 gfx/
 ```
 
-**The other flavour goes first, always** (Unite 9.7.7). A ZX Next Remote
-package ships both transports, and a card whose `zxnextremote-n2n.nex` and
-`zxnextremote-httpbridge.nex` disagree on version is a support call — so
-whichever flavour is being updated, the package's OTHER build is sent into
-the same folder before anything else, under its canonical name, checked
-against the Next's CRC-32 and re-sent up to 3 times like every companion.
-A package missing it is incomplete: the Remote Explorer refuses the update,
-and the console's `update` refuses too unless you add `force` (which then
-pushes the one build without its sibling). Listing the other flavour in
-`deploypak.txt` sends nothing twice.
+**The other flavours go first, always** (Unite 9.7.7; three flavours since
+9.7.49). A ZX Next Remote package ships every transport — `httpbridge`,
+`n2n` and, from ZX Next Remote 1.6.0, `zxnt` (ZX Next Transfer, the n2n
+build with a landing screen that is already listening) — and a card whose
+`zxnextremote-*.nex` files disagree on version is a support call — so
+whichever flavour is being updated, the package's OTHER builds are sent into
+the same folder before anything else, under their canonical names, in that
+order, each checked against the Next's CRC-32 and re-sent up to 3 times like
+every companion, and each held to its own title banner (`ZXNextTransfer`
+for the zxnt build, `ZXNextRemote` for the other two). A package missing a
+flavour its release ships is incomplete (a 1.5.x package is whole with two;
+a 1.6.0 one without `zxnextremote-zxnt.nex` is a half extract): the Remote
+Explorer refuses the update, and the console's `update` refuses too unless
+you add `force` (which then pushes what is there and says what is not).
+Listing a flavour's build in `deploypak.txt` sends nothing twice.
 
 The rules: paths are relative to the folder holding the manifest; `/` and
 `\` both separate; letter case does not matter (an entry is matched to the

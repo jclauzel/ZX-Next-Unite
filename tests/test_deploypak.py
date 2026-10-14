@@ -425,6 +425,24 @@ def main():
               and "gfx/a.spr" in [st[-1] for st in plan6],
               str([(st[0], st[-1]) for st in plan6]))
 
+        # 9.7.49: a three-flavor package (ZXNR 1.6.0 adds zxnt, ZX Next
+        # Transfer) leads with all three builds, in ZXNR_NEX_FLAVORS order,
+        # and its manifest's copy of any of them - or of the zxnt art line
+        # a real 1.6.0 manifest carries - sends nothing twice.
+        pk7 = _pkg("pk-three", flavors=("zxnt", "n2n", "httpbridge"),
+                   files=("zxntmenu0.nxi", "zxnrmenu0n.nxi"),
+                   manifest="zxnrmenu0n.nxi\nzxntmenu0.nxi\n"
+                            "zxnextremote-zxnt.nex\n")
+        plan7, probs7 = zxnextremote_package_plan(pk7)
+        rels7 = [st[-1] for st in plan7]
+        check("pkg plan: three builds lead, in ZXNR_NEX_FLAVORS order, then "
+              "the manifest's files (the zxnt .nex listed is skipped)",
+              probs7 == [] and rels7 == ["zxnextremote-httpbridge.nex",
+                                         "zxnextremote-n2n.nex",
+                                         "zxnextremote-zxnt.nex",
+                                         "zxnrmenu0n.nxi", "zxntmenu0.nxi"],
+              str((probs7, rels7)))
+
         # The two constants are hand-kept twins too.
         check("DEPLOYPAK_FILENAME / DEPLOYPAK_MAX_FILES twins agree",
               nextsync5.DEPLOYPAK_FILENAME == zxnu_config.DEPLOYPAK_FILENAME

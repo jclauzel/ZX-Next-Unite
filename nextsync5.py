@@ -554,12 +554,13 @@ LISTEN_HELP = """\
                                quit - marked for ZXNR, so the Next soft-
                                resets to NextZXOS (release first: an old
                                build fails there with nothing deleted).
-                               For a ZXNR .nex the package's OTHER flavor
-                               (zxnextremote-n2n.nex <-> -httpbridge.nex)
-                               is sent into [dir] FIRST, crc-checked, so
-                               both builds on the card stay in step (a
-                               package without it refuses; 'force' pushes
-                               the one build anyway). A deploypak.txt
+                               For a ZXNR .nex the package's OTHER flavors
+                               (three: zxnextremote-httpbridge.nex, -n2n.nex
+                               and, from 1.6.0, -zxnt.nex) are sent into
+                               [dir] FIRST, crc-checked, so every build on
+                               the card stays in step (a package missing a
+                               flavor its version ships refuses; 'force'
+                               pushes what is there). A deploypak.txt
                                beside the .nex names extra files/folders
                                (one per line, relative) sent the same way;
                                all written in place (no .bak for them).
@@ -609,11 +610,12 @@ def _ver_at_least(s, floor):
     return v >= floor
 
 # Listener builds that answer the 'K' (crc) op, by 'version' ident type: the
-# .sync5 dot from v5.9.2, ZX Next Remote (httpbridge/n2n) from 1.0.8. A
+# .sync5 dot from v5.9.2, ZX Next Remote (httpbridge/n2n) from 1.0.8, ZX
+# Next Transfer (zxnt, the third ZXNR flavor) from its first build 1.6.0. A
 # hand-kept twin of zxnu_workers.RE_CRC_FLOORS - this script imports no app
 # module (see the OSP_MARK note above).
 CRC_FLOORS = {"sync": (5, 9, 2), "httpbridge": (1, 0, 8), "n2n": (1, 0, 8),
-              "qlnextremote": (0, 1, 0)}
+              "zxnt": (1, 6, 0), "qlnextremote": (0, 1, 0)}
 
 def _peer_answers_crc(ident):
     """True when a cached 'version' answer ``(type, number)`` names a
@@ -685,6 +687,46 @@ def _zxnr_staged_ver(path):
     if len(parts) == 3 and all(p.isdigit() for p in parts):
         return ver
     return ""
+
+# The ZX Next Remote flavors - the 'version' ident types the update verb
+# accepts AND the artifact names (zxnextremote-<flavor>.nex), in the order
+# the OTHER flavors' builds are sent alongside. Three since 9.7.49: zxnt is
+# ZX Next Transfer (ZXNR 1.6.0), the n2n binary with a landing screen that
+# is already listening. Hand-kept twin of zxnu_config.ZXNR_NEX_FLAVORS.
+ZXNR_FLAVORS = ("httpbridge", "n2n", "zxnt")
+# The release each flavor FIRST shipped in: a package holds every flavor its
+# version is due, so a 1.5.x package (two .nex) still updates an n2n or
+# httpbridge machine while a 1.6.0 package without its zxnt build refuses.
+# Twin of zxnu_config.ZXNR_FLAVOR_SINCE.
+ZXNR_FLAVOR_SINCE = {"httpbridge": (0, 8, 0), "n2n": (0, 8, 0),
+                     "zxnt": (1, 6, 0)}
+
+def _zxnr_nex_banner(nex_name):
+    """The title literal zxnextremote-<flavor>.nex embeds, by the file's
+    NAME: "ZXNextTransfer" for the zxnt build, "ZXNextRemote" for every
+    other (a non-canonical name included). The trap this exists for: the
+    zxnt binary still carries the word ZXNextRemote in a message, so a
+    brand-wide grep would pass an n2n build misnamed as the zxnt one. Twin
+    of zxnu_config.zxnextremote_nex_banner."""
+    base = os.path.basename(str(nex_name or "").replace("\\", "/")).lower()
+    for flavor in ZXNR_FLAVORS:
+        if base == f"zxnextremote-{flavor}.nex":
+            return "ZXNextTransfer" if flavor == "zxnt" else "ZXNextRemote"
+    return "ZXNextRemote"
+
+def _zxnr_flavors_due(version):
+    """The flavors a package of ``version`` must hold, in ZXNR_FLAVORS
+    order; a version that does not parse (the staged build's folder is not
+    named zxnextremote-X.Y.Z) is due EVERY flavor - unknown is never "old".
+    Twin of zxnu_config.zxnextremote_flavors_due."""
+    try:
+        parsed = tuple(int(p) for p in str(version or "").strip().split("."))
+    except ValueError:
+        parsed = ()
+    if not parsed:
+        return tuple(ZXNR_FLAVORS)
+    return tuple(f for f in ZXNR_FLAVORS
+                 if parsed >= ZXNR_FLAVOR_SINCE.get(f, (0, 0, 0)))
 
 # deploypak.txt: the extra files an itch.io package ships alongside its build
 # (a ZX Next Remote's .nxi menus, .spr sprite banks, a whole folder), one
@@ -1704,18 +1746,21 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                         refuse = (f"the Next already runs sync {ident[1]} "
                                   f"(staged file is {bver}) - add 'force' to "
                                   "push anyway")
-                elif ident[0] in ("httpbridge", "n2n"):
-                    # The ZX Next Remote flavor (1.0.3+ answers 'U'; older
+                elif ident[0] in ZXNR_FLAVORS:
+                    # A ZX Next Remote flavor (1.0.3+ answers 'U'; older
                     # builds meet it with silence): stage the .nex under its
                     # own file name, and quit MARKED at the end - the .nex
                     # saves its settings and soft-resets the Next into
                     # NextZXOS. Its version comes from the CONTAINING
                     # folder's name (see _zxnr_staged_ver); the title and
                     # version literals sit apart in the binary, so they are
-                    # checked as separate substrings.
+                    # checked as separate substrings - and the title is the
+                    # FILE's own (_zxnr_nex_banner): ZXNextTransfer for the
+                    # zxnt build, ZXNextRemote for the other two (9.7.49).
                     base = os.path.basename(a1)
                     marked = True
                     bver = _zxnr_staged_ver(a1)
+                    banner = _zxnr_nex_banner(base)
                     if not _ver_at_least(ident[1], (1, 0, 3)):
                         refuse = (f"the listener is ZXNR {ident[1]} - the "
                                   "remote update flow needs ZXNR 1.0.3+")
@@ -1726,9 +1771,9 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                         refuse = ("the ZXNR flavor needs an explicit remote "
                                   "dir naming where the running .nex lives, "
                                   "e.g.: update <file> c:/mydir")
-                    elif (b"ZXNextRemote" not in blob or
+                    elif (banner.encode() not in blob or
                           (bool(bver) and bver.encode() not in blob)):
-                        refuse = (f"{a1} does not look like a ZXNextRemote"
+                        refuse = (f"{a1} does not look like a {banner}"
                                   f"{' ' + bver if bver else ''} build - "
                                   "wrong or stale file")
                     elif op == "update" and not bver:
@@ -1777,31 +1822,47 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                               "updates the .sync5 dot, a ZX Next Remote "
                               "build or a QLNextRemote job")
                 extras = []
-                if not refuse and ident[0] in ("httpbridge", "n2n"):
-                    # The OTHER flavor's build (9.7.7): a ZXNR package ships
-                    # both transports and the two .nex on the card are kept
-                    # in step - the sibling goes alongside FIRST, under its
-                    # canonical name, crc-checked like every companion. Its
-                    # name follows the STAGED file's (zxnextremote-n2n.nex
-                    # <-> zxnextremote-httpbridge.nex); a file named
-                    # otherwise has no known sibling. A package without it
-                    # refuses - 'force' pushes the one build anyway.
-                    sib = {"zxnextremote-n2n.nex": "zxnextremote-httpbridge.nex",
-                           "zxnextremote-httpbridge.nex": "zxnextremote-n2n.nex"
-                           }.get(base.lower())
-                    sib_path = (os.path.join(os.path.dirname(os.path.abspath(a1)),
-                                             sib) if sib else None)
-                    if sib and not os.path.isfile(sib_path):
-                        if op == "update":
-                            refuse = (f"the package has no {sib} to send "
-                                      "alongside (both flavors are kept in "
-                                      "step) - add 'force' to push this one "
-                                      "build anyway")
-                        else:
-                            print(f"  update: no {sib} beside {base} - the "
-                                  "other flavor is NOT updated (force)")
-                            sib = None
-                    elif sib:
+                sibs = []       # [(local_path, canonical name)], flavor order
+                if not refuse and ident[0] in ZXNR_FLAVORS:
+                    # The OTHER flavors' builds (9.7.7; three flavors since
+                    # 9.7.49): a ZXNR package ships every transport and the
+                    # .nex files on the card are kept in step - each sibling
+                    # goes alongside FIRST, under its canonical name, in
+                    # ZXNR_FLAVORS order, crc-checked like every companion.
+                    # Which flavor is being updated follows the STAGED
+                    # file's name (zxnextremote-<flavor>.nex); a file named
+                    # otherwise has no known siblings. A sibling the package
+                    # lacks refuses ONLY when the package's version is due
+                    # that flavor (_zxnr_flavors_due): a 1.5.x package has
+                    # no zxnt build and is whole without it, a 1.6.0 one
+                    # without it is a half extract. 'force' sends whatever
+                    # is there and says what is not.
+                    mine = next((f for f in ZXNR_FLAVORS
+                                 if base.lower() == f"zxnextremote-{f}.nex"),
+                                None)
+                    here = os.path.dirname(os.path.abspath(a1))
+                    if mine is None:
+                        print(f"  update: {base} is not a zxnextremote-<flavor>"
+                              ".nex name - no other flavor to send alongside")
+                    for f in ZXNR_FLAVORS:
+                        if refuse or mine is None or f == mine:
+                            continue
+                        sib = f"zxnextremote-{f}.nex"
+                        sib_path = os.path.join(here, sib)
+                        if not os.path.isfile(sib_path):
+                            if f not in _zxnr_flavors_due(bver):
+                                continue        # predates this package
+                            if op == "update":
+                                refuse = (f"the package has no {sib} to send "
+                                          "alongside (every flavor the "
+                                          "release ships is kept in step) - "
+                                          "add 'force' to push this one "
+                                          "build anyway")
+                            else:
+                                print(f"  update: no {sib} beside {base} - "
+                                      "the other flavor is NOT updated "
+                                      "(force)")
+                            continue
                         # Guarded like the staged blob's read: a sibling
                         # that exists but cannot be opened (an extractor or
                         # scanner still holding it) refuses, never unwinds
@@ -1810,32 +1871,39 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                             with open(sib_path, 'rb') as fh:
                                 sblob = fh.read()
                         except OSError as ex:
-                            sblob = None
                             refuse = f"reading {sib_path} failed: {ex}"
-                        if sblob is not None and (
-                                b"ZXNextRemote" not in sblob or
+                            continue
+                        # The sibling's OWN banner, never the staged file's:
+                        # an n2n update sends zxnextremote-zxnt.nex, whose
+                        # title is ZXNextTransfer.
+                        sban = _zxnr_nex_banner(sib)
+                        if (sban.encode() not in sblob or
                                 (bool(bver) and bver.encode() not in sblob)):
                             refuse = (f"{sib_path} does not look like a "
-                                      f"ZXNextRemote{' ' + bver if bver else ''}"
+                                      f"{sban}{' ' + bver if bver else ''}"
                                       " build - wrong or stale file")
-                    elif not refuse:
-                        print(f"  update: {base} is not a zxnextremote-<flavor>"
-                              ".nex name - no other flavor to send alongside")
-                if not refuse and ident[0] in ("httpbridge", "n2n"):
+                            continue
+                        sibs.append((sib_path, sib))
+                if not refuse and ident[0] in ZXNR_FLAVORS:
                     # deploypak.txt next to the staged .nex (9.7.6): the
                     # package's extra files, sent BEFORE the build is staged.
                     # ZX Next Remote packages ONLY - the dot is a single
                     # asset by contract, and a stray manifest beside it must
                     # never turn c:/dot into a drop target. A broken
                     # manifest refuses like a bad blob - before a byte moves.
+                    # Every flavor's canonical name is a skip name (the
+                    # siblings already ride first; listing one in the
+                    # manifest sends nothing twice).
                     extras, problems = _read_deploypak(
                         os.path.dirname(os.path.abspath(a1)),
-                        (base, base + ".new", base + ".bak") + ((sib,) if sib else ()))
+                        (base, base + ".new", base + ".bak")
+                        + tuple(f"zxnextremote-{f}.nex" for f in ZXNR_FLAVORS))
                     if problems:
                         refuse = ("the package's deploypak.txt is broken: "
                                   + "; ".join(problems))
-                    elif sib:
-                        extras = [("sibling", sib_path, sib)] + extras
+                    elif sibs:
+                        extras = ([("sibling", p, n) for p, n in sibs]
+                                  + extras)
                 if not refuse and ident[0] == "qlnextremote":
                     # The QL package's deploypak.txt sits at the PACKAGE
                     # root (one level above qemulator/); it lists the README

@@ -4096,8 +4096,9 @@ def test_update_targets():
                                  [("sibling", sib0, "zxnextremote-httpbridge.nex")]))],
           str(calls["q_to"]))
     check("...and the body says the httpbridge build goes alongside",
-          "both flavors on the card stay in step" in " ".join(body.split())
-          and "zxnextremote-httpbridge.nex" in body, body)
+          "every flavor on the card stays in step" in " ".join(body.split())
+          and "httpbridge (zxnextremote-httpbridge.nex)" in " ".join(body.split()),
+          body)
     check("...and the log says so too",
           any("the httpbridge build zxnextremote-httpbridge.nex goes alongside into c:/home first"
               in l for l in calls["log"]), str(calls["log"][-2:]))
@@ -4201,6 +4202,119 @@ def test_update_targets():
           str((calls2["q_to"], calls2["log"][-1:])))
     FakeInput.seen = []
     _shutil.rmtree(pkg, ignore_errors=True)
+
+
+def test_zxnr_three_flavors():
+    """The third flavor, ZX Next Transfer (9.7.49): a package holds every
+    flavor its VERSION is due (zxnextremote_flavors_due - httpbridge and
+    n2n always, zxnt from ZXNR 1.6.0), the companions plan lists EVERY
+    other flavor's build the package holds, in ZXNR_NEX_FLAVORS order, and
+    a zxnt session is routed and updated like the other two. The worker
+    side (each sibling held to its own banner) is test_remote_listen's."""
+    import shutil as _shutil
+    three = _zxnr_pkg("three", "1.6.0", flavors=("httpbridge", "n2n", "zxnt"))
+    w, calls = make_widget(
+        zxnr_update_source=lambda flavor: (
+            os.path.join(three, "zxnextremote-%s.nex" % flavor), "1.6.0", ""))
+    connect_widget(w, calls)
+    w.on_peers((1, [(1, "10.0.0.5")]))
+    FakeInput.queue = [("c:/home/zxnextremote-n2n.nex", True)]
+    FakeInput.seen = []
+    FakeMsg.warnings.clear(); calls["q_to"].clear(); calls["log"].clear()
+    w._update_zxnr_on_session(1, "n2n", "1.5.4")
+    cmd = calls["q_to"][0][1] if calls["q_to"] else ()
+    check("three flavors: an n2n update of a 1.6.0 package sends BOTH other "
+          "builds first, in ZXNR_NEX_FLAVORS order (httpbridge, then zxnt)",
+          len(cmd) == 8 and cmd[7] == [
+              ("sibling", os.path.join(three, "zxnextremote-httpbridge.nex"),
+               "zxnextremote-httpbridge.nex"),
+              ("sibling", os.path.join(three, "zxnextremote-zxnt.nex"),
+               "zxnextremote-zxnt.nex")],
+          str(cmd[7:] if cmd else calls["q_to"]))
+    body = " ".join((FakeInput.seen[0][2] if FakeInput.seen else "").split())
+    check("...the confirm body names both and says every flavor stays in step",
+          "httpbridge (zxnextremote-httpbridge.nex)" in body
+          and "zxnt (zxnextremote-zxnt.nex)" in body
+          and "every flavor on the card stays in step" in body, body)
+    check("...and the log has one line per sibling",
+          any("the httpbridge build zxnextremote-httpbridge.nex goes alongside "
+              "into c:/home first" in l for l in calls["log"])
+          and any("the zxnt build zxnextremote-zxnt.nex goes alongside into "
+                  "c:/home first" in l for l in calls["log"]),
+          str(calls["log"]))
+
+    # A zxnt session: routed as an upgrade (ZXNR_IDENT_TYPES is the flavor
+    # tuple), updated like the other two - its own file name, defaulting
+    # to c:/home, the other two riding first.
+    w._peer_idents[1] = ("zxnt", "1.6.0")
+    check("three flavors: a zxnt 1.6.0 listener takes the update macro",
+          w.zxnr_send_route()[:4] == ("upgrade", 1, "zxnt", "1.6.0"),
+          str(w.zxnr_send_route()))
+    three2 = _zxnr_pkg("three2", "1.6.1",
+                       flavors=("httpbridge", "n2n", "zxnt"))
+    FakeInput.queue = [("c:/home/zxnextremote-zxnt.nex", True)]
+    FakeInput.seen = []
+    calls["q_to"].clear()
+    w._update_zxnr_on_session(1, "zxnt", "1.6.0", package=three2)
+    cmd = calls["q_to"][0][1] if calls["q_to"] else ()
+    check("three flavors: a zxnt session stages zxnextremote-zxnt.nex under "
+          "the ZXNextRemote brand, httpbridge and n2n riding first",
+          len(cmd) == 8
+          and cmd[1] == os.path.join(three2, "zxnextremote-zxnt.nex")
+          and cmd[3] == "1.6.1" and cmd[4] == "zxnextremote-zxnt.nex"
+          and cmd[5] == "ZXNextRemote" and cmd[6] is True
+          and [s[-1] for s in cmd[7]] == ["zxnextremote-httpbridge.nex",
+                                          "zxnextremote-n2n.nex"]
+          and bool(FakeInput.seen)
+          and FakeInput.seen[0][4] == "c:/home/zxnextremote-zxnt.nex",
+          str((cmd[1:5] if cmd else calls["q_to"],
+               FakeInput.seen[0][4] if FakeInput.seen else None)))
+
+    # A 1.6.0 package WITHOUT its zxnt build is a half extract: refused
+    # before the prompt, nothing enqueued, the missing file named.
+    half = _zxnr_pkg("half", "1.6.0")
+    FakeInput.queue = [("c:/home/zxnextremote-n2n.nex", True)]
+    FakeInput.seen = []
+    FakeMsg.warnings.clear(); calls["q_to"].clear()
+    w._update_zxnr_on_session(1, "n2n", "1.5.4", package=half)
+    check("three flavors: a 1.6.0 package missing zxnextremote-zxnt.nex "
+          "refuses before the prompt",
+          calls["q_to"] == [] and FakeInput.seen == []
+          and len(FakeMsg.warnings) == 1
+          and "has no zxnextremote-zxnt.nex" in FakeMsg.warnings[0],
+          str((calls["q_to"], FakeInput.seen, FakeMsg.warnings)))
+    # ...while a 1.5.x package never shipped one: whole as it is, the one
+    # sibling it has riding first, no warning.
+    old = _zxnr_pkg("old15", "1.5.9")
+    FakeInput.queue = [("c:/home/zxnextremote-n2n.nex", True)]
+    FakeInput.seen = []
+    FakeMsg.warnings.clear(); calls["q_to"].clear()
+    w._update_zxnr_on_session(1, "n2n", "1.5.4", package=old)
+    cmd = calls["q_to"][0][1] if calls["q_to"] else ()
+    check("three flavors: a 1.5.x package without zxnt still updates n2n, "
+          "httpbridge alone riding first",
+          FakeMsg.warnings == [] and len(cmd) == 8
+          and [s[-1] for s in cmd[7]] == ["zxnextremote-httpbridge.nex"],
+          str((FakeMsg.warnings, cmd[7:] if cmd else calls["q_to"])))
+    # The manifest's copy of ANY flavor's build is skipped (the siblings
+    # already ride first): a 1.6.0 manifest listing all three sends each
+    # exactly once.
+    with open(os.path.join(three, "deploypak.txt"), "w",
+              encoding="utf-8") as fh:
+        fh.write("zxnextremote-httpbridge.nex\nzxnextremote-n2n.nex\n"
+                 "zxnextremote-zxnt.nex\n")
+    FakeInput.queue = [("c:/home/zxnextremote-n2n.nex", True)]
+    FakeInput.seen = []
+    FakeMsg.warnings.clear(); calls["q_to"].clear()
+    w._update_zxnr_on_session(1, "n2n", "1.5.4", package=three)
+    cmd = calls["q_to"][0][1] if calls["q_to"] else ()
+    check("three flavors: a manifest naming every build sends nothing twice",
+          FakeMsg.warnings == [] and len(cmd) == 8
+          and [s[-1] for s in cmd[7]] == ["zxnextremote-httpbridge.nex",
+                                          "zxnextremote-zxnt.nex"],
+          str((FakeMsg.warnings, cmd[7:] if cmd else calls["q_to"])))
+    for d in (three, three2, half, old):
+        _shutil.rmtree(os.path.dirname(d), ignore_errors=True)
 
 
 def test_update_prompt():
@@ -4364,6 +4478,7 @@ def main():
         test_zxnr_send_route()
         test_send_package_plan()
         test_zxnr_update_chosen_package()
+        test_zxnr_three_flavors()
         test_zxnr_menu_picker_hook()
         test_zxnr_update_reports_whether_it_started()
         test_qlnr_update()
