@@ -541,6 +541,103 @@ check("qlnr wire->qdos: no drive letter, an unserved letter, '..' -> None",
       and qlnr_wire_to_qdos("W:/../x") is None
       and qlnr_wire_to_qdos("") is None
       and qlnr_wire_to_qdos(None) is None)
+check("qlnr wire->qdos: QL Next Transfer's job (9.7.50) maps like the first",
+      qlnr_wire_to_qdos("W:/HOME/qlnexttransfer_exe")
+      == "win1_HOME_qlnexttransfer_exe",
+      repr(qlnr_wire_to_qdos("W:/HOME/qlnexttransfer_exe")))
+
+# ---- QLNextRemote's two jobs: the flavor table (zxnu_config, 9.7.50) --------
+# QLNextRemote 1.7.0 ships QL Next Transfer (ident "qlnt", job
+# qlnexttransfer_exe) in the SAME package: the remote update stages the job
+# of the seat's own flavor and sends the other one alongside. The tables are
+# pinned literally - a flavor added there is a job the update will send.
+from zxnu_config import (QLNR_FLAVORS, QLNR_FLAVOR_JOBS,  # noqa: E402
+                         QLNR_FLAVOR_SINCE, QLNR_EXE_BANNERS,
+                         qlnextremote_exe_banner,
+                         qlnextremote_exe_foreign_banner,
+                         qlnextremote_flavors_due,
+                         qlnextremote_package_binary, qlnr_job_flavor)
+
+check("QL flavors: qlnextremote then qlnt, each with its own job name "
+      "(never formatted from the ident), qlnt first shipped in 1.7.0",
+      QLNR_FLAVORS == ("qlnextremote", "qlnt")
+      and QLNR_FLAVOR_JOBS == {"qlnextremote": "qlnextremote_exe",
+                               "qlnt": "qlnexttransfer_exe"}
+      and QLNR_FLAVOR_SINCE == {"qlnextremote": (0, 0, 0), "qlnt": (1, 7, 0)}
+      and QLNR_EXE_BANNERS == {"qlnt": "QLNextTransfer"},
+      str((QLNR_FLAVORS, QLNR_FLAVOR_JOBS, QLNR_FLAVOR_SINCE)))
+check("QL job flavor: a case-blind SUFFIX test (the QL relaunch rule's), "
+      "disjoint; a .bak/.new or any other name is no job's",
+      qlnr_job_flavor("qlnexttransfer_exe") == "qlnt"
+      and qlnr_job_flavor("W:/HOME/QLNextTransfer_exe") == "qlnt"
+      and qlnr_job_flavor("win1_HOME_qlnexttransfer_exe") == "qlnt"
+      and qlnr_job_flavor("C:\\pkg\\qemulator\\qlnextremote_exe") == "qlnextremote"
+      and qlnr_job_flavor("qlnexttransfer_exe.bak") == ""
+      and qlnr_job_flavor("qlnextremote_exe.new") == ""
+      and qlnr_job_flavor("mybuild") == "" and qlnr_job_flavor(None) == ""
+      and not "qlnexttransfer_exe".endswith("qlnextremote_exe")
+      and not "qlnextremote_exe".endswith("qlnexttransfer_exe"))
+check("QL banner: QLNextTransfer for the qlnt job by NAME, QLNextRemote for "
+      "every other",
+      qlnextremote_exe_banner("qlnexttransfer_exe") == "QLNextTransfer"
+      and qlnextremote_exe_banner("W:/HOME/qlnexttransfer_exe") == "QLNextTransfer"
+      and qlnextremote_exe_banner("qlnextremote_exe") == "QLNextRemote"
+      and qlnextremote_exe_banner("qlnexttransfer_exe.bak") == "QLNextRemote"
+      and qlnextremote_exe_banner("") == "QLNextRemote")
+check("QL foreign banner: a QLNextRemote-named job must not carry "
+      "QLNextTransfer; the qlnt job may name its QLNextRemote peer",
+      qlnextremote_exe_foreign_banner("qlnextremote_exe",
+                                      b"QLNextRemote QLNextTransfer") == "QLNextTransfer"
+      and qlnextremote_exe_foreign_banner("myjob_exe", b"QLNextTransfer") == "QLNextTransfer"
+      and qlnextremote_exe_foreign_banner("qlnextremote_exe", b"QLNextRemote") == ""
+      and qlnextremote_exe_foreign_banner(
+          "qlnexttransfer_exe", b"QLNextTransfer A QLNextRemote Listener") == ""
+      and qlnextremote_exe_foreign_banner("qlnextremote_exe", None) == "")
+check("QL due: a 1.6.x package is due the one job, 1.7.0+ both, an "
+      "unreadable version both",
+      qlnextremote_flavors_due("1.3.6") == ("qlnextremote",)
+      and qlnextremote_flavors_due("1.6.9") == ("qlnextremote",)
+      and qlnextremote_flavors_due("1.7.0") == ("qlnextremote", "qlnt")
+      and qlnextremote_flavors_due("2.0.0") == ("qlnextremote", "qlnt")
+      and qlnextremote_flavors_due("") == ("qlnextremote", "qlnt")
+      and qlnextremote_flavors_due("beta") == ("qlnextremote", "qlnt")
+      and qlnextremote_flavors_due(None) == ("qlnextremote", "qlnt"))
+with tempfile.TemporaryDirectory() as _qtd:
+    _q17 = os.path.join(_qtd, "qlnextremote-1.7.0")
+    _q13 = os.path.join(_qtd, "qlnextremote-1.3.6")
+    for _d, _jobs in ((_q17, ("qlnextremote_exe", "qlnexttransfer_exe")),
+                      (_q13, ("qlnextremote_exe",))):
+        os.makedirs(os.path.join(_d, "qemulator"))
+        for _j in _jobs:
+            with open(os.path.join(_d, "qemulator", _j), "wb") as _f:
+                _f.write(b"]!QDOS File Header")
+    _p, _v, _r = qlnextremote_package_binary(_q17, "qlnt")
+    check("QL binary: the qlnt flavor resolves qemulator/qlnexttransfer_exe "
+          "and the folder's version",
+          _p == os.path.join(_q17, "qemulator", "qlnexttransfer_exe")
+          and _v == "1.7.0" and _r == "", str((_p, _v, _r)))
+    _p, _v, _r = qlnextremote_package_binary(_q17, "qlnextremote")
+    check("QL binary: the qlnextremote flavor resolves qemulator/qlnextremote_exe",
+          _p == os.path.join(_q17, "qemulator", "qlnextremote_exe")
+          and _v == "1.7.0", str((_p, _v, _r)))
+    _p, _v, _r = qlnextremote_package_binary(_q13, "qlnt")
+    check("QL binary: a package from before QL Next Transfer says so",
+          _p is None and "predates QLNextTransfer" in _r
+          and "1.7.0" in _r, _r)
+    os.remove(os.path.join(_q17, "qemulator", "qlnexttransfer_exe"))
+    _p, _v, _r = qlnextremote_package_binary(_q17, "qlnt")
+    check("QL binary: a 1.7.0 package missing the qlnt job names the file",
+          _p is None and "qemulator/qlnexttransfer_exe" in _r, _r)
+    _p, _v, _r = qlnextremote_package_binary(_q17, "sync")
+    check("QL binary: no default and no guess - an unknown flavor refuses",
+          _p is None and "not a QLNextRemote job flavor" in _r, _r)
+    try:
+        qlnextremote_package_binary(_q17)
+        _no_default = False
+    except TypeError:
+        _no_default = True
+    check("QL binary: the flavor is REQUIRED (no default that would send "
+          "qlnextremote_exe to a QL Next Transfer)", _no_default)
 
 # tar.gz package: one version-stamped binary inside, exec bit restored.
 _pkg_dir = tempfile.mkdtemp(prefix="zxnu-pkg-")

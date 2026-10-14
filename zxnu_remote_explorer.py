@@ -49,10 +49,13 @@ from zxnu_config import (
     FILTER_TEXT_WIDTH,
     SPLITTER_HANDLE_QSS_HORIZONTAL, SPLITTER_MAX_PANE_PX,
     ZX_NEXT_UNITE_DOTN_VERSION,
-    ZXNR_NEX_FLAVORS, QLNR_EXE_NAME, deploypak_counts, hex_to_qcolor,
+    ZXNR_NEX_FLAVORS, QLNR_FLAVORS, QLNR_FLAVOR_JOBS,
+    deploypak_counts, hex_to_qcolor,
     normalize_history_folder,
     open_path_with_system_shell, qcolor_to_hex, read_deploypak,
-    readable_text_color, zxnextremote_flavors_due,
+    readable_text_color, qlnextremote_blob_has_header,
+    qlnextremote_exe_banner, qlnextremote_flavors_due,
+    zxnextremote_flavors_due,
     zxnextremote_package_binary,
 )
 from zxnu_pathhistorycombo import FolderHistoryCombo
@@ -170,6 +173,13 @@ ZXNR_HOME_DIR = "c:/home"
 # offered. The job lives in the QL's HOME folder, which its OS protection
 # does not cover, so the swap never meets a refusal there.
 QLNR_IDENT_TYPE = "qlnextremote"
+# Every QL job's ident (9.7.50): QLNextRemote and QL Next Transfer ("qlnt",
+# QLNextRemote 1.7.0's landing-screen job; its job file is
+# qlnexttransfer_exe - QLNR_FLAVOR_JOBS, never formatted from the ident).
+# An alias of zxnu_config's tuple, like ZXNR_IDENT_TYPES above; every reader
+# iterates it, and the floor below holds for both (QL Next Transfer starts
+# at 1.7.0).
+QLNR_IDENT_TYPES = QLNR_FLAVORS
 QLNR_SELF_UPDATE_FLOOR = (0, 5, 0)
 QLNR_HOME_DIR = "W:/HOME"
 
@@ -1329,16 +1339,27 @@ class RemoteExplorerWidget(QWidget):
         # falls back to the newest complete install, which is what this macro
         # did before the picker existed.
         self._zxnr_choose_package = zxnr_choose_package
-        # host closure: () -> (path, version, "") or (None, None, reason):
-        # the newest installed QLNextRemote package's qemulator/
-        # qlnextremote_exe (zxnu_emulator_ops' _resolve_qlnr_update_binary).
-        # Disk-only like the ZXNR resolver, cached the same way (one value,
-        # the QL has no flavors). Absent means a QL seat gets no update
-        # affordance at all - the dot and ZXNR paths are untouched.
+        # host closure: (flavor) -> (path, version, "") or (None, None,
+        # reason): the newest installed QLNextRemote package's qemulator/
+        # job for that QL flavor - qlnextremote_exe for a "qlnextremote"
+        # seat, qlnexttransfer_exe for a "qlnt" one (9.7.50, QL Next
+        # Transfer; zxnu_emulator_ops' _resolve_qlnr_update_binary). NO
+        # default flavor: a call left unchanged must fail (TypeError,
+        # caught below as "internal error"), never quietly resolve the
+        # qlnextremote job for a QL Next Transfer machine. Disk-only like
+        # the ZXNR resolver, cached the same way: a dict keyed by flavor,
+        # cleared in place on every ident (and by zxnu_emulator_ops when a
+        # package lands) - never rebound to None, which .clear() would
+        # then trip over. Absent means a QL seat gets no update affordance
+        # at all - the dot and ZXNR paths are untouched.
         self._qlnr_update_source = qlnr_update_source
-        self._qlnr_resolve_cache = None      # (path, ver, reason) or None
+        self._qlnr_resolve_cache = {}        # flavor -> (path, ver, reason)
         # Last-used full QL-side path of the swapped job, persisted by the
-        # host (SETTING_QLNR_UPDATE_PATH); empty => "W:/HOME/qlnextremote_exe".
+        # host (SETTING_QLNR_UPDATE_PATH); empty => "W:/HOME/<the seat's
+        # job>". ONE global string for both QL jobs, like the ZXNR one: the
+        # name guard in _update_qlnr_on_session keeps it only for its own
+        # job, so a QL Next Transfer update replaces a custom QLNextRemote
+        # path (and the next QLNextRemote update falls back to HOME).
         self._qlnr_update_path = str(qlnr_update_path or "").strip()
         self._on_qlnr_update_path_changed = (on_qlnr_update_path_changed
                                              or (lambda p: None))
@@ -3299,9 +3320,11 @@ class RemoteExplorerWidget(QWidget):
                             "Update ZX Next Remote on this Next "
                             "({old} → {new})…").format(
                                 old=rver, new=new_ver))
-            elif (ident[0] == QLNR_IDENT_TYPE
+            elif (ident[0] in QLNR_IDENT_TYPES
                     and self._qlnr_update_source is not None):
-                # A QLNextRemote seat (the Sinclair QL port): the dot's
+                # A QLNextRemote seat (the Sinclair QL port; either job
+                # since 9.7.50, QL Next Transfer's "qlnt" resolving its
+                # own qlnexttransfer_exe): the dot's
                 # shapes - a confident entry only for a job at or above
                 # the self-update floor with a NEWER package installed
                 # here, a disabled-and-honest one below the floor or with
@@ -3316,7 +3339,8 @@ class RemoteExplorerWidget(QWidget):
                             old=rver))
                     act_hand.setEnabled(False)
                 elif remote_ver is not None:
-                    path, new_ver, _reason = self._qlnr_resolve(fresh=True)
+                    path, new_ver, _reason = self._qlnr_resolve(
+                        ident[0], fresh=True)
                     new_parsed = (_parse_dot_version(new_ver)
                                   if path else None)
                     if not path:
@@ -3505,22 +3529,26 @@ class RemoteExplorerWidget(QWidget):
         self._zxnr_resolve_cache[flavor] = res
         return res
 
-    def _qlnr_resolve(self, fresh=False):
-        """The QLNextRemote update source's answer, cached: the ZXNR
-        helper's twin without the flavor (one package form for every QL).
-        Disk-only, so a menu open may re-read it (``fresh=True``); the
-        top-bar label reads the cache, cleared on every ident."""
+    def _qlnr_resolve(self, flavor, fresh=False):
+        """The QLNextRemote update source's answer for one QL flavor,
+        cached: the ZXNR helper's twin. Per flavor since 9.7.50 - one
+        package holds two jobs (qlnextremote_exe, QL Next Transfer's
+        qlnexttransfer_exe), and a single cached tuple would serve one
+        job's answer to the other's ident (the top-bar link reads the
+        cache, not fresh). Disk-only, so a menu open may re-read it
+        (``fresh=True``); the top-bar label reads the cache, cleared on
+        every ident."""
         if self._qlnr_update_source is None:
             return (None, None, "no update source wired")
-        if not fresh and self._qlnr_resolve_cache is not None:
-            return self._qlnr_resolve_cache
+        if not fresh and flavor in self._qlnr_resolve_cache:
+            return self._qlnr_resolve_cache[flavor]
         try:
-            path, version, reason = self._qlnr_update_source()
+            path, version, reason = self._qlnr_update_source(flavor)
         except Exception:                       # noqa: BLE001
             logging.exception("Remote explorer: QLNR resolve failed")
             path, version, reason = None, None, "internal error (see the log)"
         res = (path, version, reason or "")
-        self._qlnr_resolve_cache = res
+        self._qlnr_resolve_cache[flavor] = res
         return res
 
     def _update_zxnr_on_session(self, sid, flavor, old_version, *,
@@ -3774,23 +3802,41 @@ class RemoteExplorerWidget(QWidget):
     def _update_qlnr_on_session(self, sid, old_version):
         """Confirm + enqueue the ("update_dot", …) macro in its QLNextRemote
         flavor for ONE session: the staged/verified/swapped file is the
-        package's ``qemulator/qlnextremote_exe`` (the form whose 30-byte
-        QDOS header travels in the bytes - the QL job turns it into the real
-        file header on the put), the companions are what the package's
-        deploypak.txt lists (README.md), and the success step's marked quit
-        (Q + the exit mark) has the job save its settings, start the new
-        build from HOME and exit. The default target is
-        ``W:/HOME/qlnextremote_exe``, remembered per cfg under
-        qlnr_update_path. A QL that runs its job from somewhere the update
-        cannot reach (QPC2's dos1_, the root of sQLux's win1) has no job at
-        that path: the worker then INSTALLS the new build there (9.7.46), and
-        the prompt says so beforehand. Delivery follows
-        _update_zxnr_on_session's rule to the letter: the TARGET session's
-        OWN queue, a wired channel's refusal final. Returns True only when
-        the macro was ENQUEUED."""
+        package's ``qemulator/<job>`` of the seat's OWN QL flavor -
+        ``qlnextremote_exe``, or (9.7.50) ``qlnexttransfer_exe`` for a QL
+        Next Transfer ("qlnt") seat - the form whose 30-byte QDOS header
+        travels in the bytes (the QL job turns it into the real file header
+        on the put). The companions are the package's OTHER job, sent into
+        the same folder FIRST (from QLNextRemote 1.7.0 both jobs are kept in
+        step, the ZXNR sibling doctrine), then what the package's
+        deploypak.txt lists (README.md, the launchers); the success step's
+        marked quit (Q + the exit mark) has the job save its settings, start
+        the new build from HOME and exit. The default target is
+        ``W:/HOME/<job>``, remembered per cfg under qlnr_update_path. A QL
+        that runs its job from somewhere the update cannot reach (QPC2's
+        dos1_, the root of sQLux's win1) has no job at that path: the worker
+        then INSTALLS the new build there (9.7.46), and the prompt says so
+        beforehand. Delivery follows _update_zxnr_on_session's rule to the
+        letter: the TARGET session's OWN queue, a wired channel's refusal
+        final. Returns True only when the macro was ENQUEUED.
+
+        The flavor is DERIVED from the session's own ident
+        (``_peer_idents[sid]``), never passed and never defaulted (9.7.50):
+        every caller (the session menu, the toast, the top-bar link) keeps
+        its (sid, old) call, and a session whose ident is not a QL job's any
+        more gets the "no longer applies" line instead of a guess - a
+        default would send qlnextremote_exe to a QL Next Transfer machine."""
         if self._qlnr_update_source is None:
             return False
-        path, version, reason = self._qlnr_resolve(fresh=True)
+        _sid_ident = self._peer_idents.get(sid)
+        flavor = (str(_sid_ident[0] or "").strip().lower()
+                  if _sid_ident else "")
+        if flavor not in QLNR_IDENT_TYPES:
+            self._log(ui_tr_now(
+                "The update offer no longer applies: the Next "
+                "disconnected, or another Next is driven now."))
+            return False
+        path, version, reason = self._qlnr_resolve(flavor, fresh=True)
         machine = self._machine_text_for(sid)
         if not path:
             QMessageBox.warning(
@@ -3798,13 +3844,63 @@ class RemoteExplorerWidget(QWidget):
                 ui_tr_now("Could not obtain the QLNextRemote package to "
                           "send: {reason}").format(reason=reason))
             return False
-        base = QLNR_EXE_NAME
+        base = QLNR_FLAVOR_JOBS[flavor]
+        # The OTHER QL job (9.7.50): from QLNextRemote 1.7.0 a package ships
+        # both qlnextremote_exe and QL Next Transfer's qlnexttransfer_exe,
+        # and the two in the QL's folder are kept in step - the sibling goes
+        # alongside, FIRST, into the folder typed below, under its own job
+        # name, crc-checked like every companion. One the package lacks
+        # makes it incomplete ONLY when its version is due that job
+        # (qlnextremote_flavors_due): a 1.3.x package has no qlnt job and is
+        # whole without it, a 1.7.0 one without it is a half extract -
+        # refuse, like a broken manifest (the reason stays English, through
+        # the resolver's own key). Its QDOS header is checked HERE, before
+        # the prompt, as well as in the worker: the QL stores a headerless
+        # put whole and its CRC then matches, so a headerless sibling would
+        # replace the user's WORKING other job with a data file.
+        sibs = []                  # [(flavor, local path, job name)]
+        due = qlnextremote_flavors_due(version)
+        for other in QLNR_FLAVORS:
+            if other == flavor:
+                continue
+            sib_name = QLNR_FLAVOR_JOBS[other]
+            sib_path = os.path.join(os.path.dirname(path), sib_name)
+            sib_why = ""
+            if os.path.isfile(sib_path):
+                try:
+                    with open(sib_path, "rb") as fh:
+                        head = fh.read(64)
+                except OSError as ex:
+                    head, sib_why = b"", f"reading {sib_path} failed: {ex}"
+                if not sib_why and not qlnextremote_blob_has_header(head):
+                    sib_why = (f"the package's qemulator/{sib_name} does not "
+                               "start with the QDOS executable header (type "
+                               "1) — sent alongside, it would replace the "
+                               f"QL's working {sib_name} with a data file")
+                if not sib_why:
+                    sibs.append((other, sib_path, sib_name))
+            elif other in due:
+                sib_why = (f"the package has no qemulator/{sib_name} to send "
+                           "alongside (both QL jobs are kept in step from "
+                           "QLNextRemote 1.7.0) — re-fetch it via the "
+                           "itch.io tab or the Settings tab's QLNextRemote "
+                           "update check")
+            if sib_why:
+                QMessageBox.warning(
+                    self, ui_tr_now("QLNextRemote update"),
+                    ui_tr_now("Could not obtain the QLNextRemote package to "
+                              "send: {reason}").format(reason=sib_why))
+                return False
         # The manifest sits at the PACKAGE root, one level above the
         # qemulator/ folder the build is read from: that is where the README
-        # it lists lives.
+        # it lists lives. Every job's name and its .new/.bak are skip names
+        # (the sibling already rides first; defence in depth - the jobs live
+        # under qemulator/, the manifest's names at the root).
         pkg_dir = os.path.dirname(os.path.dirname(path))
         extras, problems = read_deploypak(
-            pkg_dir, (base, base + ".new", base + ".bak"))
+            pkg_dir, (base, base + ".new", base + ".bak")
+            + tuple(j + s for j in QLNR_FLAVOR_JOBS.values()
+                    for s in ("", ".new", ".bak")))
         if problems:
             QMessageBox.warning(
                 self, ui_tr_now("QLNextRemote update"),
@@ -3814,6 +3910,10 @@ class RemoteExplorerWidget(QWidget):
                                      + "; ".join(problems)))
             return False
         n_files, n_dirs = deploypak_counts(extras)
+        # The siblings lead the plan - BEFORE the clash check below, so a
+        # typed target named for the OTHER job (W:/HOME/qlnexttransfer_exe
+        # on a QLNextRemote seat) is refused here, not swapped over it.
+        extras = [("sibling", p, n) for _f, p, n in sibs] + extras
         remembered = (self._qlnr_update_path or "").replace("\\", "/")
         if remembered.rpartition("/")[2] != base:
             remembered = ""
@@ -3829,13 +3929,28 @@ class RemoteExplorerWidget(QWidget):
             "Full path of the job on the QL:").format(
                 machine=machine, old=old_version, new=version)
         # Their own paragraphs, slotted in before the closing prompt line
-        # (every catalog keeps that final "\n\n" paragraph): what the
-        # manifest adds, then (9.7.46) what happens when no job is at the
+        # (every catalog keeps that final "\n\n" paragraph): the other QL
+        # job that goes alongside (9.7.50) - AND the consequence: a QL's put
+        # deletes the old file first, so a failed send leaves that app
+        # missing until the update runs again - then what the manifest
+        # adds, then (9.7.46) what happens when no job is at the
         # path at all - a QL that runs its job from QPC2's dos1_ (or the
         # root of sQLux's win1) gets the new build INSTALLED there, and must
         # be started from there from then on.
         head, _sep, tail = body.rpartition("\n\n")
         paras = []
+        if sibs:
+            paras.append(ui_tr_now(
+                "The package's other QL job(s) — {files} — are sent into "
+                "the same folder FIRST, each checked against the CRC-32 the "
+                "QL computes and re-sent up to {retries} times, so both jobs "
+                "stay in step — written in place, so the .bak revert does "
+                "not cover them, and a send that fails leaves that job "
+                "missing until the update is run again.").format(
+                    files=", ".join(
+                        f"{qlnextremote_exe_banner(n)} ({n})"
+                        for _f, _p, n in sibs),
+                    retries=RE_UPD_EXTRA_RETRIES))
         if n_files or n_dirs:
             paras.append(ui_tr_now(
                 "Its deploypak.txt lists {files} file(s) and {folders} "
@@ -3898,12 +4013,18 @@ class RemoteExplorerWidget(QWidget):
             return False
         self._qlnr_update_path = target
         self._on_qlnr_update_path_changed(target)
+        for _f, _p, sib_name in sibs:
+            self._log(ui_tr_now(
+                "QLNextRemote update: the other QL job {file} goes "
+                "alongside into {dir} first.").format(
+                    file=sib_name, dir=rdir))
         if n_files or n_dirs:
             self._log(ui_tr_now(
                 "QLNextRemote update: deploypak.txt lists {files} file(s) "
                 "and {folders} folder(s) for {dir}: {items}").format(
                     files=n_files, folders=n_dirs, dir=rdir,
-                    items=", ".join(s[-1] for s in extras)))
+                    items=", ".join(s[-1] for s in extras
+                                    if s[0] != "sibling")))
         cmd = ("update_dot", path, rdir, version, base,
                "QLNextRemote", True, extras)
         if self._enqueue_to_raw is None:
@@ -4006,7 +4127,7 @@ class RemoteExplorerWidget(QWidget):
         # resolver answers so the label's update link re-reads the disk
         # (an itch.io fetch may have landed since the last connection).
         self._zxnr_resolve_cache.clear()
-        self._qlnr_resolve_cache = None
+        self._qlnr_resolve_cache.clear()     # per QL flavor since 9.7.50
         # File it under the DRIVEN session too: the query rides the shared
         # queue (on_connected / every baton move re-asks), which only the
         # baton holder drains, so this reply is that machine's answer. The
@@ -4058,12 +4179,18 @@ class RemoteExplorerWidget(QWidget):
                 flavor, old, new = offer
                 kind, href = f"ZX Next Remote {flavor}", "zxnr-update"
             else:
-                # A QL seat (QLNextRemote): its own gate, its own door.
+                # A QL seat (QLNextRemote): its own gate, its own door. The
+                # kind names the JOB (9.7.50): "QLNextTransfer" for a QL
+                # Next Transfer seat - its banner, qlnextremote_exe_banner
+                # by its job name - so the once-per-version key (sid,
+                # kind, old) never folds the two QL jobs together.
                 offer = self._qlnr_update_offer()
                 if offer is None:
                     return
                 old, new = offer
-                kind, href = "QLNextRemote", "qlnr-update"
+                kind = qlnextremote_exe_banner(QLNR_FLAVOR_JOBS.get(
+                    str(self._next_ident[0]).strip().lower(), ""))
+                href = "qlnr-update"
         sid, ident = self._peer_active, self._next_ident
         key = (sid, kind, old)
         if key in self._update_prompted:
@@ -4248,19 +4375,24 @@ class RemoteExplorerWidget(QWidget):
 
     def _qlnr_update_offer(self):
         """``(old, new)`` when this PC can update the DRIVEN QLNextRemote
-        job: a 'qlnextremote' ident at or above QLNR_SELF_UPDATE_FLOOR
+        job: a QL ident (QLNR_IDENT_TYPES - 'qlnextremote', or 9.7.50's
+        'qlnt' for QL Next Transfer) at or above QLNR_SELF_UPDATE_FLOOR
         (0.5.0: the first build that sets the QDOS header on a staged put
-        and relaunches itself) and an installed package that parses NEWER;
-        None otherwise. Reads the cached resolver answer, like the ZXNR
-        twin."""
+        and relaunches itself) and an installed package whose job for THAT
+        flavor parses NEWER; None otherwise. Reads the cached resolver
+        answer, like the ZXNR twin. Still ``(old, new)`` - the flavor is
+        read from the driven ident, never added to the tuple: the top-bar
+        link reads offer[1] as the new version, and a third field in front
+        would have made it show the OLD one."""
         if self._qlnr_update_source is None or self._peer_active is None:
             return None
-        if self._next_ident[0] != QLNR_IDENT_TYPE:
+        flavor = self._next_ident[0]
+        if flavor not in QLNR_IDENT_TYPES:
             return None
         remote_ver = _parse_dot_version(self._next_ident[1])
         if remote_ver is None or remote_ver < QLNR_SELF_UPDATE_FLOOR:
             return None
-        path, new_ver, _reason = self._qlnr_resolve()
+        path, new_ver, _reason = self._qlnr_resolve(flavor)
         new_parsed = _parse_dot_version(new_ver) if path else None
         if new_parsed is None or new_parsed <= remote_ver:
             return None

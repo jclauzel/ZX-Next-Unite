@@ -564,7 +564,21 @@ LISTEN_HELP = """\
                                beside the .nex names extra files/folders
                                (one per line, relative) sent the same way;
                                all written in place (no .bak for them).
-                               ZXNR packages only.
+                               ZXNR and QL packages only.
+                               A QLNextRemote job (QLNR 0.5.0+; ident
+                               qlnextremote, or qlnt = QL Next Transfer
+                               from 1.7.0) stages the package's
+                               qemulator/ form (its QDOS header in the
+                               bytes) under its own job name in [dir]
+                               (required, e.g. W:/HOME) and quits marked:
+                               the QL starts the new build, which seats
+                               itself again. The package's OTHER job
+                               (qlnextremote_exe <-> qlnexttransfer_exe)
+                               goes into [dir] FIRST, header- and crc-
+                               checked (a 1.7.0+ package missing it
+                               refuses), then the package's deploypak.txt;
+                               a job that is not the one the QL runs
+                               refuses. 'force' pushes what is there.
                                Gated on the cached 'version' answer; 'force'
                                overrides the older-than-staged check
     rcpy <src> <dst>           copy a file/dir locally ON the Next, incl.
@@ -611,11 +625,16 @@ def _ver_at_least(s, floor):
 
 # Listener builds that answer the 'K' (crc) op, by 'version' ident type: the
 # .sync5 dot from v5.9.2, ZX Next Remote (httpbridge/n2n) from 1.0.8, ZX
-# Next Transfer (zxnt, the third ZXNR flavor) from its first build 1.6.0. A
-# hand-kept twin of zxnu_workers.RE_CRC_FLOORS - this script imports no app
-# module (see the OSP_MARK note above).
+# Next Transfer (zxnt, the third ZXNR flavor) from its first build 1.6.0,
+# QLNextRemote from 0.1.0 and QL Next Transfer (qlnt, 9.7.50) at the SAME
+# floor - it is the same listener.c, so every qlnt build answers 'K'; a floor
+# at its first release would make every pre-release build skip the verify
+# and the bridge call it provably old. A hand-kept twin of
+# zxnu_workers.RE_CRC_FLOORS - this script imports no app module (see the
+# OSP_MARK note above).
 CRC_FLOORS = {"sync": (5, 9, 2), "httpbridge": (1, 0, 8), "n2n": (1, 0, 8),
-              "zxnt": (1, 6, 0), "qlnextremote": (0, 1, 0)}
+              "zxnt": (1, 6, 0), "qlnextremote": (0, 1, 0),
+              "qlnt": (0, 1, 0)}
 
 def _peer_answers_crc(ident):
     """True when a cached 'version' answer ``(type, number)`` names a
@@ -659,6 +678,58 @@ def _qlnr_blob_has_header(blob):
     and type 1. Hand-kept twin of zxnu_config.qlnextremote_blob_has_header."""
     return (len(blob) >= 30 and blob[:18] == b"]!QDOS File Header"
             and blob[19] == 15 and blob[21] == 1)
+
+# The QL jobs (9.7.50): the 'version' ident types the update verb accepts for
+# a QL, each with its JOB file name - never formatted from the ident ("qlnt"
+# -> qlnexttransfer_exe) - and the release it first shipped in. Order = the
+# order the OTHER job is sent alongside. Hand-kept twins of
+# zxnu_config.QLNR_FLAVORS / QLNR_FLAVOR_JOBS / QLNR_FLAVOR_SINCE.
+QLNR_FLAVORS = ("qlnextremote", "qlnt")
+QLNR_FLAVOR_JOBS = {"qlnextremote": "qlnextremote_exe",
+                    "qlnt": "qlnexttransfer_exe"}
+QLNR_FLAVOR_SINCE = {"qlnextremote": (0, 0, 0), "qlnt": (1, 7, 0)}
+
+def _qlnr_job_flavor(name):
+    """The QL flavor whose job a name is, by a case-blind SUFFIX test (the
+    QL Listener's relaunch rule); "" for any other name. Twin of
+    zxnu_config.qlnr_job_flavor."""
+    s = str(name or "").strip().lower()
+    for flavor in QLNR_FLAVORS:
+        if s.endswith(QLNR_FLAVOR_JOBS[flavor]):
+            return flavor
+    return ""
+
+def _qlnr_exe_banner(name):
+    """The banner a QL job of this name embeds: "QLNextTransfer" for
+    ...qlnexttransfer_exe, "QLNextRemote" for every other name. The qlnt job
+    still says "QLNextRemote" where it names the PEER product, so the brand
+    alone cannot tell the two apart. Twin of
+    zxnu_config.qlnextremote_exe_banner."""
+    return ("QLNextTransfer" if _qlnr_job_flavor(name) == "qlnt"
+            else "QLNextRemote")
+
+def _qlnr_exe_foreign_banner(name, blob):
+    """The other job's distinct banner when a job of this name carries it,
+    else "" - "QLNextRemote" never counts (every job names the peer with
+    it). Twin of zxnu_config.qlnextremote_exe_foreign_banner."""
+    own = _qlnr_exe_banner(name)
+    for banner in ("QLNextTransfer",):
+        if banner != own and banner.encode() in (blob or b""):
+            return banner
+    return ""
+
+def _qlnr_flavors_due(version):
+    """The QL jobs a package of ``version`` must hold, in QLNR_FLAVORS
+    order; unparseable = every job (unknown is never "old"). Twin of
+    zxnu_config.qlnextremote_flavors_due."""
+    try:
+        parsed = tuple(int(p) for p in str(version or "").strip().split("."))
+    except ValueError:
+        parsed = ()
+    if not parsed:
+        return tuple(QLNR_FLAVORS)
+    return tuple(f for f in QLNR_FLAVORS
+                 if parsed >= QLNR_FLAVOR_SINCE.get(f, (0, 0, 0)))
 
 def _zxnr_staged_ver(path):
     """Version of a staged ZX Next Remote build, read from the CONTAINING
@@ -1277,6 +1348,15 @@ def _listen_session_inner(conn, stats, _test_commands=None):
     def _upd_extra_total():
         return sum(1 for s in upd_job.get('extras', ()) if s[0] == "put")
 
+    def _upd_sib_words():
+        # (what a sibling is, where it lands) in the console's verdicts: a
+        # ZXNR .nex is "the other flavor's build" on the card, a QL job
+        # (9.7.50) "the other QL job" in HOME - a QL has no card. Read
+        # BEFORE upd_job.clear(), like _upd_extras_note.
+        if upd_job.get('ql'):
+            return "the other QL job", "in HOME"
+        return "the other flavor's build", "on the card"
+
     def _upd_extras_note():
         # The sentence every verdict AFTER the companions landed must carry:
         # they overwrite in place, so "nothing was swapped" is only true of
@@ -1289,9 +1369,11 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                      "file(s) had already been replaced on the card - the "
                      "previous build now runs against the new data files; "
                      "run the update again to put them back in step.")
+        _sw, _where = _upd_sib_words()
         for rel in upd_job.get('sib_sent', ()):
-            note += (f" The other flavor's build {upd_job.get('dir', '')}/{rel} "
-                     "had already been replaced on the card too.")
+            note += (f" {_sw[0].upper() + _sw[1:]} "
+                     f"{upd_job.get('dir', '')}/{rel} "
+                     f"had already been replaced {_where} too.")
         return note
 
     def _upd_extra_index():
@@ -1420,7 +1502,7 @@ def _listen_session_inner(conn, stats, _test_commands=None):
         upd_job['ex_size'] = len(blob)
         retry = upd_job['ex_try']
         if step[0] == "sibling":
-            print(f"{timestamp()} | update: sending the other flavor's build "
+            print(f"{timestamp()} | update: sending {_upd_sib_words()[0]} "
                   f'{remote} ({len(blob)} bytes) alongside'
                   + (f' - retry {retry} of {UPD_EXTRA_RETRIES}' if retry else ''))
         else:
@@ -1783,17 +1865,29 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                         refuse = (f"the Next already runs ZXNR {ident[1]} "
                                   f"(staged build is {bver}) - add 'force' "
                                   "to push anyway")
-                elif ident[0] == "qlnextremote":
-                    # The QL port (QLNextRemote 0.5.0+): the job swaps its
+                elif ident[0] in QLNR_FLAVORS:
+                    # The QL port (QLNextRemote 0.5.0+; QL Next Transfer,
+                    # ident qlnt, from 1.7.0 - 9.7.50): the job swaps its
                     # own file in HOME and relaunches itself on the marked
                     # quit. The staged file must be the package's qemulator
                     # form (its 30-byte QDOS header travels in the bytes -
                     # the job sets the real header on the put); the version
-                    # comes from the package folder's name, the brand and
-                    # version bytes are checked like ZXNR's.
+                    # comes from the package folder's name, the banner and
+                    # version bytes are checked like ZXNR's - the banner the
+                    # FILE's own (_qlnr_exe_banner): QLNextTransfer for
+                    # qlnexttransfer_exe, QLNextRemote otherwise, and a
+                    # qlnextremote job must not carry QLNextTransfer.
                     base = os.path.basename(a1)
                     marked = True
                     bver = _qlnr_staged_ver(a1)
+                    banner = _qlnr_exe_banner(base)
+                    # The job the staged file IS - a name that is no job's
+                    # counts as the qlnextremote job its banner was checked
+                    # as - and the job the QL RUNS: the Listener relaunches
+                    # only a file named for its OWN job, so the wrong one
+                    # would be swapped in and never started.
+                    mine_ql = _qlnr_job_flavor(base) or QLNR_FLAVORS[0]
+                    own_job = QLNR_FLAVOR_JOBS[ident[0]]
                     if not _ver_at_least(ident[1], (0, 5, 0)):
                         refuse = (f"the listener is QLNR {ident[1]} - the "
                                   "remote update flow needs QLNR 0.5.0+")
@@ -1804,12 +1898,18 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                     elif not _qlnr_blob_has_header(blob):
                         refuse = (f"{a1} does not start with the QDOS "
                                   "executable header (type 1) - send the "
-                                  "package's qemulator/qlnextremote_exe")
-                    elif (b"QLNextRemote" not in blob or
-                          (bool(bver) and bver.encode() not in blob)):
-                        refuse = (f"{a1} does not look like a QLNextRemote"
+                                  f"package's qemulator/{own_job}")
+                    elif (banner.encode() not in blob
+                          or _qlnr_exe_foreign_banner(base, blob)
+                          or (bool(bver) and bver.encode() not in blob)):
+                        refuse = (f"{a1} does not look like a {banner}"
                                   f"{' ' + bver if bver else ''} build - "
                                   "wrong or stale file")
+                    elif op == "update" and mine_ql != ident[0]:
+                        refuse = (f"the QL runs {ident[0]}, whose job is "
+                                  f"{own_job}, but {base} is the {mine_ql} "
+                                  "job - it would be swapped in and never "
+                                  "started; add 'force' to push anyway")
                     elif op == "update" and not bver:
                         refuse = ("cannot read the staged build's version - "
                                   "add 'force' to push anyway")
@@ -1817,6 +1917,10 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                         refuse = (f"the QL already runs QLNR {ident[1]} "
                                   f"(staged build is {bver}) - add 'force' "
                                   "to push anyway")
+                    if not refuse and mine_ql != ident[0]:
+                        print(f"  update: {base} is not the job this QL runs "
+                              f"({own_job}) - pushed anyway (force); the QL "
+                              "will not start it on its own")
                 else:
                     refuse = (f"the listener is '{ident[0]}' - this flow "
                               "updates the .sync5 dot, a ZX Next Remote "
@@ -1904,18 +2008,86 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                     elif sibs:
                         extras = ([("sibling", p, n) for p, n in sibs]
                                   + extras)
-                if not refuse and ident[0] == "qlnextremote":
+                qsibs = []      # [(local_path, job name)], QLNR_FLAVORS order
+                if not refuse and ident[0] in QLNR_FLAVORS:
+                    # The OTHER QL job (9.7.50): from QLNextRemote 1.7.0 a
+                    # package ships two jobs (qlnextremote_exe and QL Next
+                    # Transfer's qlnexttransfer_exe) and both in the QL's
+                    # folder are kept in step, the ZXNR sibling doctrine:
+                    # the other one goes into [dir] FIRST, from the same
+                    # qemulator/ folder, crc-checked like every companion.
+                    # Which job is being updated follows the STAGED file's
+                    # name; a name that is no job's has no known sibling. A
+                    # sibling the package lacks refuses ONLY when the
+                    # package's version is due it (_qlnr_flavors_due): a
+                    # 1.3.x package is whole with one job. Its QDOS header
+                    # is checked too, not only its banner and version: a
+                    # headerless sibling would replace a WORKING job in HOME
+                    # with a data file and still pass the crc check (the QL
+                    # stores a headerless put whole). 'force' sends whatever
+                    # is there and says what is not.
+                    mine = _qlnr_job_flavor(base) or None
+                    here = os.path.dirname(os.path.abspath(a1))
+                    if mine is None:
+                        print(f"  update: {base} is not a QL job name - no "
+                              "other job to send alongside")
+                    for f in QLNR_FLAVORS:
+                        if refuse or mine is None or f == mine:
+                            continue
+                        sib = QLNR_FLAVOR_JOBS[f]
+                        sib_path = os.path.join(here, sib)
+                        if not os.path.isfile(sib_path):
+                            if f not in _qlnr_flavors_due(bver):
+                                continue        # predates this package
+                            if op == "update":
+                                refuse = (f"the package has no qemulator/{sib} "
+                                          "to send alongside (both QL jobs "
+                                          "are kept in step) - add 'force' "
+                                          "to push this one job anyway")
+                            else:
+                                print(f"  update: no {sib} beside {base} - "
+                                      "the other QL job is NOT updated "
+                                      "(force)")
+                            continue
+                        try:
+                            with open(sib_path, 'rb') as fh:
+                                sblob = fh.read()
+                        except OSError as ex:
+                            refuse = f"reading {sib_path} failed: {ex}"
+                            continue
+                        if not _qlnr_blob_has_header(sblob):
+                            refuse = (f"{sib_path} does not start with the "
+                                      "QDOS executable header (type 1) - "
+                                      "sent alongside it would replace the "
+                                      "QL's working job with a data file")
+                            continue
+                        sban = _qlnr_exe_banner(sib)
+                        if (sban.encode() not in sblob
+                                or _qlnr_exe_foreign_banner(sib, sblob)
+                                or (bool(bver) and bver.encode() not in sblob)):
+                            refuse = (f"{sib_path} does not look like a "
+                                      f"{sban}{' ' + bver if bver else ''}"
+                                      " build - wrong or stale file")
+                            continue
+                        qsibs.append((sib_path, sib))
+                if not refuse and ident[0] in QLNR_FLAVORS:
                     # The QL package's deploypak.txt sits at the PACKAGE
                     # root (one level above qemulator/); it lists the README
-                    # that goes into HOME before the build. No sibling: the
-                    # QL has one build form to push.
+                    # (and the launchers) that go into HOME before the build.
+                    # Every job's name and its .new/.bak are skip names (the
+                    # sibling already rides first).
                     _pkg = _qlnr_package_dir(a1) or os.path.dirname(
                         os.path.abspath(a1))
                     extras, problems = _read_deploypak(
-                        _pkg, (base, base + ".new", base + ".bak"))
+                        _pkg, (base, base + ".new", base + ".bak")
+                        + tuple(j + s for j in QLNR_FLAVOR_JOBS.values()
+                                for s in ("", ".new", ".bak")))
                     if problems:
                         refuse = ("the package's deploypak.txt is broken: "
                                   + "; ".join(problems))
+                    elif qsibs:
+                        extras = ([("sibling", p, n) for p, n in qsibs]
+                                  + extras)
                 if not refuse:
                     # The listener copies a path into a 254-byte buffer and
                     # TRUNCATES a longer one (a misplaced file the crc check
@@ -1950,7 +2122,10 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                                 'dir': (a2 or "c:/dot").rstrip("/"),
                                 'ver': bver, 'base': base, 'marked': marked,
                                 'extras': extras, 'ex_i': 0, 'ex_try': 0,
-                                'ex_sent': [], 'sib_sent': []})
+                                'ex_sent': [], 'sib_sent': [],
+                                # a QL job: its sibling verdicts speak of
+                                # the other QL job and HOME (_upd_sib_words)
+                                'ql': ident[0] in QLNR_FLAVORS})
                 if extras:
                     n_files = sum(1 for s in extras if s[0] == "put")
                     n_dirs = sum(1 for s in extras if s[0] == "mkdir")
@@ -2108,13 +2283,25 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                 _landed = len(upd_job.get('ex_sent', ()))
                 _total = _upd_extra_total()
                 _dir = upd_job.get('dir', '')
+                _sw, _where = _upd_sib_words()
+                _ql = bool(upd_job.get('ql'))
                 _sib_note = "".join(
-                    f" The other flavor's build {_dir}/{r} had already been "
-                    "replaced on the card too."
+                    f" {_sw[0].upper() + _sw[1:]} {_dir}/{r} had already been "
+                    f"replaced {_where} too."
                     for r in upd_job.get('sib_sent', ()))
                 _note = _upd_extras_note()
                 upd_job.clear()
-                if _kind == "sibling":
+                if _kind == "sibling" and _ql:
+                    # 9.7.50: a QL's put deletes the old file first, so a
+                    # failed sibling may have left HOME WITHOUT the other
+                    # job - name it, and the way back.
+                    print(f"{timestamp()} | *** update failed while sending "
+                          f"the other QL job {_dir}/{_rel}: {a1}. Nothing was "
+                          'swapped - the QL still runs its current build, but '
+                          f'{_dir}/{_rel} may be missing from HOME now: run '
+                          'the update again, or install it from the package '
+                          f'with INSTALL_bas.{_note} ***')
+                elif _kind == "sibling":
                     print(f"{timestamp()} | *** update failed while sending the "
                           f"other flavor's build {_dir}/{_rel}: {a1}. Nothing "
                           'was swapped - the Next still runs its current '
@@ -2300,7 +2487,7 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                 base = upd_job.get('base', 'sync5')
                 was_marked = upd_job.get('marked', False)
                 was_ql = _listen_state.get('ident') and (
-                    _listen_state['ident'][0] == "qlnextremote")
+                    _listen_state['ident'][0] in QLNR_FLAVORS)
                 upd_job.clear()
                 if was_marked and was_ql:
                     # The QL's marked quit: the job starts the new build
@@ -2595,11 +2782,23 @@ def _listen_session_inner(conn, stats, _test_commands=None):
         _cur = upd_job['dir'] + "/" + _b
         _ex = upd_job.get('extras', ())
         _note = _upd_extras_note()
+        _sw, _where = _upd_sib_words()
         _sib_note = "".join(
-            f" The other flavor's build {upd_job.get('dir', '')}/{r} had "
-            "already been replaced on the card too."
+            f" {_sw[0].upper() + _sw[1:]} {upd_job.get('dir', '')}/{r} had "
+            f"already been replaced {_where} too."
             for r in upd_job.get('sib_sent', ()))
         if (_ex and not upd_job.get('staged') and upd_job['ex_i'] < len(_ex)
+                and _ex[upd_job['ex_i']][0] == "sibling"
+                and upd_job.get('ql')):
+            # 9.7.50: died while the other QL job was in flight - the QL
+            # deleted the old copy first, so name it and the way back.
+            print(f'{timestamp()} | *** update failed: the session ended '
+                  "while sending the other QL job "
+                  f'{upd_job["dir"]}/{_ex[upd_job["ex_i"]][-1]} - it may be '
+                  'missing or cut short in HOME. Nothing was swapped - run '
+                  'the update again, or install it from the package with '
+                  f'INSTALL_bas.{_note} ***')
+        elif (_ex and not upd_job.get('staged') and upd_job['ex_i'] < len(_ex)
                 and _ex[upd_job['ex_i']][0] == "sibling"):
             # Died while the other flavor's build was in flight.
             print(f'{timestamp()} | *** update failed: the session ended '
@@ -2634,9 +2833,9 @@ def _listen_session_inner(conn, stats, _test_commands=None):
             # flavor's build landed - say that, not "all 0 files".
             _last = (upd_job.get('sib_sent') or [_ex[-1][-1]])[-1]
             print(f'{timestamp()} | *** update failed: the session ended '
-                  f"after the other flavor's build "
-                  f'{upd_job.get("dir", "")}/{_last} had been replaced on '
-                  'the card, before the build itself was staged. Nothing '
+                  f"after {_sw} "
+                  f'{upd_job.get("dir", "")}/{_last} had been replaced '
+                  f'{_where}, before the build itself was staged. Nothing '
                   'was swapped - run the update again. ***')
         elif upd_job.get('swap'):
             print(f'{timestamp()} | *** update FAILED mid-swap: the Next may '

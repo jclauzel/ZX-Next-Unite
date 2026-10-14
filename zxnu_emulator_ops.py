@@ -2651,10 +2651,15 @@ def build_emulator_ops(
     # "ZXNextRemote", True) command.
     host._resolve_zxnr_update_binary = _resolve_zxnr_update_binary
 
-    def _resolve_qlnr_update_binary():
-        """The QLNextRemote twin: the newest installed QL package's
-        ``qemulator/qlnextremote_exe`` as ``(path, version, "")`` or
-        ``(None, None, reason)``. A ``qlnextremote-X.Y.Z.zip`` dropped into
+    def _resolve_qlnr_update_binary(flavor):
+        """The QLNextRemote twin: the newest installed QL package's job for
+        QL *flavor* — the seat's 'Y' type, "qlnextremote" or (9.7.50, QL
+        Next Transfer) "qlnt"; QLNR_FLAVORS — i.e. ``qemulator/
+        qlnextremote_exe`` or ``qemulator/qlnexttransfer_exe``, as ``(path,
+        version, "")`` or ``(None, None, reason)``. No default flavor: one
+        package holds both jobs, and a caller that forgot to say which
+        would send qlnextremote_exe to a QL Next Transfer machine. A
+        ``qlnextremote-X.Y.Z.zip`` dropped into
         the downloads folder is adopted first (moved under the package files
         folder and extracted), so a package Julien builds by hand is seen
         the moment the session-tab menu opens. LOCAL FILESYSTEM ONLY, like
@@ -2671,11 +2676,12 @@ def build_emulator_ops(
                 "no QLNextRemote package was found on this PC - drop a "
                 "qlnextremote-X.Y.Z.zip into the downloads folder, or turn "
                 "on the Settings tab's QLNextRemote update check")
-        return qlnextremote_package_binary(folder_path)
+        return qlnextremote_package_binary(folder_path, flavor)
 
     # Consumed by the Remote Explorer's QLNextRemote update action, which
     # hands the resolved file to the session's ("update_dot", …,
-    # "qlnextremote_exe", "QLNextRemote", True, extras) command.
+    # "qlnextremote_exe" | "qlnexttransfer_exe", "QLNextRemote", True,
+    # extras) command — the brand is "QLNextRemote" for both QL jobs.
     host._resolve_qlnr_update_binary = _resolve_qlnr_update_binary
 
     # ── CSpect update check (itch.io) ──────────────────────────────────
@@ -3214,11 +3220,15 @@ def build_emulator_ops(
                 "QLNextRemote update ▸ SUCCESS — {name} extracted "
                 "to: {path}").format(name=name, path=extracted))
             # The Remote Explorer caches its "is a newer package installed?"
-            # probe: poke it so a seated QL's top-bar link appears now.
+            # probe: poke it so a seated QL's top-bar link appears now. A
+            # dict per QL flavor since 9.7.50 (QLNextRemote and QL Next
+            # Transfer resolve different jobs of the one package) - cleared
+            # in place, never rebound: a None here made the widget's next
+            # on_ident .clear() raise inside a Qt slot.
             _rew = getattr(host, "_re_widget", None)
             if _rew is not None:
                 try:
-                    _rew._qlnr_resolve_cache = None
+                    _rew._qlnr_resolve_cache.clear()
                     _rew._update_next_path_label()
                 except (RuntimeError, AttributeError):
                     pass

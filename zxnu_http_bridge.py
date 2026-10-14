@@ -171,9 +171,13 @@ CRC_NO_OP_ERROR = (
 # tests/test_remote_listen.py asserts all three agree - discipline alone has
 # not kept this repo's twins honest.
 # zxnt (ZX Next Transfer, the third ZXNR flavor) answers 'K' from its first
-# build, 1.6.0 (9.7.49).
+# build, 1.6.0 (9.7.49). qlnt (QL Next Transfer, QLNextRemote 1.7.0's second
+# job, 9.7.50) shares QLNextRemote's floor: it is the same listener.c, and a
+# floor at its first release would make this bridge answer 501 "peer has no
+# crc op" for every pre-release build - a provably-old verdict that is false.
 BR_CRC_FLOORS = {"sync": (5, 9, 2), "httpbridge": (1, 0, 8), "n2n": (1, 0, 8),
-                 "zxnt": (1, 6, 0), "qlnextremote": (0, 1, 0)}
+                 "zxnt": (1, 6, 0), "qlnextremote": (0, 1, 0),
+                 "qlnt": (0, 1, 0)}
 
 
 def peer_lacks_crc(res):
@@ -472,7 +476,7 @@ class NextSyncHttpBridge:
         "  GET  /free?drive=C               free space on a partition\n"
         "  GET  /version-type               what answers this session: httpbridge |\n"
         "       n2n | zxnt (the three ZX Next Remote flavors) | sync (the\n"
-        "       .sync5 dot)\n"
+        "       .sync5 dot) | qlnextremote | qlnt (the two QL jobs)\n"
         "  GET  /version-number             that responder's own build number\n"
         "  GET  /ls?path=/games             directory listing\n"
         "  GET  /get?path=/games/a.tap      download one file (raw bytes)\n"

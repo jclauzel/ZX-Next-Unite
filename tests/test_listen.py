@@ -662,6 +662,121 @@ def run_update_tests(tmp):
           cap.get('wire') == [('Q', '')] and "add 'force'" in out and done,
           f"{cap.get('wire')} / {out}")
 
+    # 6d. The second QL job, QL Next Transfer (9.7.50): ident "qlnt", job
+    # qlnexttransfer_exe, shipped from QLNextRemote 1.7.0 in the SAME package
+    # as qlnextremote_exe. The console's QL arm takes either ident; each job
+    # is held to its OWN banner (QLNextTransfer / QLNextRemote, by the file's
+    # name - the qlnt job still names its peer "A QLNextRemote Listener"),
+    # and a qlnextremote job may not carry QLNextTransfer; the OTHER job
+    # rides first as a sibling (header + banner + version checked); one the
+    # package lacks refuses only when its version is due it; a job that is
+    # not the one the QL runs refuses unless 'force'.
+    def _qlpkg(ver, jobs=("qlnextremote_exe", "qlnexttransfer_exe"),
+               swap=(), headerless=()):
+        d = os.path.join(tmp, "qlnt", "qlnextremote-" + ver)
+        os.makedirs(os.path.join(d, "qemulator"), exist_ok=True)
+        for job in jobs:
+            qt = (job == "qlnexttransfer_exe") != (job in swap)
+            body = (b"\x60\x00" + bytes(range(256)) * 2
+                    + (b"QLNextTransfer\x00" + ver.encode()
+                       + b"\x00A QLNextRemote Listener\x00"
+                       if qt else b"QLNextRemote\x00" + ver.encode() + b"\x00"))
+            with open(os.path.join(d, "qemulator", job), "wb") as f:
+                f.write((b"" if job in headerless else ql_hdr) + body)
+        with open(os.path.join(d, "README.md"), "wb") as f:
+            f.write(b"# QLNextRemote " + ver.encode() + b"\r\n")
+        with open(os.path.join(d, "deploypak.txt"), "w", encoding="utf-8") as f:
+            f.write("README.md\n")
+        return (d, os.path.join(d, "qemulator", "qlnextremote_exe"),
+                os.path.join(d, "qemulator", "qlnexttransfer_exe"))
+
+    qtb, qrb, qrd = ("W:/HOME/qlnexttransfer_exe", "W:/HOME/qlnextremote_exe",
+                     "W:/HOME/README.md")
+
+    def _tail(b):
+        return [('P', b + ".new"), ('K', b + ".new"), ('U', ''),
+                ('X', b + ".bak"), ('V', b + "\x00" + b + ".bak"),
+                ('V', b + ".new\x00" + b), ('Q', 'X')]
+    _d, q171r, q171t = _qlpkg("1.7.1")
+    with open(q171r, "rb") as f:
+        q171r_b = f.read()
+    cap, out, done = run([("update", q171t, "W:/HOME")], ("qlnt", "1.7.0"))
+    check("updQLNT : a qlnt seat stages qlnexttransfer_exe, the qlnextremote "
+          "job (header and all) first, the README, the swap, marked quit",
+          cap.get('wire') == [('P', qrb), ('K', qrb), ('P', qrd), ('K', qrd)]
+          + _tail(qtb)
+          and cap.get('puts', [])[0] == (qrb, q171r_b)
+          and q171r_b[:18] == b"]!QDOS File Header"
+          and "sending the other QL job " + qrb in out
+          and "restart into the new build" in out and done,
+          f"{cap.get('wire')} / {out}")
+    cap, out, done = run([("update", q171r, "W:/HOME")], ("qlnextremote", "1.7.0"))
+    check("updQLNTr: a QLNextRemote seat sends the qlnt job first",
+          cap.get('wire') == [('P', qtb), ('K', qtb), ('P', qrd), ('K', qrd)]
+          + _tail(qrb) and done,
+          f"{cap.get('wire')} / {out}")
+    # A 1.7.0 package without the qlnt job is a half extract: refused, the
+    # missing job named - 'force' sends what is there and says what is not.
+    _d, q170r, _t = _qlpkg("1.7.0", jobs=("qlnextremote_exe",))
+    cap, out, done = run([("update", q170r, "W:/HOME")], ("qlnextremote", "1.3.6"))
+    check("updQLNTh: a 1.7.0 package missing qlnexttransfer_exe refuses, "
+          "nothing on the wire",
+          cap.get('wire') == [('Q', '')]
+          and "has no qemulator/qlnexttransfer_exe" in out
+          and "add 'force'" in out and done,
+          f"{cap.get('wire')} / {out}")
+    cap, out, done = run([("update_force", q170r, "W:/HOME")],
+                         ("qlnextremote", "1.3.6"))
+    check("updQLNTf: ...'force' updates the one job, saying the other is not",
+          cap.get('wire') == [('P', qrd), ('K', qrd)] + _tail(qrb)
+          and "the other QL job is NOT updated (force)" in out and done,
+          f"{cap.get('wire')} / {out}")
+    # A package from before QL Next Transfer (1.3.6) is whole with one job.
+    _d, q136r, _t = _qlpkg("1.3.6", jobs=("qlnextremote_exe",))
+    cap, out, done = run([("update", q136r, "W:/HOME")], ("qlnextremote", "1.3.5"))
+    check("updQLNTo: a 1.3.6 package without the qlnt job updates "
+          "QLNextRemote, no sibling, no refusal",
+          cap.get('wire') == [('P', qrd), ('K', qrd)] + _tail(qrb)
+          and "NOT updated" not in out and done,
+          f"{cap.get('wire')} / {out}")
+    # The job the QL runs: a qlnt seat sent the qlnextremote job would swap
+    # it in and never start it (each job's relaunch rule knows its own name).
+    cap, out, done = run([("update", q171r, "W:/HOME")], ("qlnt", "1.7.0"))
+    check("updQLNTj: the other job's file on a qlnt seat refuses without "
+          "'force', naming the job it runs",
+          cap.get('wire') == [('Q', '')]
+          and "the QL runs qlnt, whose job is qlnexttransfer_exe" in out
+          and "add 'force'" in out and done,
+          f"{cap.get('wire')} / {out}")
+    cap, out, done = run([("update_force", q171r, "W:/HOME")], ("qlnt", "1.7.0"))
+    check("updQLNTjf: ...'force' pushes it anyway, warning it will not start",
+          cap.get('wire', [('Q', '')])[-1] == ('Q', 'X')
+          and "will not start it on its own" in out and done,
+          f"{cap.get('wire')} / {out}")
+    # A headerless sibling would land a data file over the working job and
+    # still pass the CRC: refused before a byte moves.
+    _d, q172r, q172t = _qlpkg("1.7.2", headerless=("qlnexttransfer_exe",))
+    cap, out, done = run([("update", q172r, "W:/HOME")], ("qlnextremote", "1.7.0"))
+    check("updQLNTs: a headerless sibling refuses, nothing on the wire",
+          cap.get('wire') == [('Q', '')] and q172t in out
+          and "QDOS executable header" in out and done,
+          f"{cap.get('wire')} / {out}")
+    # The per-file banner both ways: a qlnexttransfer_exe holding only the
+    # QLNextRemote banner, and a qlnextremote_exe carrying QLNextTransfer.
+    _d, q173r, q173t = _qlpkg("1.7.3", swap=("qlnexttransfer_exe",))
+    cap, out, done = run([("update", q173t, "W:/HOME")], ("qlnt", "1.7.0"))
+    check("updQLNTb: a qlnexttransfer_exe without its QLNextTransfer banner refuses",
+          cap.get('wire') == [('Q', '')]
+          and "does not look like a QLNextTransfer 1.7.3 build" in out and done,
+          f"{cap.get('wire')} / {out}")
+    _d, q174r, q174t = _qlpkg("1.7.4", swap=("qlnextremote_exe",))
+    cap, out, done = run([("update", q174r, "W:/HOME")], ("qlnextremote", "1.7.0"))
+    check("updQLNTn: a qlnextremote_exe carrying QLNextTransfer refuses, though "
+          "it says QLNextRemote too",
+          cap.get('wire') == [('Q', '')]
+          and "does not look like a QLNextRemote 1.7.4 build" in out and done,
+          f"{cap.get('wire')} / {out}")
+
     # 7. The crc verify (9.7.5). A listener whose cached 'version' answer
     # names a build with the crc op (dot 5.9.2+ / ZXNR 1.0.8+) is asked for
     # the staged file's CRC-32 with 'K' instead of pulling it back with 'G':
@@ -800,6 +915,10 @@ def run_update_tests(tmp):
           and not ns._peer_answers_crc(("httpbridge", "1.0.7"))
           and ns._peer_answers_crc(("qlnextremote", "0.1.0"))
           and not ns._peer_answers_crc(("qlnextremote", "0.0.1"))
+          # 9.7.50: QL Next Transfer at QLNextRemote's floor (one listener.c)
+          and ns._peer_answers_crc(("qlnt", "1.3.6"))
+          and ns._peer_answers_crc(("qlnt", "1.7.0"))
+          and not ns._peer_answers_crc(("qlnt", "0.0.9"))
           and not ns._peer_answers_crc(None)
           and not ns._peer_answers_crc(False)
           and not ns._peer_answers_crc(("weird", "9.9.9"))

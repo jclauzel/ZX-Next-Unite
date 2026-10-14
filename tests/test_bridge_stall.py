@@ -326,6 +326,16 @@ def test_ql_silence_limit_sits_between():
           zxnu_workers.RE_QLNR_IDENT_TYPE == "qlnextremote"
           and "qlnextremote" in zxnu_workers.RE_CRC_FLOORS,
           zxnu_workers.RE_QLNR_IDENT_TYPE)
+    # 9.7.50: ...and QL Next Transfer's "qlnt", the second QL job - the same
+    # Listener on the same QL core, so the same rule. Literal on purpose (not
+    # the zxnu_config tuple it is derived from): a QL flavor added there must
+    # be a QL this rule applies to, and each needs a crc floor.
+    check("silence: the QL gate is exactly QLNextRemote's and QL Next "
+          "Transfer's ident types, each with a crc floor",
+          zxnu_workers.RE_QLNR_IDENT_TYPES == ("qlnextremote", "qlnt")
+          and all(t in zxnu_workers.RE_CRC_FLOORS
+                  for t in zxnu_workers.RE_QLNR_IDENT_TYPES),
+          zxnu_workers.RE_QLNR_IDENT_TYPES)
 
 
 def test_next_silence_limit_sits_between():
@@ -374,9 +384,12 @@ def test_next_silence_limit_sits_between():
     # Literal on purpose (not the tuple): a flavor added to ZXNR_NEX_FLAVORS
     # must be a Next this rule applies to - 9.7.49 added zxnt, ZX Next
     # Transfer, a .nex on the same hardware as the other two.
+    # The QL half element by element (9.7.50): RE_QLNR_IDENT_TYPES is a
+    # tuple, and `tuple not in tuple` is True whatever the contents.
     check("silence: the Next types are the dot's plus the ZXNR flavours",
           set(w.RE_NEXT_IDENT_TYPES) == {"sync", "httpbridge", "n2n", "zxnt"}
-          and w.RE_QLNR_IDENT_TYPE not in w.RE_NEXT_IDENT_TYPES,
+          and all(t not in w.RE_NEXT_IDENT_TYPES
+                  for t in w.RE_QLNR_IDENT_TYPES),
           w.RE_NEXT_IDENT_TYPES)
 
 
