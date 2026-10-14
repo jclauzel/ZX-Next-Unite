@@ -11,6 +11,7 @@ from zxnu_http_bridge import BridgeReply
 import zxnu_workers
 from zxnu_workers import (RemoteExplorerSignals, run_remote_listen_server,
                           re_peer_answers_crc, re_verify_wait)
+import zxnu_config                     # the flavor table + its helpers (9.7.49)
 import nextsync5                       # the console twin, for the parity check
 import zxnu_http_bridge                # the bridge's own copy (9.7.17)
 
@@ -709,14 +710,15 @@ def main():
     # ── pure gates of the verify-after-put (9.7.3) ─────────────────────
     _yes = [('sync', '5.9.2'), ('sync', '5.10.0'), ('sync', '5.9.10'),
             ('httpbridge', '1.0.8'), ('n2n', '1.0.9'), (' SYNC ', '5.9.2'),
-            ('qlnextremote', '0.1.0'), ('qlnextremote', '0.2.0')]
+            ('qlnextremote', '0.1.0'), ('qlnextremote', '0.2.0'),
+            ('zxnt', '1.6.0'), ('zxnt', '1.6.1'), (' ZXNT ', '2.0.0')]
     _no = [('sync', '5.9.1'), ('n2n', '1.0.7'), ('', ''), ('sync', ''),
            ('sync', 'x.y'), ('other', '9.9.9'), (None, None),
-           ('qlnextremote', '0.0.1')]
+           ('qlnextremote', '0.0.1'), ('zxnt', '1.5.9'), ('zxnt', '')]
     if (all(re_peer_answers_crc(*p) for p in _yes)
             and not any(re_peer_answers_crc(*p) for p in _no)):
-        print("PASS vcrc-gate: dot >= 5.9.2 / ZXNR >= 1.0.8 / QLNR >= 0.1.0 "
-              "answer 'K', nothing else")
+        print("PASS vcrc-gate: dot >= 5.9.2 / ZXNR >= 1.0.8 / zxnt >= 1.6.0 / "
+              "QLNR >= 0.1.0 answer 'K', nothing else")
     else:
         print("FAIL vcrc-gate:", [(p, re_peer_answers_crc(*p)) for p in _yes + _no]); ok = False
     if (re_verify_wait(0) == 60.0 and re_verify_wait(1_500_000) == 160.0
@@ -1797,12 +1799,17 @@ def main():
     # A companion whose name IS the build being swapped (the other flavor's
     # canonical name typed as the target): refused before a byte moves —
     # the sibling would otherwise be put, renamed aside and overwritten by
-    # itself, and reported as a success.
+    # itself, and reported as a success. Since 9.7.49 the typed-vs-local
+    # rule meets the TYPED-other-flavor form first (see zxnt-typed-other
+    # below), so this pins the clash check on the plan it alone still
+    # covers: one that lists the staged build itself as a companion (the
+    # local file IS the httpbridge build here, so the banner and the
+    # typed-vs-local rule both pass).
     ops, staged, upd, puts, logs = run_update_scenario(
-        PORT + 71, [("update_dot", zx_file, "c:/apps", "9.9.9",
+        PORT + 71, [("update_dot", sib_file, "c:/apps", "9.9.9",
                      "zxnextremote-httpbridge.nex", "ZXNextRemote", True,
                      [("sibling", sib_file, "zxnextremote-httpbridge.nex")]),
-                    ("quit",)], "ok", zx_blob, ident=zxnr108)
+                    ("quit",)], "ok", sib_blob, ident=zxnr108)
     if (ops == [('Q', "")] and staged == [] and len(upd) == 1 and not upd[0][0]
             and "both a file sent alongside and the build being swapped" in upd[0][1]
             and "c:/apps/zxnextremote-httpbridge.nex" in upd[0][1] and not puts):
@@ -1823,6 +1830,180 @@ def main():
         print("PASS pak-lscheck-osp: mkdir 'F' + listing 'F'+OSP -> fails naming the protection")
     else:
         print("FAIL pak-lscheck-osp: ops=", ops, "upd=", upd); ok = False
+
+    # ── the third flavor: ZX Next Transfer, "zxnt" (9.7.49) ─────────────
+    # ZXNR 1.6.0 adds zxnextremote-zxnt.nex: the n2n binary with a landing
+    # screen, ident "zxnt", title banner "ZXNextTransfer" where the other
+    # two read "ZXNextRemote". The worker's banner check is PER FILE, by
+    # the .nex's canonical name - for the staged blob and for every
+    # ("sibling", …) step - never the job's brand (still "ZXNextRemote",
+    # the toast's title). The trap: the real zxnt binary still carries the
+    # word "ZXNextRemote" in a message, so a brand-wide grep would pass an
+    # n2n build misnamed as the zxnt one. A three-flavor package sends TWO
+    # siblings, in the order the widget lists them (ZXNR_NEX_FLAVORS).
+    zt_blob = (b"Next\x00" + bytes(range(256)) * 5
+               + b"ZXNextTransfer\x00" + b"9.9.9\x00"
+               + b"ZXNextRemote listener with OS protect on")   # the trap
+    zt_file = os.path.join(pak_dir, "zxnextremote-zxnt.nex")
+    open(zt_file, "wb").write(zt_blob)
+    zt = "c:/apps/zxnextremote-zxnt.nex"
+    zt_sib_blob = (b"Next\x00" + bytes(range(256)) * 3
+                   + b"ZXNextTransfer\x00" + b"9.9.9\x00sib")  # no trap word
+    zt_sib_file = os.path.join(pak_dir, "zxnt-sib", "zxnextremote-zxnt.nex")
+    os.makedirs(os.path.dirname(zt_sib_file), exist_ok=True)
+    open(zt_sib_file, "wb").write(zt_sib_blob)
+    zxnt160 = b'Ozxnt' + bytes([0]) + b'1.6.0'
+    # A zxnt 1.6.0 listener updates its own .nex: the ident draws 'K' (the
+    # floor is its first build), the staged blob passes on its own
+    # ZXNextTransfer banner, the quit is the marked one and the verdict
+    # carries the ZXNextRemote brand (one toast title for the product).
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 100, [("update_dot", zt_file, "c:/apps", "9.9.9",
+                      "zxnextremote-zxnt.nex", "ZXNextRemote", True)],
+        "ok", zt_blob, ident=zxnt160)
+    if (ops == [('P', zt + ".new"), ('Y', ""), ('K', zt + ".new"), ('U', ""),
+                ('X', zt + ".bak"), ('V', zt + "\x00" + zt + ".bak"),
+                ('V', zt + ".new\x00" + zt), ('Q', "X")]
+            and staged == [(zt + ".new", zt_blob)]
+            and len(upd) == 1 and upd[0][0] and "soft-reset" in upd[0][1]
+            and upd[0][2] == "ZXNextRemote" and not puts):
+        print("PASS zxnt-update: a zxnt 1.6.0 listener updates its own .nex (crc verify, marked quit)")
+    else:
+        print("FAIL zxnt-update: ops=", ops, "upd=", upd, "puts=", puts); ok = False
+    # A zxnt-NAMED file holding only the ZXNextRemote word (an n2n build
+    # misnamed): refused by the per-file banner, nothing sent - the
+    # message names the banner the FILE should carry.
+    mis_file = os.path.join(pak_dir, "misnamed", "zxnextremote-zxnt.nex")
+    os.makedirs(os.path.dirname(mis_file), exist_ok=True)
+    open(mis_file, "wb").write(zx_blob)          # "ZXNextRemote" + 9.9.9 only
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 101, [("update_dot", mis_file, "c:/apps", "9.9.9",
+                      "zxnextremote-zxnt.nex", "ZXNextRemote", True),
+                     ("quit",)], "ok", zt_blob, ident=zxnt160)
+    if (ops == [('Q', "")] and staged == [] and len(upd) == 1 and not upd[0][0]
+            and "does not look like a ZXNextTransfer 9.9.9 build" in upd[0][1]
+            and mis_file in upd[0][1] and not puts):
+        print("PASS zxnt-banner: a zxnt-named file without the ZXNextTransfer banner refuses")
+    else:
+        print("FAIL zxnt-banner: ops=", ops, "upd=", upd); ok = False
+    # ...and the n2n and httpbridge builds keep THEIR banner: an n2n-named
+    # file holding only ZXNextTransfer is just as wrong. The banner follows
+    # the LOCAL file's name (the bytes being read), never the typed target:
+    # the local file is the n2n-named one here, the target the same name.
+    mis_n2n_file = os.path.join(pak_dir, "misnamed", "zxnextremote-n2n.nex")
+    open(mis_n2n_file, "wb").write(zt_sib_blob)  # "ZXNextTransfer" + 9.9.9 only
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 102, [("update_dot", mis_n2n_file, "c:/apps", "9.9.9",
+                      "zxnextremote-n2n.nex", "ZXNextRemote", True),
+                     ("quit",)], "ok", zt_blob, ident=zxnr108)
+    if (ops == [('Q', "")] and staged == [] and len(upd) == 1 and not upd[0][0]
+            and "does not look like a ZXNextRemote 9.9.9 build" in upd[0][1]
+            and mis_n2n_file in upd[0][1] and not puts):
+        print("PASS zxnt-banner-n2n: an n2n-named file with only the ZXNextTransfer banner refuses")
+    else:
+        print("FAIL zxnt-banner-n2n: ops=", ops, "upd=", upd); ok = False
+    # The typed target may not be ANOTHER flavor's canonical name: the
+    # banner follows the local file, so an n2n build typed as the zxnt
+    # name passes the blob check — and a 1.5.x package (httpbridge + n2n,
+    # no zxnt build) sends no sibling of that name for the clash check
+    # (the widget's or the worker's) to catch. The worker's typed-vs-local
+    # rule refuses, naming the TYPED path and the file that was going to
+    # be sent, under the product brand; nothing moves.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 107, [("update_dot", zx_file, "c:/apps", "9.9.9",
+                      "zxnextremote-zxnt.nex", "ZXNextRemote", True,
+                      [sib_step]),
+                     ("quit",)], "ok", zx_blob, ident=zxnr108)
+    if (ops == [('Q', "")] and staged == [] and len(upd) == 1 and not upd[0][0]
+            and "is the zxnt build's file name" in upd[0][1]
+            and "c:/apps/zxnextremote-zxnt.nex" in upd[0][1]
+            and zx_file in upd[0][1] and upd[0][2] == "ZXNextRemote"
+            and not puts):
+        print("PASS zxnt-typed-other: another flavor's name typed as the target with a 1.5.x package (no such sibling) refuses, nothing sent")
+    else:
+        print("FAIL zxnt-typed-other: ops=", ops, "upd=", upd); ok = False
+    # A three-flavor package updating the n2n build: TWO siblings ride
+    # first, in the order given (httpbridge, then zxnt), each P+K, each
+    # counted in sib_sent, then the manifest, then the swap.
+    zt_step = ("sibling", zt_sib_file, "zxnextremote-zxnt.nex")
+    sib2_cmd = pak_cmd[:7] + ([sib_step, zt_step] + plan,)
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 103, [sib2_cmd], "ok", zx_blob, ident=zxnr108)
+    if (ops == sib_head + [('P', zt), ('K', zt),
+                           ('P', ext["menu"]), ('K', ext["menu"]),
+                           ('M', "c:/apps/data"), ('P', ext["a"]), ('K', ext["a"]),
+                           ('M', "c:/apps/data/sub"), ('P', ext["b"]), ('K', ext["b"])
+                           ] + swap_tail
+            and staged[:2] == [(sib, sib_blob), (zt, zt_sib_blob)]
+            and staged[-1] == (zb + ".new", zx_blob)
+            and len(upd) == 1 and upd[0][0] and not puts
+            and any("sending the other flavor's build " + sib in l for l in logs)
+            and any("sending the other flavor's build " + zt in l for l in logs)):
+        print("PASS zxnt-sibs: two siblings go first, in order (httpbridge, zxnt), then the manifest, then the swap")
+    else:
+        print("FAIL zxnt-sibs: ops=", ops, "upd=", upd, "logs=", logs); ok = False
+    # A refused swap after both landed names BOTH in the verdict.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 104, [pak_cmd[:7] + ([sib_step, zt_step],)], "ren1_refuse",
+        zx_blob, ident=zxnr108)
+    if (len(upd) == 1 and not upd[0][0]
+            and "The other flavor's build " + sib + " had already been replaced on the card too" in upd[0][1]
+            and "The other flavor's build " + zt + " had already been replaced on the card too" in upd[0][1]
+            and not puts):
+        print("PASS zxnt-sibs-note: a refused swap after both siblings landed names both")
+    else:
+        print("FAIL zxnt-sibs-note: upd=", upd); ok = False
+    # The sibling check follows the SIBLING's name, never the staged file's
+    # brand: a zxnt sibling holding only ZXNextRemote refuses (naming
+    # ZXNextTransfer), and an httpbridge sibling holding only
+    # ZXNextTransfer refuses (naming ZXNextRemote) - before a byte moves.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 105, [pak_cmd[:7] + ([("sibling", sib_file, "zxnextremote-zxnt.nex")],),
+                     ("quit",)], "ok", zx_blob, ident=zxnr108)
+    if (ops == [('Q', "")] and staged == [] and len(upd) == 1 and not upd[0][0]
+            and sib_file in upd[0][1]
+            and "does not look like a ZXNextTransfer 9.9.9 build" in upd[0][1]
+            and not puts):
+        print("PASS zxnt-sib-banner: a zxnt sibling without the ZXNextTransfer banner refuses, nothing sent")
+    else:
+        print("FAIL zxnt-sib-banner: ops=", ops, "upd=", upd); ok = False
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 106, [pak_cmd[:7] + ([("sibling", zt_sib_file, "zxnextremote-httpbridge.nex")],),
+                     ("quit",)], "ok", zx_blob, ident=zxnr108)
+    if (ops == [('Q', "")] and staged == [] and len(upd) == 1 and not upd[0][0]
+            and zt_sib_file in upd[0][1]
+            and "does not look like a ZXNextRemote 9.9.9 build" in upd[0][1]
+            and not puts):
+        print("PASS zxnt-sib-banner-hb: an httpbridge sibling with only the ZXNextTransfer banner refuses")
+    else:
+        print("FAIL zxnt-sib-banner-hb: ops=", ops, "upd=", upd); ok = False
+    # The pure twins agree: the flavor list, the first-release table and
+    # the banner / due-flavor helpers answer identically in zxnu_config
+    # (the app) and nextsync5 (the console, which imports no app module).
+    _names = ["zxnextremote-zxnt.nex", "ZXNEXTREMOTE-ZXNT.NEX",
+              "c:/x/zxnextremote-zxnt.nex", "C:\\x\\zxnextremote-zxnt.nex",
+              "zxnextremote-n2n.nex", "zxnextremote-httpbridge.nex",
+              "zxnextremote-zxnt.nex.bak", "mybuild.nex", "", None]
+    _vers = ["1.5.9", "1.6.0", "1.6.1", "0.9.0", "", "beta", "1.6", None]
+    if (zxnu_config.ZXNR_NEX_FLAVORS == ("httpbridge", "n2n", "zxnt")
+            and nextsync5.ZXNR_FLAVORS == zxnu_config.ZXNR_NEX_FLAVORS
+            and nextsync5.ZXNR_FLAVOR_SINCE == zxnu_config.ZXNR_FLAVOR_SINCE
+            and zxnu_config.ZXNR_FLAVOR_SINCE["zxnt"] == (1, 6, 0)
+            and all(zxnu_config.zxnextremote_nex_banner(n)
+                    == nextsync5._zxnr_nex_banner(n) for n in _names)
+            and zxnu_config.zxnextremote_nex_banner("zxnextremote-zxnt.nex") == "ZXNextTransfer"
+            and zxnu_config.zxnextremote_nex_banner("zxnextremote-zxnt.nex.bak") == "ZXNextRemote"
+            and all(zxnu_config.zxnextremote_flavors_due(v)
+                    == nextsync5._zxnr_flavors_due(v) for v in _vers)
+            and zxnu_config.zxnextremote_flavors_due("1.5.9") == ("httpbridge", "n2n")
+            and zxnu_config.zxnextremote_flavors_due("1.6.0") == ("httpbridge", "n2n", "zxnt")
+            and zxnu_config.zxnextremote_flavors_due("") == ("httpbridge", "n2n", "zxnt")):
+        print("PASS zxnt-twins: flavors, first releases, banner and due-flavor helpers agree across the app and the console")
+    else:
+        print("FAIL zxnt-twins:", zxnu_config.ZXNR_NEX_FLAVORS, nextsync5.ZXNR_FLAVORS,
+              [(n, zxnu_config.zxnextremote_nex_banner(n), nextsync5._zxnr_nex_banner(n)) for n in _names],
+              [(v, zxnu_config.zxnextremote_flavors_due(v), nextsync5._zxnr_flavors_due(v)) for v in _vers])
+        ok = False
 
     # A failure AFTER the manifest landed must say so: the extras overwrite
     # in place, so "nothing was swapped" is only true of the build. Here
@@ -2664,6 +2845,15 @@ def main():
     else:
         print("FAIL twin: crc-floor tables have DRIFTED:",
               [(n, t) for n, t in _floors]); ok = False
+    # ...and every ZXNR flavor has a floor in them (9.7.49: zxnt from its
+    # first build, 1.6.0) - a flavor the tuple knows but the table does
+    # not would never be asked 'K' and silently lose the integrity check.
+    if (all(f in t[1] for t in _floors for f in zxnu_config.ZXNR_NEX_FLAVORS)
+            and all(t[1]["zxnt"] == (1, 6, 0) for t in _floors)):
+        print("PASS twin: every ZXNR flavor has a crc floor, zxnt's is 1.6.0")
+    else:
+        print("FAIL twin: a ZXNR flavor lacks a crc floor:",
+              [(n, t) for n, t in _floors]); ok = False
 
     # And the bridge's strict verdict must never contradict the worker's
     # gate: anything the bridge is willing to call PROVABLY old, the worker
@@ -2673,6 +2863,7 @@ def main():
     _idents = [("sync", "5.9.1"), ("sync", "5.9.2"), ("sync", "5.10.0"),
                ("n2n", "1.0.7"), ("n2n", "1.0.8"), ("httpbridge", "1.1.9"),
                ("httpbridge", "1.0.7"), ("weird", "9.9.9"),
+               ("zxnt", "1.5.9"), ("zxnt", "1.6.0"), ("zxnt", "1.6.1"),
                ("sync", "banana"), ("sync", ""), ("", "1.0.8")]
     _bad = [i for i in _idents
             if zxnu_http_bridge.peer_lacks_crc(

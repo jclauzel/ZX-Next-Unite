@@ -24,7 +24,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.48"
+ZX_NEXT_UNITE_VERSION = "9.7.49"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -3122,13 +3122,70 @@ def find_installed_zxnextremote_version(base_dir):
         return (None, None)
 
 
-# The two transports a ZX Next Remote release ships, spelled exactly like the
+# The builds a ZX Next Remote release ships, spelled exactly like the
 # artifact names (zxnextremote-<flavor>.nex) and like the listener's 'Y' ident
 # type — one string has served both since ZXNR 1.0.2. It lives here rather than
 # beside zxnu_remote_explorer's ZXNR_IDENT_TYPES (which is now an alias of it)
 # because this module may not import the widget layer, and the itch.io tab
-# needs the spelling to find a package's builds on disk (9.7.11).
-ZXNR_NEX_FLAVORS = ("httpbridge", "n2n")
+# needs the spelling to find a package's builds on disk (9.7.11). Three since
+# 9.7.49: "zxnt" is ZX Next Transfer (ZXNR 1.6.0) — the n2n binary with a
+# landing screen that is already listening, a third .nex in the package on the
+# same wire, answering the same 'U' and 'K' ops. The order here is the order
+# the remote update sends the OTHER flavors' builds alongside, so a reader
+# that iterates it never needs a flavor name of its own.
+ZXNR_NEX_FLAVORS = ("httpbridge", "n2n", "zxnt")
+
+# The release each flavor FIRST shipped in (9.7.49). A package is complete when
+# it holds every flavor its VERSION is due — so a 1.5.x package (two .nex) is
+# still whole and still updates an n2n or httpbridge machine, while a 1.6.0
+# package without its zxnt build is the half extract it looks like and is
+# refused as one. A version that does not parse is due EVERY flavor: unknown
+# is never "old" (the update refuses an unversioned package anyway,
+# zxnextremote_package_binary). Hand-kept twin: nextsync5.ZXNR_FLAVOR_SINCE.
+ZXNR_FLAVOR_SINCE = {"httpbridge": (0, 8, 0), "n2n": (0, 8, 0),
+                     "zxnt": (1, 6, 0)}
+
+# The title literal each .nex embeds: the remote update greps it as a bare
+# substring of the staged blob and of every sibling's, as the wrong-file check
+# (9.7.49). ZX Next Transfer's title bar reads "ZXNextTransfer <version>"
+# (zxnr.h ZXNR_TITLE under ZXNR_ZXNT), the other two "ZXNextRemote <version>".
+# The trap: the zxnt binary STILL carries the word "ZXNextRemote" in one of
+# its messages, so the brand alone would pass an n2n build misnamed as the
+# zxnt one — only the per-file banner tells them apart. The BRAND the macro
+# carries ("ZXNextRemote", what the toast is titled after) is not this.
+ZXNR_NEX_BANNERS = {"zxnt": "ZXNextTransfer"}
+ZXNR_NEX_BANNER_DEFAULT = "ZXNextRemote"
+
+
+def zxnextremote_nex_banner(nex_name):
+    """The title banner ``zxnextremote-<flavor>.nex`` embeds, by the file's
+    NAME (a path or a bare name, case-blind like the FAT it lands on):
+    ``"ZXNextTransfer"`` for the zxnt build, ``"ZXNextRemote"`` for every
+    other — a name that is no flavor's canonical one included, which keeps
+    the pre-9.7.49 check for a hand-renamed .nex. Hand-kept twin:
+    ``nextsync5._zxnr_nex_banner``."""
+    base = os.path.basename(str(nex_name or "").replace("\\", "/")).lower()
+    for flavor in ZXNR_NEX_FLAVORS:
+        if base == "zxnextremote-{}.nex".format(flavor):
+            return ZXNR_NEX_BANNERS.get(flavor, ZXNR_NEX_BANNER_DEFAULT)
+    return ZXNR_NEX_BANNER_DEFAULT
+
+
+def zxnextremote_flavors_due(version):
+    """The flavors a ZX Next Remote package of *version* must hold to be
+    complete, in :data:`ZXNR_NEX_FLAVORS` order: every flavor whose
+    :data:`ZXNR_FLAVOR_SINCE` release is at or below it. *version* is the
+    bare ``"1.6.0"`` a package folder's name carries
+    (:func:`zxnextremote_name_version`); one that does not parse is due
+    EVERY flavor. Hand-kept twin: ``nextsync5._zxnr_flavors_due``."""
+    try:
+        parsed = tuple(int(p) for p in str(version or "").strip().split("."))
+    except ValueError:
+        parsed = ()
+    if not parsed:
+        return tuple(ZXNR_NEX_FLAVORS)
+    return tuple(f for f in ZXNR_NEX_FLAVORS
+                 if parsed >= ZXNR_FLAVOR_SINCE.get(f, (0, 0, 0)))
 
 
 def zxnextremote_package_flavors(folder):
@@ -3207,8 +3264,9 @@ def zxnextremote_package_binary(folder, flavor):
     same rule that resolver uses, so a chosen package and an automatic one are
     versioned identically — and an unnamed folder is refused rather than sent
     with an empty version, because the remote update's step-0 blob check
-    degrades to a brand-only check without one and both flavors carry the same
-    brand bytes. The reasons stay English (self-update advisories are
+    degrades to a banner-only check without one and the httpbridge and n2n
+    builds carry the same banner bytes (:func:`zxnextremote_nex_banner`). The
+    reasons stay English (self-update advisories are
     documented untranslated); the caller frames them."""
     name = os.path.basename(os.path.normpath(folder)) if folder else ""
     version = zxnextremote_name_version(name)
@@ -3612,8 +3670,9 @@ def zxnextremote_package_plan(folder):
     level recreated on the card. The caller REFUSES on any problem, before a
     byte moves (the remote update's rule for a broken manifest).
 
-    Order: both ``.nex`` builds first (a card whose two flavors disagree on
-    version is a support call), then deploypak.txt's items. A package
+    Order: every ``.nex`` build the package holds first, in
+    :data:`ZXNR_NEX_FLAVORS` order (a card whose flavors disagree on version
+    is a support call), then deploypak.txt's items. A package
     predating the manifest (0.9.x) falls back to its ROOT files,
     non-recursively: it carries a manual and a notices file the newer packages
     list explicitly, and dropping them only for the older build would be a
@@ -3624,7 +3683,8 @@ def zxnextremote_package_plan(folder):
 
     This is NOT the remote self-update's companions plan: that one is built in
     ``RemoteExplorerWidget._update_zxnr_on_session``, leaves out the .nex it
-    stages and leads with the other flavor as a ``("sibling", …)`` step. The
+    stages and leads with the OTHER flavors' builds as ``("sibling", …)``
+    steps (one per flavor the package holds, 9.7.49). The
     two stay apart ON PURPOSE — converging them would give a manifest-less
     package's UPDATE the fallback set above, a wire behaviour change on the one
     path this feature must not touch."""

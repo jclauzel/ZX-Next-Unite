@@ -279,8 +279,9 @@ version-number: 5.8.0
 ```
 One wire query (`Y`, dot v5.8+ / ZX Next Remote 1.0.2+) feeds both
 routes; the answer is cached per seat. `version-type` names WHAT is
-serving the session — `sync` (this dot), `httpbridge` or `n2n` (the two
-ZX Next Remote flavors, spelled like their `.nex` file names) — and
+serving the session — `sync` (this dot), `httpbridge`, `n2n` or `zxnt`
+(the three ZX Next Remote flavors, spelled like their `.nex` file names;
+`zxnt` is ZX Next Transfer, from ZX Next Remote 1.6.0) — and
 `version-number` is that responder's own build. Built for update
 automation: the type names the artifact to fetch, the number says
 whether to. Against an older listener (which ignores the unknown opcode)

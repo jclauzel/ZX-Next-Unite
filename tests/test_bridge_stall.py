@@ -371,8 +371,11 @@ def test_next_silence_limit_sits_between():
           "count must take first)",
           w.RE_KEEPALIVE_IDLE_S + 10 * w.RE_KEEPALIVE_INTERVAL_S
           < w.PEER_SILENCE_LIMIT)
+    # Literal on purpose (not the tuple): a flavor added to ZXNR_NEX_FLAVORS
+    # must be a Next this rule applies to - 9.7.49 added zxnt, ZX Next
+    # Transfer, a .nex on the same hardware as the other two.
     check("silence: the Next types are the dot's plus the ZXNR flavours",
-          set(w.RE_NEXT_IDENT_TYPES) == {"sync", "httpbridge", "n2n"}
+          set(w.RE_NEXT_IDENT_TYPES) == {"sync", "httpbridge", "n2n", "zxnt"}
           and w.RE_QLNR_IDENT_TYPE not in w.RE_NEXT_IDENT_TYPES,
           w.RE_NEXT_IDENT_TYPES)
 

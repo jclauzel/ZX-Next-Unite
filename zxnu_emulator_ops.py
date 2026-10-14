@@ -2606,9 +2606,10 @@ def build_emulator_ops(
     def _resolve_zxnr_update_binary(flavor):
         """Locate the newest installed ZX Next Remote ``.nex`` for *flavor*.
 
-        ``flavor`` is the listener's ident type ('Y' reply — "httpbridge"
-        or "n2n"), spelled exactly like the artifact names since ZXNR
-        1.0.2, so the file to send is ``zxnextremote-<flavor>.nex`` inside
+        ``flavor`` is the listener's ident type ('Y' reply — "httpbridge",
+        "n2n" or, since ZXNR 1.6.0, "zxnt"; ZXNR_NEX_FLAVORS), spelled
+        exactly like the artifact names since ZXNR 1.0.2, so the file to
+        send is ``zxnextremote-<flavor>.nex`` inside
         the newest extracted itch.io folder
         (find_installed_zxnextremote_version); the version is that
         folder's name suffix after "zxnextremote-" (e.g.

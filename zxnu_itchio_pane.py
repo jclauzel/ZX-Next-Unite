@@ -628,16 +628,24 @@ def build_itchio_pane(
                     # Only the plain-copy route asks: the update route's own
                     # confirm already asks for the full path of the .nex on
                     # the Next, and that dialog is translated.
+                    # Name the builds this package actually holds (two for
+                    # a 1.5.x package, three from 1.6.0 — 9.7.49), each
+                    # on the line after the colon: the label does not
+                    # wrap, so the names get a line of their own.
+                    nexes = ", ".join(
+                        "zxnextremote-{}.nex".format(f)
+                        for f in zxnextremote_package_flavors(folder)
+                    ) or "its .nex builds"
                     remote_dir, okd = QInputDialog.getText(
                         host, _ZXNR_DLG,
                         "Folder on the Next to install ZX Next Remote "
                         "{} into.\n"
-                        "Its files land directly in this folder: both .nex "
-                        "builds and every\nfile deploypak.txt lists (menu "
+                        "Its files land directly in this folder: {}\n"
+                        "and every file deploypak.txt lists (menu "
                         "screens, sprite banks, the manual).\n"
                         "Files of the same name already there are "
                         "overwritten.\n\n"
-                        "Folder on the Next:".format(version),
+                        "Folder on the Next:".format(version, nexes),
                         QLineEdit.EchoMode.Normal, default_dir)
                     if not okd:
                         return

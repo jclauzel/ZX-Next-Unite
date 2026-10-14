@@ -836,8 +836,10 @@ with tempfile.TemporaryDirectory() as _td:
 
 # ---- ZX Next Remote: every installed build, the picker's list (9.7.11) ------
 from zxnu_config import (ZXNEXTREMOTE_ITCH_URL,                  # noqa: E402
-                         ZXNR_NEX_FLAVORS,
+                         ZXNR_FLAVOR_SINCE, ZXNR_NEX_FLAVORS,
                          find_installed_zxnextremote_versions,
+                         zxnextremote_flavors_due,
+                         zxnextremote_nex_banner,
                          zxnextremote_package_binary,
                          zxnextremote_package_flavors)
 
@@ -886,8 +888,9 @@ with tempfile.TemporaryDirectory() as _td:
           [r[2] for r in _rows] == ["1.0.10", "1.0.7", "1.0.5", "1.0.5",
                                     "1.0.3", ""],
           str([r[2] for r in _rows]))
-    check("ZXNR versions: row carries the flavors it holds",
-          _rows[0][3] == ("httpbridge", "n2n") and _rows[1][3] == ("n2n",),
+    check("ZXNR versions: row carries the flavors it holds (every one of "
+          "ZXNR_NEX_FLAVORS for a full package - three since 9.7.49)",
+          _rows[0][3] == ZXNR_NEX_FLAVORS and _rows[1][3] == ("n2n",),
           str([r[3] for r in _rows]))
     check("ZXNR versions: the singular finder is NOT narrowed by the plural "
           "one (it still answers on a .nex-less tree), and agrees with it "
@@ -897,8 +900,14 @@ with tempfile.TemporaryDirectory() as _td:
           str(find_installed_zxnextremote_version(_td)[0]))
 
     _both = os.path.join(_files, "zxnextremote-1.0.10")
-    check("ZXNR flavors: both builds, in ZXNR_NEX_FLAVORS order",
-          zxnextremote_package_flavors(_both) == ("httpbridge", "n2n"))
+    check("ZXNR flavors: every build, in ZXNR_NEX_FLAVORS order",
+          zxnextremote_package_flavors(_both) == ZXNR_NEX_FLAVORS
+          and ZXNR_NEX_FLAVORS == ("httpbridge", "n2n", "zxnt"))
+    _two = _mkpkg(_files, "zxnextremote-1.5.9", flavors=("n2n", "httpbridge"))
+    check("ZXNR flavors: a two-flavor (pre-1.6.0) package answers the two, "
+          "still in ZXNR_NEX_FLAVORS order",
+          zxnextremote_package_flavors(_two) == ("httpbridge", "n2n"),
+          str(zxnextremote_package_flavors(_two)))
     check("ZXNR flavors: a folder with no .nex is not a package",
           zxnextremote_package_flavors(
               os.path.join(_files, "zxnextremote-1.0.9-partial")) == ())
@@ -920,6 +929,39 @@ with tempfile.TemporaryDirectory() as _td:
     check("ZXNR flavors: the name compare is case-insensitive (FAT)",
           zxnextremote_package_flavors(_case) == ("n2n",),
           str(zxnextremote_package_flavors(_case)))
+
+    # 9.7.49: the third flavor's two pure helpers. Which flavors a package
+    # of a given version must hold (zxnt only from 1.6.0; an unparseable
+    # version is due every flavor - unknown is never "old"), and the title
+    # banner each .nex embeds (ZXNextTransfer for the zxnt build, by its
+    # canonical NAME, case-blind, path or bare; ZXNextRemote for anything
+    # else, a .bak or a hand-renamed file included).
+    check("ZXNR since: zxnt first shipped in 1.6.0, the other two long before",
+          ZXNR_FLAVOR_SINCE == {"httpbridge": (0, 8, 0), "n2n": (0, 8, 0),
+                                "zxnt": (1, 6, 0)}, str(ZXNR_FLAVOR_SINCE))
+    check("ZXNR due: a 1.5.x package is due two flavors, 1.6.0+ all three, "
+          "an unreadable version all three",
+          zxnextremote_flavors_due("1.5.9") == ("httpbridge", "n2n")
+          and zxnextremote_flavors_due("1.6.0") == ("httpbridge", "n2n", "zxnt")
+          and zxnextremote_flavors_due("2.0.0") == ("httpbridge", "n2n", "zxnt")
+          and zxnextremote_flavors_due("") == ("httpbridge", "n2n", "zxnt")
+          and zxnextremote_flavors_due("beta") == ("httpbridge", "n2n", "zxnt")
+          and zxnextremote_flavors_due(None) == ("httpbridge", "n2n", "zxnt"),
+          str([zxnextremote_flavors_due(v)
+               for v in ("1.5.9", "1.6.0", "2.0.0", "", "beta", None)]))
+    check("ZXNR banner: ZXNextTransfer for zxnextremote-zxnt.nex (any case, "
+          "any path), ZXNextRemote for every other name",
+          zxnextremote_nex_banner("zxnextremote-zxnt.nex") == "ZXNextTransfer"
+          and zxnextremote_nex_banner("ZXNEXTREMOTE-ZXNT.NEX") == "ZXNextTransfer"
+          and zxnextremote_nex_banner("C:\\pkg\\zxnextremote-zxnt.nex") == "ZXNextTransfer"
+          and zxnextremote_nex_banner("/pkg/zxnextremote-zxnt.nex") == "ZXNextTransfer"
+          and zxnextremote_nex_banner("zxnextremote-n2n.nex") == "ZXNextRemote"
+          and zxnextremote_nex_banner("zxnextremote-httpbridge.nex") == "ZXNextRemote"
+          and zxnextremote_nex_banner("zxnextremote-zxnt.nex.bak") == "ZXNextRemote"
+          and zxnextremote_nex_banner("mybuild.nex") == "ZXNextRemote"
+          and zxnextremote_nex_banner("") == "ZXNextRemote",
+          str([zxnextremote_nex_banner(n) for n in
+               ("zxnextremote-zxnt.nex", "zxnextremote-zxnt.nex.bak", "")]))
 
     _p, _v, _r = zxnextremote_package_binary(_both, "n2n")
     check("ZXNR binary: resolves the flavor's .nex and the folder's version",

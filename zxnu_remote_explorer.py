@@ -52,7 +52,8 @@ from zxnu_config import (
     ZXNR_NEX_FLAVORS, QLNR_EXE_NAME, deploypak_counts, hex_to_qcolor,
     normalize_history_folder,
     open_path_with_system_shell, qcolor_to_hex, read_deploypak,
-    readable_text_color, zxnextremote_package_binary,
+    readable_text_color, zxnextremote_flavors_due,
+    zxnextremote_package_binary,
 )
 from zxnu_pathhistorycombo import FolderHistoryCombo
 from zxnu_workers import (
@@ -148,9 +149,10 @@ def _parse_dot_version(s):
 
 # ZX Next Remote listener ident types (the 'Y' reply), spelled exactly like
 # the artifact names — zxnextremote-<type>.nex, the 1.0.2 changelog's own
-# spelling rule — and the version floor for the self-update: the swap runs
-# through the far side's 'U' release op, which ZXNR grew in 1.0.3 (older
-# builds answer 'U' with silence).
+# spelling rule; three since 9.7.49 (zxnt, ZX Next Transfer) — and the
+# version floor for the self-update: the swap runs through the far side's
+# 'U' release op, which ZXNR grew in 1.0.3 (older builds answer 'U' with
+# silence; the zxnt build, first shipped in 1.6.0, has always had it).
 ZXNR_IDENT_TYPES = ZXNR_NEX_FLAVORS
 ZXNR_SELF_UPDATE_FLOOR = (1, 0, 3)
 # Where a .sync5 dot lives on every Next: NextZXOS's dot-command folder,
@@ -1303,7 +1305,7 @@ class RemoteExplorerWidget(QWidget):
         self._sync5_resolve_signals = None
         # host closure: (flavor) -> (path, version, "") or (None, None,
         # reason) — the newest installed ZX Next Remote .nex for a
-        # "httpbridge"/"n2n" ident (zxnu_emulator_ops'
+        # "httpbridge"/"n2n"/"zxnt" ident (zxnu_emulator_ops'
         # _resolve_zxnr_update_binary). LOCAL FILESYSTEM ONLY, so unlike
         # the dot's resolver it may run on the UI thread — but its answer
         # is still CACHED per flavor (_zxnr_resolve): the top-bar label
@@ -1415,7 +1417,7 @@ class RemoteExplorerWidget(QWidget):
         # crash a dotN), so the pane shows "free" alone, never a percentage.
         self._free_space = {}
         # The far responder's identity from the 'Y' version query -
-        # ("httpbridge", "1.0.2"), ("n2n", ...), ("sync", ...) - or
+        # ("httpbridge", "1.0.2"), ("n2n", ...), ("zxnt", ...), ("sync", ...) - or
         # ("", "") while unknown / when the far build predates it.
         self._next_ident = ("", "")
         # Per-SESSION ident: sid -> (type, number), filed by on_ident under
@@ -3203,8 +3205,9 @@ class RemoteExplorerWidget(QWidget):
         # DISABLED "switch first" entry instead: its version is simply
         # not known yet, and a modern far side must not be offered a push
         # it does not need; switching moves the baton, which re-asks (see
-        # on_connected). A ZX Next Remote listener ("httpbridge"/"n2n")
-        # follows the same shapes since the macro was generalized: a 1.0.3+
+        # on_connected). A ZX Next Remote listener (ZXNR_IDENT_TYPES:
+        # "httpbridge"/"n2n"/"zxnt") follows the same shapes since the
+        # macro was generalized: a 1.0.3+
         # ident with a NEWER build installed under downloads/itchio gets
         # the confident entry, a pre-1.0.3 ident a disabled "predates
         # self-update" one (its 'U' release op is missing), and no
@@ -3570,37 +3573,49 @@ class RemoteExplorerWidget(QWidget):
                           "send: {reason}").format(reason=reason))
             return False
         base_default = f"zxnextremote-{flavor}.nex"
-        # The OTHER flavor's build (9.7.7): a ZXNR package ships both
-        # transports, and a card whose two .nex disagree on version is a
-        # support call — so the sibling goes alongside, FIRST, into the
-        # same folder under its own canonical name, crc-checked like every
-        # companion. A package without it is incomplete: refuse, like a
-        # broken manifest (the reason stays English like the resolver's).
-        other = "n2n" if flavor == "httpbridge" else "httpbridge"
-        sib_name = f"zxnextremote-{other}.nex"
-        sib_path = os.path.join(os.path.dirname(path), sib_name)
-        if not os.path.isfile(sib_path):
-            QMessageBox.warning(
-                self, ui_tr_now("ZX Next Remote update"),
-                ui_tr_now("Could not obtain the ZX Next Remote build to "
-                          "send: {reason}").format(
-                              reason=f"the package has no {sib_name} to send "
-                                     "alongside (both flavors are kept in "
-                                     "step) — re-fetch it via the Settings "
-                                     "tab's ZX Next Remote update check or "
-                                     "the itch.io tab"))
-            return False
+        # The OTHER flavors' builds (9.7.7; three flavors since 9.7.49): a
+        # ZXNR package ships every transport, and a card whose .nex files
+        # disagree on version is a support call — so each sibling goes
+        # alongside, FIRST, into the same folder under its own canonical
+        # name, in ZXNR_NEX_FLAVORS order, crc-checked like every
+        # companion. A sibling the package lacks makes it incomplete ONLY
+        # when the package's version is due that flavor
+        # (zxnextremote_flavors_due): a 1.5.x package has no zxnt build and
+        # is whole without it, a 1.6.0 one without it is a half extract —
+        # refuse, like a broken manifest (the reason stays English like the
+        # resolver's). The worker checks each sibling's own banner.
+        sibs = []                  # [(flavor, local path, canonical name)]
+        due = zxnextremote_flavors_due(version)
+        for other in ZXNR_NEX_FLAVORS:
+            if other == flavor:
+                continue
+            sib_name = f"zxnextremote-{other}.nex"
+            sib_path = os.path.join(os.path.dirname(path), sib_name)
+            if os.path.isfile(sib_path):
+                sibs.append((other, sib_path, sib_name))
+            elif other in due:
+                QMessageBox.warning(
+                    self, ui_tr_now("ZX Next Remote update"),
+                    ui_tr_now("Could not obtain the ZX Next Remote build to "
+                              "send: {reason}").format(
+                                  reason=f"the package has no {sib_name} to "
+                                         "send alongside (every flavor a "
+                                         "release ships is kept in step) — "
+                                         "re-fetch it via the Settings tab's "
+                                         "ZX Next Remote update check or the "
+                                         "itch.io tab"))
+                return False
         # deploypak.txt (9.7.6): the package's extra files (.nxi menus,
         # .spr banks, whole folders), sent to the .nex's folder on the Next
         # BEFORE the build is staged — the swap ends the session. A broken
         # manifest refuses here, before a byte moves (the macro's rule for
-        # a wrong blob); the reason stays English like the resolver's. The
-        # sibling is a skip name: listing it in the manifest sends nothing
-        # twice.
+        # a wrong blob); the reason stays English like the resolver's. Every
+        # flavor's canonical name is a skip name: the siblings already ride
+        # first, so listing one in the manifest sends nothing twice.
         extras, problems = read_deploypak(
             os.path.dirname(path),
-            (base_default, base_default + ".new", base_default + ".bak",
-             sib_name))
+            (base_default, base_default + ".new", base_default + ".bak")
+            + tuple(f"zxnextremote-{f}.nex" for f in ZXNR_NEX_FLAVORS))
         if problems:
             QMessageBox.warning(
                 self, ui_tr_now("ZX Next Remote update"),
@@ -3610,13 +3625,13 @@ class RemoteExplorerWidget(QWidget):
                                      + "; ".join(problems)))
             return False
         n_files, n_dirs = deploypak_counts(extras)
-        extras = [("sibling", sib_path, sib_name)] + extras
+        extras = [("sibling", p, n) for _f, p, n in sibs] + extras
         # The remembered path is ONE global string; pre-filling it for a
-        # session of the OTHER flavor would swap the right build over the
-        # WRONG file (both flavors embed the same brand+version bytes, so
-        # the staged-blob verify cannot catch it). A remembered path only
-        # survives as the default when its file name matches this
-        # session's flavor.
+        # session of ANOTHER flavor would swap the right build over the
+        # WRONG file (the httpbridge and n2n builds embed the same
+        # banner+version bytes, so the staged-blob verify cannot catch it).
+        # A remembered path only survives as the default when its file
+        # name matches this session's flavor.
         remembered = (self._zxnr_update_path or "").replace("\\", "/")
         if remembered.rpartition("/")[2] != base_default:
             remembered = ""
@@ -3636,17 +3651,19 @@ class RemoteExplorerWidget(QWidget):
                 file=base_default)
         # Their own paragraph(s), slotted in before the closing prompt line
         # (every catalog keeps that final "\n\n" paragraph): the sibling
-        # build that goes alongside, then what the manifest adds — AND the
-        # consequence: companions overwrite in place, so the .bak revert
-        # promised above does not cover them.
+        # builds that go alongside (one paragraph naming them all, 9.7.49),
+        # then what the manifest adds — AND the consequence: companions
+        # overwrite in place, so the .bak revert promised above does not
+        # cover them.
         head, _sep, tail = body.rpartition("\n\n")
         paras = [ui_tr_now(
-            "The package's {other} build ({file}) is sent into the same "
-            "folder FIRST, checked against the CRC-32 the Next computes and "
-            "re-sent up to {retries} times, so both flavors on the card stay "
-            "in step — written in place, so the .bak revert does not cover "
-            "it.").format(other=other, file=sib_name,
-                          retries=RE_UPD_EXTRA_RETRIES)]
+            "The package's other build(s) — {files} — are sent into the "
+            "same folder FIRST, each checked against the CRC-32 the Next "
+            "computes and re-sent up to {retries} times, so every flavor on "
+            "the card stays in step — written in place, so the .bak revert "
+            "does not cover them.").format(
+                files=", ".join(f"{f} ({n})" for f, _p, n in sibs),
+                retries=RE_UPD_EXTRA_RETRIES)]
         if n_files or n_dirs:
             paras.append(ui_tr_now(
                 "Its deploypak.txt lists {files} file(s) and {folders} "
@@ -3719,9 +3736,11 @@ class RemoteExplorerWidget(QWidget):
             return False
         self._zxnr_update_path = target
         self._on_zxnr_update_path_changed(target)
-        self._log(ui_tr_now(
-            "ZX Next Remote update: the {other} build {file} goes alongside "
-            "into {dir} first.").format(other=other, file=sib_name, dir=rdir))
+        for other, _p, sib_name in sibs:
+            self._log(ui_tr_now(
+                "ZX Next Remote update: the {other} build {file} goes "
+                "alongside into {dir} first.").format(
+                    other=other, file=sib_name, dir=rdir))
         if n_files or n_dirs:
             self._log(ui_tr_now(
                 "ZX Next Remote update: deploypak.txt lists {files} file(s) "
@@ -3729,9 +3748,11 @@ class RemoteExplorerWidget(QWidget):
                     files=n_files, folders=n_dirs, dir=rdir,
                     items=", ".join(s[-1] for s in extras
                                     if s[0] != "sibling")))
-        # cmd[7]: the companions plan — the sibling build, then the
+        # cmd[7]: the companions plan — the sibling builds, then the
         # manifest's steps (9.7.6 sent the 7-tuple when there was no
-        # manifest; since 9.7.7 a ZXNR update always has a companion).
+        # manifest; since 9.7.7 a ZXNR update always has a companion: the
+        # httpbridge and n2n builds are due from 0.8.0, so at least one of
+        # them is always a sibling).
         cmd = ("update_dot", path, rdir, version, base,
                "ZXNextRemote", True, extras)
         if self._enqueue_to_raw is None:
@@ -4197,7 +4218,7 @@ class RemoteExplorerWidget(QWidget):
 
     def _zxnr_update_offer(self):
         """``(flavor, old, new)`` when this PC can update the DRIVEN ZX Next
-        Remote listener: a ZXNR build ("httpbridge"/"n2n") that reported
+        Remote listener: a ZXNR build (ZXNR_IDENT_TYPES) that reported
         1.0.3+ (the 'U' release-op floor) and the newest installed itch.io
         build parses NEWER; None otherwise. Reads the CACHED resolver
         answer (refreshed on ident arrival and whenever a session-tab menu

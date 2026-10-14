@@ -1237,12 +1237,15 @@ def build_nextsync_pane(
         """Ask which installed ZX Next Remote build to send.
 
         *flavor* non-empty means the Next on the line is RUNNING ZX Next
-        Remote and the send will be its self-update: only packages holding
-        BOTH transports are offered (a card whose two .nex disagree on version
-        is a support call — the 9.7.7 rule the macro enforces anyway), and a
-        pick that is not newer than *running_version* asks for confirmation
-        first. An empty *flavor* is a plain copy to some other listener, where
-        neither applies.
+        Remote and the send will be its self-update: only COMPLETE packages
+        are offered — one holding the running flavor's .nex plus every
+        flavor its version is due (zxnextremote_flavors_due: httpbridge and
+        n2n always, zxnt from 1.6.0; a card whose .nex files disagree on
+        version is a support call — the 9.7.7 rule the macro enforces
+        anyway, three flavors since 9.7.49), and a pick that is not newer
+        than *running_version* asks for confirmation first. An empty
+        *flavor* is a plain copy to some other listener, where neither
+        applies.
 
         Returns ``(folder, version)``, or ``("", "")`` when the user cancels
         or nothing suitable is installed (having said so). The newest build is
@@ -1250,13 +1253,20 @@ def build_nextsync_pane(
         itch.io tab's other two pickers."""
         rows = find_installed_zxnextremote_versions(ZXNU_DATA_ROOT)
         if flavor:
-            rows = [r for r in rows if len(r[3]) == len(ZXNR_NEX_FLAVORS)]
+            # r[2] is the folder's bare version ("" when unreadable, which
+            # is due EVERY flavor — unknown is never "old"), r[3] the
+            # flavors it holds.
+            rows = [r for r in rows
+                    if flavor in r[3]
+                    and all(f in r[3] for f in zxnextremote_flavors_due(r[2]))]
         if not rows:
             QMessageBox.warning(
                 host, _RE_ZXNR_DLG,
                 "No complete ZX Next Remote package is installed on this PC "
-                "— an update needs one holding both the httpbridge and the "
-                "n2n .nex. Fetch one from the itch.io tab first."
+                "— an update needs one holding the .nex this Next runs ("
+                + flavor + ") and every flavor its release ships: httpbridge "
+                "and n2n always, zxnt from 1.6.0. Fetch one from the itch.io "
+                "tab first."
                 if flavor else
                 "No ZX Next Remote build is installed on this PC yet — "
                 "install it from the itch.io tab first.")
@@ -1290,7 +1300,7 @@ def build_nextsync_pane(
                     "the Next.\n\n"
                     "Sending it is a downgrade: the running build is renamed "
                     "aside as a .bak and this older one takes its place, "
-                    "together with the other transport's build and the files "
+                    "together with the package's other builds and the files "
                     "its deploypak.txt lists.\n\n"
                     "Send {} anyway?".format(version, running_version,
                                              version))
@@ -2143,7 +2153,7 @@ def build_nextsync_pane(
                               expect=""):
         """Send ONE chosen ZX Next Remote package folder to the Next on the
         line (9.7.11): through the self-update macro when the Next is RUNNING
-        ZX Next Remote — the other flavor's build and deploypak.txt's files
+        ZX Next Remote — the other flavors' builds and deploypak.txt's files
         first, then stage/verify/swap and the marked quit that soft-resets it
         — otherwise as a plain FLAT send into *remote_dir*.
 
@@ -2156,7 +2166,7 @@ def build_nextsync_pane(
         flat send would arrive with no destination (the caller only prompts
         for one on the flat route) and drop the whole package in the drive
         root; a flat send that became an upgrade would swap the .nex a Next is
-        running, having skipped the both-flavors filter and the downgrade
+        running, having skipped the complete-package filter and the downgrade
         confirmation that only the upgrade picker applies.
 
         Returns ``(ok, message)``; *message* is an English reason the caller

@@ -88,10 +88,12 @@ emulator launch buttons below:
   **first**, each checked against the Next's CRC-32 and re-sent up to
   three times, before the build itself is swapped — they are written in
   place, so the `.bak` revert does not cover them. The package's **other
-  flavour** (`n2n` ⇄ `httpbridge`) travels the same way ahead of the
-  swap, so both `.nex` files on the card stay in step (a package missing
-  the other flavour is refused; the console's `force` pushes the one build
-  without it). Driven from the Remote
+  flavours** (`httpbridge`, `n2n` and, from ZX Next Remote 1.6.0, `zxnt`
+  — ZX Next Transfer, the n2n build with a landing screen that is already
+  listening) travel the same way ahead of the swap, so every `.nex` on the
+  card stays in step (a package missing a flavour its release ships is
+  refused — a 1.5.x package is whole with two; the console's `force` pushes
+  what is there). Driven from the Remote
   Explorer (an "Update to x.y.z" link appears when the connected build is
   older), from the itch.io tab's **Send via NextSync** on the ZX Next
   Remote item, or from the `nextsync5` console. Both in-app doors now open

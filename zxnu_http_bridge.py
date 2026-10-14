@@ -170,8 +170,10 @@ CRC_NO_OP_ERROR = (
 # app module on purpose, because nextsync5.py hosts the bridge standalone.
 # tests/test_remote_listen.py asserts all three agree - discipline alone has
 # not kept this repo's twins honest.
+# zxnt (ZX Next Transfer, the third ZXNR flavor) answers 'K' from its first
+# build, 1.6.0 (9.7.49).
 BR_CRC_FLOORS = {"sync": (5, 9, 2), "httpbridge": (1, 0, 8), "n2n": (1, 0, 8),
-                 "qlnextremote": (0, 1, 0)}
+                 "zxnt": (1, 6, 0), "qlnextremote": (0, 1, 0)}
 
 
 def peer_lacks_crc(res):
@@ -469,7 +471,8 @@ class NextSyncHttpBridge:
         "  GET  /drives                     mounted drive letters\n"
         "  GET  /free?drive=C               free space on a partition\n"
         "  GET  /version-type               what answers this session: httpbridge |\n"
-        "       n2n (ZX Next Remote flavors) | sync (the .sync5 dot)\n"
+        "       n2n | zxnt (the three ZX Next Remote flavors) | sync (the\n"
+        "       .sync5 dot)\n"
         "  GET  /version-number             that responder's own build number\n"
         "  GET  /ls?path=/games             directory listing\n"
         "  GET  /get?path=/games/a.tap      download one file (raw bytes)\n"
