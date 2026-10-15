@@ -93,7 +93,14 @@ emulator launch buttons below:
   listening) travel the same way ahead of the swap, so every `.nex` on the
   card stays in step (a package missing a flavour its release ships is
   refused — a 1.5.x package is whole with two; the console's `force` pushes
-  what is there). Driven from the Remote
+  what is there). A Sinclair QL running QLNextRemote (0.5.0+) is updated the
+  same way, its job swapped in HOME and restarted; from QLNextRemote 1.7.0
+  the package holds a second job, **QL Next Transfer**
+  (`qlnexttransfer_exe`, ident `qlnt`, the QL twin of ZX Next Transfer),
+  and whichever job the QL runs, the other one is sent into the same folder
+  first so both stay in step — header-checked, since a headerless copy would
+  replace a working job with a data file (ZX-Next-Unite 9.7.50 or later; an
+  older one never offers a QL Next Transfer machine an update). Driven from the Remote
   Explorer (an "Update to x.y.z" link appears when the connected build is
   older), from the itch.io tab's **Send via NextSync** on the ZX Next
   Remote item, or from the `nextsync5` console. Both in-app doors now open

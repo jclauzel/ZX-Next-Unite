@@ -24,7 +24,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.49"
+ZX_NEXT_UNITE_VERSION = "9.7.50"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -3287,7 +3287,9 @@ def zxnextremote_package_binary(folder, flavor):
 # A QLNextRemote release is one zip, qlnextremote-X.Y.Z.zip, extracted (like
 # a ZXNR build) into downloads/itchio/jclauzel/qlnextremote/files/
 # qlnextremote-X.Y.Z/. The file the remote update pushes is the package's
-# qemulator/qlnextremote_exe: the form that starts with the 30-byte
+# qemulator/qlnextremote_exe (and, from 1.7.0, qemulator/qlnexttransfer_exe
+# for a QL Next Transfer seat — QLNR_FLAVOR_JOBS below; the other job rides
+# alongside as a sibling): the form that starts with the 30-byte
 # "]!QDOS File Header" (type 1 and the dataspace travel in the bytes, and the
 # QL job sets them on its own file header when it receives the put). The
 # version comes from the package folder's name, as for ZXNextRemote. The
@@ -3301,6 +3303,107 @@ QLNR_EXE_RELPATH = os.path.join("qemulator", QLNR_EXE_NAME)
 # dataspace (big-endian) and 4 reserved bytes.
 QLNR_QDOS_HEADER_MAGIC = b"]!QDOS File Header"
 QLNR_QDOS_HEADER_LEN = 30
+
+# The QL jobs a QLNextRemote release ships, by their Listener's 'Y' ident type
+# (9.7.50). Two since QLNextRemote 1.7.0: "qlnt" is QL Next Transfer — the same
+# job with the Home menu replaced by a landing screen that is already
+# listening (ZX Next Transfer's QL twin), shipped in the SAME
+# qlnextremote-X.Y.Z package as a second job, qemulator/qlnexttransfer_exe.
+# The order is the order the remote update sends the OTHER job alongside, so a
+# reader that iterates it never needs a flavor name of its own.
+# zxnu_workers.RE_QLNR_IDENT_TYPES is derived from it (the QL rules: the short
+# silence limit, Disconnect's drop, the exit purge); hand-kept twin:
+# nextsync5.QLNR_FLAVORS.
+QLNR_FLAVORS = ("qlnextremote", "qlnt")
+# Each flavor's JOB file name — inside the package's qemulator/ folder and in
+# the QL's HOME alike. NEVER format a job name from the ident: unlike ZXNR's
+# zxnextremote-<flavor>.nex the ident is not the file stem ("qlnt" ->
+# qlnexttransfer_exe). The two names are suffix-disjoint (neither ends with
+# the other), which is what lets the QL Listener's relaunch rule (listener.c
+# do_rename, a case-blind suffix test on its OWN job's name) and the gates
+# below match by suffix without ever confusing the two jobs.
+QLNR_FLAVOR_JOBS = {"qlnextremote": QLNR_EXE_NAME,
+                    "qlnt": "qlnexttransfer_exe"}
+# The release each job FIRST shipped in: a package is complete when it holds
+# every job its VERSION is due — so a 1.3.x package (one job) still updates a
+# QLNextRemote machine, while a 1.7.0 package without qlnexttransfer_exe is
+# the half extract it looks like and is refused as one. 1.7.0 is the shared
+# build number QLNextRemote jumped to for this release (from 1.3.6). A version
+# that does not parse is due EVERY job: unknown is never "old". Hand-kept
+# twin: nextsync5.QLNR_FLAVOR_SINCE.
+QLNR_FLAVOR_SINCE = {"qlnextremote": (0, 0, 0), "qlnt": (1, 7, 0)}
+# The per-job BANNER the wrong-file check greps (9.7.50, the 9.7.49 ZXNR rule
+# for the QL): QL Next Transfer's title reads "QLNextTransfer <version>"
+# (version.h QLNR_BRAND under QLNR_QLNT), and its _prog_name is the
+# NUL-delimited "QLNextTransfer". The trap: the qlnt job STILL carries the
+# word "QLNextRemote" — "A QLNextRemote Listener ..." names the PEER product
+# on its Controller screen — so the brand alone would pass a qlnextremote
+# build misnamed as the qlnt one. The BRAND the macro carries for both jobs
+# stays "QLNextRemote" (the toast's title and the nine QL gates of the
+# worker); only this banner differs.
+QLNR_EXE_BANNERS = {"qlnt": "QLNextTransfer"}
+QLNR_EXE_BANNER_DEFAULT = "QLNextRemote"
+
+
+def qlnr_job_flavor(name):
+    """The QL flavor whose JOB a file or wire *name* is, by a case-blind
+    SUFFIX test — the QL Listener's own relaunch rule (listener.c do_rename:
+    ``ci_suffix(to, QLNR_JOB)``), so "W:/HOME/qlnexttransfer_exe", its QDOS
+    form "win1_HOME_qlnexttransfer_exe" and a package's
+    ``…\\qemulator\\qlnexttransfer_exe`` all answer ``"qlnt"``. ``""`` for a
+    name that is no job's (a ``.bak``/``.new``, a hand-renamed file). The
+    suffixes are disjoint, so at most one flavor matches. Hand-kept twin:
+    ``nextsync5._qlnr_job_flavor``."""
+    s = str(name or "").strip().lower()
+    for flavor in QLNR_FLAVORS:
+        if s.endswith(QLNR_FLAVOR_JOBS[flavor]):
+            return flavor
+    return ""
+
+
+def qlnextremote_exe_banner(name):
+    """The banner a QL job of this *name* embeds (9.7.50):
+    ``"QLNextTransfer"`` for ``…qlnexttransfer_exe``, ``"QLNextRemote"`` for
+    every other name — a non-job name included, which keeps the pre-9.7.50
+    check for a hand-renamed file. Keyed on the NAME, like
+    :func:`zxnextremote_nex_banner`. Hand-kept twin:
+    ``nextsync5._qlnr_exe_banner``."""
+    return QLNR_EXE_BANNERS.get(qlnr_job_flavor(name), QLNR_EXE_BANNER_DEFAULT)
+
+
+def qlnextremote_exe_foreign_banner(name, blob):
+    """The OTHER job's banner a QL job of this *name* must not carry, when
+    *blob* carries it; ``""`` when it is clean (9.7.50). Only the distinct
+    banners count (:data:`QLNR_EXE_BANNERS`), never the default
+    "QLNextRemote": every job names the PEER product with that word, so its
+    presence proves nothing. What it closes is the residual 9.7.49 left open
+    for ZXNR: a qlnt build misnamed qlnextremote_exe contains "QLNextRemote"
+    and would pass the banner check alone. Hand-kept twin:
+    ``nextsync5._qlnr_exe_foreign_banner``."""
+    own = qlnextremote_exe_banner(name)
+    data = blob or b""
+    for banner in QLNR_EXE_BANNERS.values():
+        if banner != own and banner.encode() in data:
+            return banner
+    return ""
+
+
+def qlnextremote_flavors_due(version):
+    """The QL jobs a QLNextRemote package of *version* must hold to be
+    complete, in :data:`QLNR_FLAVORS` order: every flavor whose
+    :data:`QLNR_FLAVOR_SINCE` release is at or below it. *version* is the bare
+    ``"1.7.0"`` a package folder's name carries
+    (:func:`qlnextremote_name_version`); one that does not parse is due EVERY
+    job. The ZXNR rule (:func:`zxnextremote_flavors_due`), twinned. Hand-kept
+    twin: ``nextsync5._qlnr_flavors_due``."""
+    try:
+        parsed = tuple(int(p) for p in str(version or "").strip().split("."))
+    except ValueError:
+        parsed = ()
+    if not parsed:
+        return tuple(QLNR_FLAVORS)
+    return tuple(f for f in QLNR_FLAVORS
+                 if parsed >= QLNR_FLAVOR_SINCE.get(f, (0, 0, 0)))
 
 
 def qlnextremote_name_version(name):
@@ -3412,24 +3515,43 @@ def find_installed_qlnextremote_version(base_dir):
         return (None, None)
 
 
-def qlnextremote_package_binary(folder):
-    """The ``qemulator/qlnextremote_exe`` inside ONE package folder, as
+def qlnextremote_package_binary(folder, flavor):
+    """The ``qemulator/<job>`` of QL *flavor* (a :data:`QLNR_FLAVORS` ident:
+    ``qlnextremote_exe`` for "qlnextremote", ``qlnexttransfer_exe`` for
+    "qlnt", :data:`QLNR_FLAVOR_JOBS`) inside ONE package folder, as
     ``(path, version, reason)``. The version is the folder name's; a folder
     with no readable version is refused (the macro's step-0 check greps the
     version bytes in the blob, and an empty version would weaken it to a
-    brand-only check). Reasons stay English like the ZXNR resolver's."""
+    banner-only check). There is NO default flavor (9.7.50): a caller left
+    unchanged must fail loudly, never send qlnextremote_exe to a QL Next
+    Transfer machine. Reasons stay English like the ZXNR resolver's."""
+    job = QLNR_FLAVOR_JOBS.get(str(flavor or "").strip().lower())
+    if not job:
+        return None, None, (
+            "'{}' is not a QLNextRemote job flavor (known: {})".format(
+                flavor, ", ".join(QLNR_FLAVORS)))
+    relpath = os.path.join("qemulator", job)
     name = os.path.basename(os.path.normpath(folder)) if folder else ""
     version = qlnextremote_name_version(name)
     if not version:
         return None, None, (
             "the package folder ({}) does not carry a qlnextremote-<version> "
             "name, so its version is unknown".format(name or folder))
-    exe = os.path.join(folder, QLNR_EXE_RELPATH)
+    exe = os.path.join(folder, relpath)
     if not os.path.isfile(exe):
+        _flv = str(flavor).strip().lower()
+        if _flv not in qlnextremote_flavors_due(version):
+            # A package from before the job existed (QL Next Transfer
+            # ships from 1.7.0): say so rather than "missing".
+            return None, None, (
+                "the package ({}) predates {} (first shipped in "
+                "QLNextRemote {}) - fetch a newer package".format(
+                    name, qlnextremote_exe_banner(job),
+                    ".".join(str(n) for n in QLNR_FLAVOR_SINCE[_flv])))
         return None, None, (
             "the package ({}) has no {} - the remote update needs the "
             "Q-emuLator form, whose QDOS header travels in the "
-            "bytes".format(name, QLNR_EXE_RELPATH.replace(os.sep, "/")))
+            "bytes".format(name, relpath.replace(os.sep, "/")))
     return exe, version, ""
 
 

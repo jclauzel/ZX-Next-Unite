@@ -443,6 +443,36 @@ def main():
                                          "zxnrmenu0n.nxi", "zxntmenu0.nxi"],
               str((probs7, rels7)))
 
+        # 9.7.50: a QLNextRemote 1.7.0 package - two jobs under qemulator/
+        # (qlnextremote_exe and QL Next Transfer's qlnexttransfer_exe) and
+        # a ROOT manifest that gains TRANSFER_bas, QL Next Transfer's
+        # launcher. Read with the QL update's skip names (the staged job,
+        # its .new/.bak and EVERY job's name with its .new/.bak, as the
+        # widget and nextsync5's QL arm build them): the launchers and the
+        # README go, a manifest line naming a job is skipped (the sibling
+        # already rides first), and both twins agree.
+        qpk = os.path.join(tmp, "qlnextremote-1.7.0")
+        _write(os.path.join(qpk, "qemulator", "qlnextremote_exe"), b"QLNR")
+        _write(os.path.join(qpk, "qemulator", "qlnexttransfer_exe"), b"QLNT")
+        _write(os.path.join(qpk, "README.md"), b"# QLNextRemote 1.7.0\n")
+        _write(os.path.join(qpk, "NEXT_bas"), b"100 REMark NEXT\n")
+        _write(os.path.join(qpk, "TRANSFER_bas"), b"100 REMark TRANSFER\n")
+        _write(os.path.join(qpk, "qlnexttransfer_exe"), b"STRAY")
+        _write(os.path.join(qpk, "deploypak.txt"),
+               b"# QL Next Transfer rides in the same package\n"
+               b"README.md\nNEXT_bas\nTRANSFER_bas\nqlnexttransfer_exe\n")
+        jobs = tuple(zxnu_config.QLNR_FLAVOR_JOBS.values())
+        qskip = (("qlnextremote_exe", "qlnextremote_exe.new",
+                  "qlnextremote_exe.bak")
+                 + tuple(j + s for j in jobs for s in ("", ".new", ".bak")))
+        qplan, qprobs = read_deploypak(qpk, qskip)
+        check("QL 1.7.0 package: README, NEXT_bas and TRANSFER_bas go, a "
+              "manifest line naming a job is skipped",
+              qprobs == [] and [s[-1] for s in qplan]
+              == ["README.md", "NEXT_bas", "TRANSFER_bas"],
+              str((qprobs, qplan)))
+        _twin_agrees("QL two-job package", qpk, qskip)
+
         # The two constants are hand-kept twins too.
         check("DEPLOYPAK_FILENAME / DEPLOYPAK_MAX_FILES twins agree",
               nextsync5.DEPLOYPAK_FILENAME == zxnu_config.DEPLOYPAK_FILENAME

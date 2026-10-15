@@ -1484,10 +1484,12 @@ def build_nextsync_pane(
             # closure, so they can never disagree about what is on offer.
             zxnr_choose_package=_re_zxnr_choose_package,
             # QLNextRemote (the QL port): the same affordances for a
-            # 'qlnextremote' seat, from the newest installed QL package
-            # (zxnu_emulator_ops' _resolve_qlnr_update_binary, disk-only).
+            # 'qlnextremote' or (9.7.50, QL Next Transfer) 'qlnt' seat, from
+            # the newest installed QL package (zxnu_emulator_ops'
+            # _resolve_qlnr_update_binary, disk-only) - asked per flavor,
+            # like the ZXNR source: one package holds both jobs.
             qlnr_update_source=(
-                lambda: host._resolve_qlnr_update_binary()),
+                lambda flavor: host._resolve_qlnr_update_binary(flavor)),
             qlnr_update_path=configuration_dictionary.get(
                 SETTING_QLNR_UPDATE_PATH) or "",
             on_qlnr_update_path_changed=_re_on_qlnr_update_path_changed,

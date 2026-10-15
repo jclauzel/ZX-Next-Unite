@@ -281,7 +281,10 @@ One wire query (`Y`, dot v5.8+ / ZX Next Remote 1.0.2+) feeds both
 routes; the answer is cached per seat. `version-type` names WHAT is
 serving the session — `sync` (this dot), `httpbridge`, `n2n` or `zxnt`
 (the three ZX Next Remote flavors, spelled like their `.nex` file names;
-`zxnt` is ZX Next Transfer, from ZX Next Remote 1.6.0) — and
+`zxnt` is ZX Next Transfer, from ZX Next Remote 1.6.0), or `qlnextremote`
+or `qlnt` (the two Sinclair QL jobs; `qlnt` is QL Next Transfer, from
+QLNextRemote 1.7.0, whose job file is `qlnexttransfer_exe` - unlike the
+`.nex` names, a QL type is not its file's name) — and
 `version-number` is that responder's own build. Built for update
 automation: the type names the artifact to fetch, the number says
 whether to. Against an older listener (which ignores the unknown opcode)

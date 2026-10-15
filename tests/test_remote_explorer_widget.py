@@ -3791,18 +3791,28 @@ def test_zxnr_update_chosen_package():
 
 
 
-def _qlnr_pkg(tag, version, readme=True, exe=True, broken_pak=False):
+def _qlnr_pkg(tag, version, readme=True, exe=True, broken_pak=False,
+              jobs=("qlnextremote",), headerless=()):
     """A fake extracted QLNextRemote package folder: qlnextremote-X.Y.Z/
-    with qemulator/qlnextremote_exe (the Q-emuLator header in the bytes),
-    README.md and the deploypak.txt that lists it."""
+    with qemulator/<job> for each QL flavor in ``jobs`` (9.7.50: "qlnt"
+    adds QL Next Transfer's qlnexttransfer_exe, its banner QLNextTransfer
+    plus the peer-naming "A QLNextRemote Listener" the real job carries),
+    each with the Q-emuLator header in the bytes unless its flavor is in
+    ``headerless``, README.md and the deploypak.txt that lists it."""
     d = tempfile.mkdtemp(prefix="qlnr_%s_" % tag)
     d2 = os.path.join(d, "qlnextremote-" + version)
     os.makedirs(os.path.join(d2, "qemulator"))
-    if exe:
-        hdr = (b"]!QDOS File Header" + bytes([0, 15]) + bytes([0, 1])
-               + (140 * 1024).to_bytes(4, "big") + bytes(4))
-        with open(os.path.join(d2, "qemulator", "qlnextremote_exe"), "wb") as fh:
-            fh.write(hdr + b"QLNextRemote\x00" + version.encode() + b"\x00")
+    hdr = (b"]!QDOS File Header" + bytes([0, 15]) + bytes([0, 1])
+           + (140 * 1024).to_bytes(4, "big") + bytes(4))
+    for flavor in (jobs if exe else ()):
+        body = ((b"QLNextTransfer\x00" + version.encode()
+                 + b"\x00A QLNextRemote Listener\x00")
+                if flavor == "qlnt" else
+                (b"QLNextRemote\x00" + version.encode() + b"\x00"))
+        with open(os.path.join(d2, "qemulator",
+                               zxnu_config.QLNR_FLAVOR_JOBS[flavor]),
+                  "wb") as fh:
+            fh.write((b"" if flavor in headerless else hdr) + body)
     if readme:
         with open(os.path.join(d2, "README.md"), "wb") as fh:
             fh.write(b"# QLNextRemote\n")
@@ -3824,8 +3834,11 @@ def test_qlnr_update():
     exe = os.path.join(pkg, "qemulator", "qlnextremote_exe")
     readme = os.path.join(pkg, "README.md")
     prompts, links, paths = [], [], []
+    asked = []                 # the flavors the resolver was asked (9.7.50)
     w, calls = make_widget(
-        qlnr_update_source=lambda: (exe, "0.5.1", ""),
+        qlnr_update_source=lambda flavor: (asked.append(flavor) or (
+            os.path.join(pkg, "qemulator",
+                         zxnu_config.QLNR_FLAVOR_JOBS[flavor]), "0.5.1", "")),
         update_prompt_enabled=lambda: True,
         on_update_prompt=lambda body, accept: prompts.append((body, accept)))
     w._on_qlnr_update_path_changed = paths.append
@@ -3835,6 +3848,12 @@ def test_qlnr_update():
     w.on_ident("qlnextremote", "0.5.0")
     check("a 0.5.0 QL seat with a 0.5.1 package earns the offer",
           w._qlnr_update_offer() == ("0.5.0", "0.5.1"), str(w._qlnr_update_offer()))
+    check("...the resolver was asked for THIS seat's flavor, cached per "
+          "flavor (9.7.50)",
+          asked and set(asked) == {"qlnextremote"}
+          and isinstance(w._qlnr_resolve_cache, dict)
+          and set(w._qlnr_resolve_cache) == {"qlnextremote"},
+          str((asked, w._qlnr_resolve_cache)))
     check("...and the top-bar link",
           "qlnr-update" in w._qlnr_update_link_html()
           and "qlnr-update" in w._ident_update_link_html(), w._ident_update_link_html())
@@ -3866,7 +3885,8 @@ def test_qlnr_update():
           and len(prompts) == 1)
     # The session-tab menu's classification is what the offer reads too:
     # no package at all = no offer, whatever the seat says.
-    w2, calls2 = make_widget(qlnr_update_source=lambda: (None, None, "none here"))
+    w2, calls2 = make_widget(
+        qlnr_update_source=lambda flavor: (None, None, "none here"))
     connect_widget(w2, calls2)
     w2.on_peers((1, [(1, "10.0.0.9")]))
     w2.on_ident("qlnextremote", "0.5.0")
@@ -3935,10 +3955,13 @@ def test_qlnr_update():
           and FakeInput.seen == [], str(FakeMsg.warnings))
     # A broken manifest refuses BEFORE the prompt.
     bad = _qlnr_pkg("bad", "0.5.2", broken_pak=True)
-    w3, calls3 = make_widget(qlnr_update_source=lambda: (
+    w3, calls3 = make_widget(qlnr_update_source=lambda flavor: (
         os.path.join(bad, "qemulator", "qlnextremote_exe"), "0.5.2", ""))
     connect_widget(w3, calls3)
     w3.on_peers((1, [(1, "10.0.0.9")]))
+    # The update derives the QL flavor from THIS seat's own ident (9.7.50,
+    # no default): the seat has to have answered 'Y' first.
+    w3.on_ident("qlnextremote", "0.5.0")
     FakeMsg.warnings = []; FakeInput.seen = []
     check("a broken deploypak.txt refuses before the prompt",
           w3._update_qlnr_on_session(1, "0.5.0") is False
@@ -3951,6 +3974,212 @@ def test_qlnr_update():
           and dot_update_toast_title("NextSync") == "Remote .sync5 update"
           and dot_update_toast_title("") == "Remote .sync5 update")
     for d in (pkg, bad):
+        shutil.rmtree(os.path.dirname(d), ignore_errors=True)
+
+
+def test_qlnt_update():
+    """QL Next Transfer (9.7.50): the second QL job, ident "qlnt", job file
+    qlnexttransfer_exe, shipped from QLNextRemote 1.7.0 in the SAME package.
+    The widget side of the generalisation: the resolver is asked PER FLAVOR
+    and cached per flavor (a dict, cleared in place); the offer stays (old,
+    new) with the flavor read from the driven ident; the toast's kind names
+    the job (QLNextTransfer), so its once-per-version key never folds the
+    two jobs; the update derives the flavor from the session's own ident -
+    no default anywhere - stages that flavor's job and sends the OTHER job
+    first as a ("sibling", …) step into the typed folder, header-checked
+    before the prompt; a package missing a job its version is due refuses,
+    one from before 1.7.0 is whole with one job; a typed target named for
+    the other job is the clash it is. The worker side is
+    test_remote_listen's."""
+    QJ = zxnu_config.QLNR_FLAVOR_JOBS
+    both = _qlnr_pkg("both", "1.7.1", jobs=("qlnextremote", "qlnt"))
+    asked, prompts = [], []
+    src = {"pkg": both, "ver": "1.7.1"}
+
+    def _source(flavor):
+        asked.append(flavor)
+        return (os.path.join(src["pkg"], "qemulator", QJ[flavor]),
+                src["ver"], "")
+    w, calls = make_widget(
+        qlnr_update_source=_source,
+        update_prompt_enabled=lambda: True,
+        on_update_prompt=lambda body, accept: prompts.append((body, accept)))
+    connect_widget(w, calls)
+    w.on_peers((1, [(1, "10.0.0.9")]))
+    w.on_ident("qlnt", "1.7.0")
+    check("qlnt: a 1.7.0 QL Next Transfer seat with a 1.7.1 package earns "
+          "the offer, still (old, new)",
+          w._qlnr_update_offer() == ("1.7.0", "1.7.1"),
+          str(w._qlnr_update_offer()))
+    check("...resolved for the qlnt job, cached under its flavor only",
+          asked and set(asked) == {"qlnt"}
+          and set(w._qlnr_resolve_cache) == {"qlnt"}
+          and w._qlnr_resolve_cache["qlnt"][0].endswith(QJ["qlnt"]),
+          str((asked, w._qlnr_resolve_cache)))
+    check("...the top-bar link shows the NEW version",
+          "qlnr-update" in w._ident_update_link_html()
+          and "1.7.1" in w._ident_update_link_html()
+          and "1.7.0" not in w._ident_update_link_html(),
+          w._ident_update_link_html())
+    check("...and the toast names the job, QLNextTransfer",
+          len(prompts) == 1 and "QLNextTransfer" in prompts[0][0]
+          and "1.7.0" in prompts[0][0] and "1.7.1" in prompts[0][0],
+          prompts[0][0] if prompts else "")
+    # The same sid answering as the OTHER job at the same version is a new
+    # offer (kind differs): the dedupe key never folds the two jobs.
+    w.on_ident("qlnextremote", "1.7.0")
+    check("qlnt: the cache is cleared in place on every ident and refilled "
+          "for the new flavor",
+          isinstance(w._qlnr_resolve_cache, dict)
+          and set(w._qlnr_resolve_cache) == {"qlnextremote"}
+          and w._qlnr_update_offer() == ("1.7.0", "1.7.1"),
+          str(w._qlnr_resolve_cache))
+    check("...and a QLNextRemote prompt follows, its own key",
+          len(prompts) == 2 and "QLNextRemote" in prompts[1][0]
+          and "QLNextTransfer" not in prompts[1][0],
+          [p[0] for p in prompts])
+    # zxnu_emulator_ops pokes the cache when a package lands: in place,
+    # never rebound (9.7.49's ZXNR twin did the same; a None here made the
+    # next on_ident's .clear() raise inside a Qt slot).
+    _ops = open(os.path.join(os.path.dirname(os.path.abspath(rex.__file__)),
+                             "zxnu_emulator_ops.py"), encoding="utf-8").read()
+    _pane = open(os.path.join(os.path.dirname(os.path.abspath(rex.__file__)),
+                              "zxnu_nextsync_pane.py"), encoding="utf-8").read()
+    check("qlnt: emulator_ops clears the QL cache in place, the pane's "
+          "source takes the flavor",
+          "_qlnr_resolve_cache.clear()" in _ops
+          and "_qlnr_resolve_cache = None" not in _ops
+          and "lambda flavor: host._resolve_qlnr_update_binary(flavor)" in _pane)
+
+    # The update of the qlnt seat: its own job, the other one first.
+    w.on_ident("qlnt", "1.7.0")
+    FakeInput.queue = [("W:/HOME/qlnexttransfer_exe", True)]
+    FakeInput.seen = []
+    FakeMsg.warnings.clear(); calls["q_to"].clear(); calls["log"].clear()
+    asked.clear()
+    started = w._update_qlnr_on_session(1, "1.7.0")
+    cmd = calls["q_to"][0][1] if calls["q_to"] else ()
+    readme = os.path.join(both, "README.md")
+    check("qlnt update: prompts with W:/HOME/qlnexttransfer_exe, stages the "
+          "qlnt job under the QLNextRemote brand, the qlnextremote job riding "
+          "first, then the README",
+          started is True and asked == ["qlnt"]
+          and FakeInput.seen and FakeInput.seen[0][4] == "W:/HOME/qlnexttransfer_exe"
+          and cmd == ("update_dot",
+                      os.path.join(both, "qemulator", "qlnexttransfer_exe"),
+                      "W:/HOME", "1.7.1", "qlnexttransfer_exe",
+                      "QLNextRemote", True,
+                      [("sibling",
+                        os.path.join(both, "qemulator", "qlnextremote_exe"),
+                        "qlnextremote_exe"),
+                       ("put", readme, "README.md")]),
+          str((asked, FakeInput.seen[0][4] if FakeInput.seen else None, cmd)))
+    body = " ".join((FakeInput.seen[0][2] if FakeInput.seen else "").split())
+    _paras = (FakeInput.seen[0][2] if FakeInput.seen else "").split("\n\n")
+    _sib = next((i for i, p in enumerate(_paras) if "other QL job" in p), -1)
+    _pak = next((i for i, p in enumerate(_paras) if "deploypak.txt" in p), -1)
+    check("...the confirm body names the other job and what a failed send "
+          "costs, in its own paragraph before the manifest's",
+          "QLNextRemote (qlnextremote_exe)" in body
+          and "both jobs stay in step" in body
+          and "leaves that job missing" in body
+          and 0 <= _sib < _pak, body)
+    check("...the log names the sibling, and the manifest line leaves it out",
+          any("the other QL job qlnextremote_exe goes alongside into W:/HOME "
+              "first" in l for l in calls["log"])
+          and any("deploypak.txt lists 1 file(s)" in l
+                  and l.rstrip().endswith("README.md")
+                  and "qlnextremote_exe" not in l for l in calls["log"]),
+          str(calls["log"]))
+
+    # The reverse: a qlnextremote seat of the same package sends the qlnt
+    # job alongside. The ONE remembered path now names the qlnt job, so the
+    # name guard drops it and the default is HOME again (documented).
+    w.on_ident("qlnextremote", "1.7.0")
+    FakeInput.queue = [("W:/HOME/qlnextremote_exe", True)]
+    FakeInput.seen = []
+    calls["q_to"].clear()
+    w._update_qlnr_on_session(1, "1.7.0")
+    cmd = calls["q_to"][0][1] if calls["q_to"] else ()
+    body = " ".join((FakeInput.seen[0][2] if FakeInput.seen else "").split())
+    check("qlnr update of a 1.7.x package: the qlnt job rides first, the "
+          "other job's remembered path is not the default",
+          len(cmd) == 8 and cmd[4] == "qlnextremote_exe"
+          and cmd[1].endswith(os.path.join("qemulator", "qlnextremote_exe"))
+          and cmd[7][0] == ("sibling",
+                            os.path.join(both, "qemulator", "qlnexttransfer_exe"),
+                            "qlnexttransfer_exe")
+          and FakeInput.seen[0][4] == "W:/HOME/qlnextremote_exe"
+          and "QLNextTransfer (qlnexttransfer_exe)" in body,
+          str((cmd, FakeInput.seen[0][4] if FakeInput.seen else None)))
+    # A typed target named for the OTHER job: the clash it is - the sibling
+    # would be put, then renamed aside and overwritten by the wrong job.
+    FakeInput.queue = [("W:/HOME/qlnexttransfer_exe", True)]
+    calls["q_to"].clear(); calls["log"].clear()
+    check("qlnr update typed as W:/HOME/qlnexttransfer_exe: refused as a "
+          "clash with the sibling, nothing enqueued",
+          w._update_qlnr_on_session(1, "1.7.0") is False
+          and calls["q_to"] == []
+          and any("is the name of a file sent alongside the build "
+                  "(qlnexttransfer_exe)" in l for l in calls["log"]),
+          str(calls["log"]))
+
+    # A package from before QL Next Transfer (1.3.6): whole with one job.
+    old = _qlnr_pkg("old136", "1.3.6")
+    src.update(pkg=old, ver="1.3.6")
+    FakeInput.queue = [("W:/HOME/qlnextremote_exe", True)]
+    FakeInput.seen = []
+    FakeMsg.warnings.clear(); calls["q_to"].clear()
+    w._update_qlnr_on_session(1, "1.2.0")
+    cmd = calls["q_to"][0][1] if calls["q_to"] else ()
+    check("qlnt: a pre-1.7.0 package without the qlnt job still updates a "
+          "QLNextRemote seat, no sibling, no warning",
+          FakeMsg.warnings == [] and len(cmd) == 8
+          and cmd[7] == [("put", os.path.join(old, "README.md"), "README.md")],
+          str((FakeMsg.warnings, cmd)))
+    # A 1.7.0 package WITHOUT it is a half extract: refused before the
+    # prompt, the missing job named.
+    half = _qlnr_pkg("half170", "1.7.0")
+    src.update(pkg=half, ver="1.7.0")
+    FakeInput.queue = [("W:/HOME/qlnextremote_exe", True)]
+    FakeInput.seen = []
+    FakeMsg.warnings.clear(); calls["q_to"].clear()
+    check("qlnt: a 1.7.0 package missing qlnexttransfer_exe refuses before "
+          "the prompt",
+          w._update_qlnr_on_session(1, "1.3.6") is False
+          and calls["q_to"] == [] and FakeInput.seen == []
+          and len(FakeMsg.warnings) == 1
+          and "has no qemulator/qlnexttransfer_exe" in FakeMsg.warnings[0],
+          str((calls["q_to"], FakeMsg.warnings)))
+    # A headerless sibling would replace the WORKING other job with a data
+    # file and still pass the CRC: refused before the prompt.
+    nohdr = _qlnr_pkg("nohdr", "1.7.1", jobs=("qlnextremote", "qlnt"),
+                      headerless=("qlnt",))
+    src.update(pkg=nohdr, ver="1.7.1")
+    FakeInput.queue = [("W:/HOME/qlnextremote_exe", True)]
+    FakeInput.seen = []
+    FakeMsg.warnings.clear(); calls["q_to"].clear()
+    check("qlnt: a headerless sibling refuses before the prompt, naming the "
+          "header",
+          w._update_qlnr_on_session(1, "1.7.0") is False
+          and calls["q_to"] == [] and FakeInput.seen == []
+          and len(FakeMsg.warnings) == 1
+          and "qemulator/qlnexttransfer_exe" in FakeMsg.warnings[0]
+          and "QDOS executable header" in FakeMsg.warnings[0],
+          str(FakeMsg.warnings))
+    # No default flavor: a session whose own ident is no QL job's is never
+    # sent a QL job (the resolver is not even asked).
+    src.update(pkg=both, ver="1.7.1")
+    w._peer_idents[1] = ("n2n", "1.5.4")
+    asked.clear(); calls["q_to"].clear(); calls["log"].clear()
+    FakeInput.seen = []
+    check("qlnt: no default flavor - a non-QL session gets the 'no longer "
+          "applies' line, nothing resolved or enqueued",
+          w._update_qlnr_on_session(1, "1.7.0") is False
+          and asked == [] and calls["q_to"] == [] and FakeInput.seen == []
+          and any("no longer applies" in l for l in calls["log"]),
+          str((asked, calls["log"])))
+    for d in (both, old, half, nohdr):
         shutil.rmtree(os.path.dirname(d), ignore_errors=True)
 
 
@@ -4482,6 +4711,7 @@ def main():
         test_zxnr_menu_picker_hook()
         test_zxnr_update_reports_whether_it_started()
         test_qlnr_update()
+        test_qlnt_update()
     finally:
         shutil.rmtree(TMP, ignore_errors=True)
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")

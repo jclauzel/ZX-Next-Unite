@@ -530,8 +530,8 @@ CATALOGS = {
             "Actualización de QLNextRemote: sustituir {path} necesitaría un comando de renombrado más largo que los {limit} bytes que acepta un oyente — elige una carpeta más corta; no se envió nada.",
         "QLNextRemote update: deploypak.txt lists {files} file(s) and {folders} folder(s) for {dir}: {items}":
             "Actualización de QLNextRemote: deploypak.txt enumera {files} archivo(s) y {folders} carpeta(s) para {dir}: {items}",
-        "Remote {name} update refused: {path} does not start with the QDOS executable header (type 1) — send the package's qemulator/qlnextremote_exe; nothing was sent.":
-            "Actualización remota de {name} rechazada: {path} no empieza por la cabecera de ejecutable QDOS (tipo 1) — envía el qemulator/qlnextremote_exe del paquete; no se envió nada.",
+        "Remote {name} update refused: {path} does not start with the QDOS executable header (type 1) — send the package's {file}; nothing was sent.":
+            "Actualización remota de {name} rechazada: {path} no empieza por la cabecera de ejecutable QDOS (tipo 1) — envía el {file} del paquete; no se envió nada.",
         "Remote {name} update failed: the QL's OS protection refused renaming {file} aside — the job must live in HOME, outside the protected roots. Nothing was swapped — the QL still runs its current build.":
             "La actualización remota de {name} falló: la protección del sistema del QL rechazó apartar {file} — el trabajo debe vivir en HOME, fuera de las raíces protegidas. No se sustituyó nada — el QL sigue ejecutando su compilación actual.",
         "Remote {name} update failed: the QL could not rename {target} aside, and whether that file is there could not be checked. Most likely the QL runs QLNextRemote from somewhere else (such as QPC2's dos1_ drive or the root of an sQLux win1 folder), or the file is locked. Nothing was swapped — the QL still runs its current build. See \"Updating the job from ZX-Next-Unite\" in the QLNextRemote user guide.":
@@ -1133,6 +1133,22 @@ CATALOGS = {
             "Actualización remota de {name} rechazada: {path} es a la vez un archivo enviado junto a ella y la compilación que se sustituye — revisa la ruta en el Next; no se ha enviado nada.",
         "Remote {name} update refused: {path} is the {flavor} build's file name, but the file being sent is {local} — a build may only replace its own .nex; nothing was sent.":
             "Actualización remota de {name} rechazada: {path} es el nombre de archivo de la compilación {flavor}, pero el archivo que se envía es {local} — una compilación solo puede sustituir su propio .nex; no se ha enviado nada.",
+        "Remote {name} update: sending the other QL job {path} ({size} bytes) alongside…":
+            "Actualización remota de {name}: enviando junto a ella el otro trabajo del QL, {path} ({size} bytes)…",
+        "The other QL job {path} had already been replaced in HOME too.":
+            "El otro trabajo del QL, {path}, ya se había reemplazado también en HOME.",
+        "Remote {name} update failed while sending the other QL job {path}: {reason}. Nothing was swapped — the QL still runs its current build, but {path} may be missing from HOME now: run the update again, or install it from the package with INSTALL_bas.":
+            "Actualización remota de {name} fallida al enviar el otro trabajo del QL, {path}: {reason}. No se ha sustituido nada — el QL sigue ejecutando su compilación actual, pero ahora {path} puede faltar en HOME: vuelve a ejecutar la actualización o instálalo desde el paquete con INSTALL_bas.",
+        "Remote {name} update failed: the session ended while sending the other QL job {path} — it may be missing or cut short in HOME. Nothing was swapped — run the update again, or install it from the package with INSTALL_bas.":
+            "Actualización remota de {name} fallida: la sesión terminó mientras se enviaba el otro trabajo del QL, {path} — puede faltar o estar truncado en HOME. No se ha sustituido nada — vuelve a ejecutar la actualización o instálalo desde el paquete con INSTALL_bas.",
+        "Remote {name} update failed: the session ended after the other QL job {path} had been replaced in HOME, before the build itself was staged. Nothing was swapped — run the update again.":
+            "Actualización remota de {name} fallida: la sesión terminó después de reemplazar en HOME el otro trabajo del QL, {path}, antes de preparar la compilación en sí. No se ha sustituido nada — vuelve a ejecutar la actualización.",
+        "Remote {name} update refused: {path} is the {flavor} job's file name, but the file being sent is {local} — a QL job may only replace its own file; nothing was sent.":
+            "Actualización remota de {name} rechazada: {path} es el nombre de archivo del trabajo {flavor}, pero el archivo que se envía es {local} — un trabajo del QL solo puede sustituir su propio archivo; no se ha enviado nada.",
+        "The package's other QL job(s) — {files} — are sent into the same folder FIRST, each checked against the CRC-32 the QL computes and re-sent up to {retries} times, so both jobs stay in step — written in place, so the .bak revert does not cover them, and a send that fails leaves that job missing until the update is run again.":
+            "El/los otro(s) trabajo(s) del QL del paquete — {files} — se envían PRIMERO a la misma carpeta, cada uno comprobado con el CRC-32 que calcula el QL y reenviado hasta {retries} veces, para que ambos trabajos vayan a la par — se escriben en su sitio, así que la recuperación con .bak no los cubre, y un envío que falla deja ese trabajo ausente hasta que se vuelva a ejecutar la actualización.",
+        "QLNextRemote update: the other QL job {file} goes alongside into {dir} first.":
+            "Actualización de QLNextRemote: el otro trabajo del QL, {file}, va primero, junto a ella, a {dir}.",
         "{landed} of the {total} deploypak.txt file(s) had already been replaced on the card — the previous build now runs against the new data files; run the update again to put them back in step.":
             "{landed} de los {total} archivo(s) de deploypak.txt ya se habían reemplazado en la tarjeta — la compilación anterior ahora se ejecuta con los archivos de datos nuevos; vuelve a ejecutar la actualización para ponerlos de nuevo al día.",
         "{landed} of the {total} deploypak.txt file(s) had already been replaced in HOME — the previous build now runs against the new data files; run the update again to put them back in step.":
@@ -2016,8 +2032,8 @@ CATALOGS = {
             "Atualização do QLNextRemote: trocar {path} precisaria de um comando de renomeação maior do que os {limit} bytes que um ouvinte aceita — escolhe uma pasta mais curta; nada foi enviado.",
         "QLNextRemote update: deploypak.txt lists {files} file(s) and {folders} folder(s) for {dir}: {items}":
             "Atualização do QLNextRemote: o deploypak.txt lista {files} ficheiro(s) e {folders} pasta(s) para {dir}: {items}",
-        "Remote {name} update refused: {path} does not start with the QDOS executable header (type 1) — send the package's qemulator/qlnextremote_exe; nothing was sent.":
-            "Atualização remota de {name} recusada: {path} não começa pelo cabeçalho de executável QDOS (tipo 1) — envia o qemulator/qlnextremote_exe do pacote; nada foi enviado.",
+        "Remote {name} update refused: {path} does not start with the QDOS executable header (type 1) — send the package's {file}; nothing was sent.":
+            "Atualização remota de {name} recusada: {path} não começa pelo cabeçalho de executável QDOS (tipo 1) — envia o {file} do pacote; nada foi enviado.",
         "Remote {name} update failed: the QL's OS protection refused renaming {file} aside — the job must live in HOME, outside the protected roots. Nothing was swapped — the QL still runs its current build.":
             "A atualização remota de {name} falhou: a proteção do sistema do QL recusou pôr {file} de lado — o trabalho tem de viver na HOME, fora das raízes protegidas. Nada foi trocado — o QL continua a executar a compilação atual.",
         "Remote {name} update failed: the QL could not rename {target} aside, and whether that file is there could not be checked. Most likely the QL runs QLNextRemote from somewhere else (such as QPC2's dos1_ drive or the root of an sQLux win1 folder), or the file is locked. Nothing was swapped — the QL still runs its current build. See \"Updating the job from ZX-Next-Unite\" in the QLNextRemote user guide.":
@@ -2619,6 +2635,22 @@ CATALOGS = {
             "Atualização remota de {name} recusada: {path} é ao mesmo tempo um ficheiro enviado em paralelo e a compilação a substituir — verifique o caminho no Next; nada foi enviado.",
         "Remote {name} update refused: {path} is the {flavor} build's file name, but the file being sent is {local} — a build may only replace its own .nex; nothing was sent.":
             "Atualização remota de {name} recusada: {path} é o nome de ficheiro da compilação {flavor}, mas o ficheiro a enviar é {local} — uma compilação só pode substituir o seu próprio .nex; nada foi enviado.",
+        "Remote {name} update: sending the other QL job {path} ({size} bytes) alongside…":
+            "Atualização remota de {name}: a enviar em paralelo o outro trabalho do QL, {path} ({size} bytes)…",
+        "The other QL job {path} had already been replaced in HOME too.":
+            "O outro trabalho do QL, {path}, também já tinha sido substituído em HOME.",
+        "Remote {name} update failed while sending the other QL job {path}: {reason}. Nothing was swapped — the QL still runs its current build, but {path} may be missing from HOME now: run the update again, or install it from the package with INSTALL_bas.":
+            "Atualização remota de {name} falhou ao enviar o outro trabalho do QL, {path}: {reason}. Nada foi substituído — o QL continua a executar a compilação atual, mas {path} pode agora estar em falta em HOME: execute a atualização de novo ou instale-o a partir do pacote com INSTALL_bas.",
+        "Remote {name} update failed: the session ended while sending the other QL job {path} — it may be missing or cut short in HOME. Nothing was swapped — run the update again, or install it from the package with INSTALL_bas.":
+            "Atualização remota de {name} falhou: a sessão terminou enquanto se enviava o outro trabalho do QL, {path} — pode estar em falta ou truncado em HOME. Nada foi substituído — execute a atualização de novo ou instale-o a partir do pacote com INSTALL_bas.",
+        "Remote {name} update failed: the session ended after the other QL job {path} had been replaced in HOME, before the build itself was staged. Nothing was swapped — run the update again.":
+            "Atualização remota de {name} falhou: a sessão terminou depois de o outro trabalho do QL, {path}, ter sido substituído em HOME, antes de a própria compilação ser preparada. Nada foi substituído — execute a atualização de novo.",
+        "Remote {name} update refused: {path} is the {flavor} job's file name, but the file being sent is {local} — a QL job may only replace its own file; nothing was sent.":
+            "Atualização remota de {name} recusada: {path} é o nome de ficheiro do trabalho {flavor}, mas o ficheiro a enviar é {local} — um trabalho do QL só pode substituir o seu próprio ficheiro; nada foi enviado.",
+        "The package's other QL job(s) — {files} — are sent into the same folder FIRST, each checked against the CRC-32 the QL computes and re-sent up to {retries} times, so both jobs stay in step — written in place, so the .bak revert does not cover them, and a send that fails leaves that job missing until the update is run again.":
+            "O(s) outro(s) trabalho(s) do QL do pacote — {files} — são enviados PRIMEIRO para a mesma pasta, cada um verificado com o CRC-32 calculado pelo QL e reenviado até {retries} vezes, para que ambos os trabalhos fiquem alinhados — escritos no lugar, pelo que a reversão por .bak não os cobre, e um envio que falhe deixa esse trabalho em falta até a atualização ser executada de novo.",
+        "QLNextRemote update: the other QL job {file} goes alongside into {dir} first.":
+            "Atualização do QLNextRemote: o outro trabalho do QL, {file}, segue primeiro, em paralelo, para {dir}.",
         "{landed} of the {total} deploypak.txt file(s) had already been replaced on the card — the previous build now runs against the new data files; run the update again to put them back in step.":
             "{landed} dos {total} ficheiro(s) do deploypak.txt já tinham sido substituídos no cartão — a compilação anterior corre agora com os novos ficheiros de dados; execute a atualização de novo para os voltar a alinhar.",
         "{landed} of the {total} deploypak.txt file(s) had already been replaced in HOME — the previous build now runs against the new data files; run the update again to put them back in step.":
@@ -3499,8 +3531,8 @@ CATALOGS = {
             "Aktualizacja QLNextRemote: podmiana {path} wymagałaby polecenia zmiany nazwy dłuższego niż {limit} bajtów, które przyjmuje nasłuchujący — wybierz krótszy folder; nic nie wysłano.",
         "QLNextRemote update: deploypak.txt lists {files} file(s) and {folders} folder(s) for {dir}: {items}":
             "Aktualizacja QLNextRemote: deploypak.txt wymienia {files} plik(ów) i {folders} folder(ów) dla {dir}: {items}",
-        "Remote {name} update refused: {path} does not start with the QDOS executable header (type 1) — send the package's qemulator/qlnextremote_exe; nothing was sent.":
-            "Zdalna aktualizacja {name} odrzucona: {path} nie zaczyna się od nagłówka pliku wykonywalnego QDOS (typ 1) — wyślij qemulator/qlnextremote_exe z pakietu; nic nie wysłano.",
+        "Remote {name} update refused: {path} does not start with the QDOS executable header (type 1) — send the package's {file}; nothing was sent.":
+            "Zdalna aktualizacja {name} odrzucona: {path} nie zaczyna się od nagłówka pliku wykonywalnego QDOS (typ 1) — wyślij {file} z pakietu; nic nie wysłano.",
         "Remote {name} update failed: the QL's OS protection refused renaming {file} aside — the job must live in HOME, outside the protected roots. Nothing was swapped — the QL still runs its current build.":
             "Zdalna aktualizacja {name} nie powiodła się: ochrona systemu QL odmówiła odłożenia {file} — zadanie musi być w HOME, poza chronionymi katalogami. Nic nie podmieniono — QL nadal uruchamia bieżącą kompilację.",
         "Remote {name} update failed: the QL could not rename {target} aside, and whether that file is there could not be checked. Most likely the QL runs QLNextRemote from somewhere else (such as QPC2's dos1_ drive or the root of an sQLux win1 folder), or the file is locked. Nothing was swapped — the QL still runs its current build. See \"Updating the job from ZX-Next-Unite\" in the QLNextRemote user guide.":
@@ -4101,6 +4133,22 @@ CATALOGS = {
             "Zdalna aktualizacja {name} odrzucona: {path} jest zarazem plikiem wysyłanym obok i podmienianą kompilacją — sprawdź ścieżkę na Nexcie; niczego nie wysłano.",
         "Remote {name} update refused: {path} is the {flavor} build's file name, but the file being sent is {local} — a build may only replace its own .nex; nothing was sent.":
             "Zdalna aktualizacja {name} odrzucona: {path} to nazwa pliku kompilacji {flavor}, a wysyłany plik to {local} — kompilacja może zastąpić tylko własny plik .nex; niczego nie wysłano.",
+        "Remote {name} update: sending the other QL job {path} ({size} bytes) alongside…":
+            "Zdalna aktualizacja {name}: wysyłanie obok drugiego zadania QL, {path} ({size} bajtów)…",
+        "The other QL job {path} had already been replaced in HOME too.":
+            "Drugie zadanie QL, {path}, również zostało już zastąpione w HOME.",
+        "Remote {name} update failed while sending the other QL job {path}: {reason}. Nothing was swapped — the QL still runs its current build, but {path} may be missing from HOME now: run the update again, or install it from the package with INSTALL_bas.":
+            "Zdalna aktualizacja {name} nie powiodła się podczas wysyłania drugiego zadania QL, {path}: {reason}. Niczego nie podmieniono — QL nadal używa bieżącej kompilacji, ale {path} może teraz brakować w HOME: uruchom aktualizację ponownie albo zainstaluj je z pakietu za pomocą INSTALL_bas.",
+        "Remote {name} update failed: the session ended while sending the other QL job {path} — it may be missing or cut short in HOME. Nothing was swapped — run the update again, or install it from the package with INSTALL_bas.":
+            "Zdalna aktualizacja {name} nie powiodła się: sesja zakończyła się podczas wysyłania drugiego zadania QL, {path} — może go brakować w HOME lub być ucięte. Niczego nie podmieniono — uruchom aktualizację ponownie albo zainstaluj je z pakietu za pomocą INSTALL_bas.",
+        "Remote {name} update failed: the session ended after the other QL job {path} had been replaced in HOME, before the build itself was staged. Nothing was swapped — run the update again.":
+            "Zdalna aktualizacja {name} nie powiodła się: sesja zakończyła się po zastąpieniu w HOME drugiego zadania QL, {path}, zanim przygotowano samą kompilację. Niczego nie podmieniono — uruchom aktualizację ponownie.",
+        "Remote {name} update refused: {path} is the {flavor} job's file name, but the file being sent is {local} — a QL job may only replace its own file; nothing was sent.":
+            "Zdalna aktualizacja {name} odrzucona: {path} to nazwa pliku zadania {flavor}, a wysyłany plik to {local} — zadanie QL może zastąpić tylko własny plik; niczego nie wysłano.",
+        "The package's other QL job(s) — {files} — are sent into the same folder FIRST, each checked against the CRC-32 the QL computes and re-sent up to {retries} times, so both jobs stay in step — written in place, so the .bak revert does not cover them, and a send that fails leaves that job missing until the update is run again.":
+            "Pozostałe zadania QL z pakietu — {files} — są wysyłane NAJPIERW do tego samego folderu, każde sprawdzane sumą CRC-32 obliczaną przez QL i wysyłane ponownie do {retries} razy, aby oba zadania były zgodne — zapisywane w miejscu, więc przywracanie z .bak ich nie obejmuje, a nieudane wysłanie zostawia to zadanie brakujące, dopóki aktualizacja nie zostanie uruchomiona ponownie.",
+        "QLNextRemote update: the other QL job {file} goes alongside into {dir} first.":
+            "Aktualizacja QLNextRemote: drugie zadanie QL, {file}, trafia najpierw, obok, do {dir}.",
         "{landed} of the {total} deploypak.txt file(s) had already been replaced on the card — the previous build now runs against the new data files; run the update again to put them back in step.":
             "{landed} z {total} plik(ów) z deploypak.txt zostało już zastąpionych na karcie — poprzednia kompilacja działa teraz z nowymi plikami danych; uruchom aktualizację ponownie, aby je z powrotem uzgodnić.",
         "{landed} of the {total} deploypak.txt file(s) had already been replaced in HOME — the previous build now runs against the new data files; run the update again to put them back in step.":
@@ -4983,8 +5031,8 @@ CATALOGS = {
             "Обновление QLNextRemote: для подмены {path} потребовалась бы команда переименования длиннее {limit} байт, которые принимает слушатель — выберите папку короче; ничего не отправлено.",
         "QLNextRemote update: deploypak.txt lists {files} file(s) and {folders} folder(s) for {dir}: {items}":
             "Обновление QLNextRemote: в deploypak.txt перечислено {files} файл(ов) и {folders} папок для {dir}: {items}",
-        "Remote {name} update refused: {path} does not start with the QDOS executable header (type 1) — send the package's qemulator/qlnextremote_exe; nothing was sent.":
-            "Удалённое обновление {name} отклонено: {path} не начинается с заголовка исполняемого файла QDOS (тип 1) — отправьте qemulator/qlnextremote_exe из пакета; ничего не отправлено.",
+        "Remote {name} update refused: {path} does not start with the QDOS executable header (type 1) — send the package's {file}; nothing was sent.":
+            "Удалённое обновление {name} отклонено: {path} не начинается с заголовка исполняемого файла QDOS (тип 1) — отправьте {file} из пакета; ничего не отправлено.",
         "Remote {name} update failed: the QL's OS protection refused renaming {file} aside — the job must live in HOME, outside the protected roots. Nothing was swapped — the QL still runs its current build.":
             "Удалённое обновление {name} не удалось: защита системы QL отказала в переименовании {file} — задание должно находиться в HOME, вне защищённых корней. Ничего не подменено — QL по-прежнему выполняет текущую сборку.",
         "Remote {name} update failed: the QL could not rename {target} aside, and whether that file is there could not be checked. Most likely the QL runs QLNextRemote from somewhere else (such as QPC2's dos1_ drive or the root of an sQLux win1 folder), or the file is locked. Nothing was swapped — the QL still runs its current build. See \"Updating the job from ZX-Next-Unite\" in the QLNextRemote user guide.":
@@ -5585,6 +5633,22 @@ CATALOGS = {
             "Удалённое обновление {name} отклонено: {path} одновременно и файл, отправляемый вместе с обновлением, и заменяемая сборка — проверьте путь на Next; ничего не отправлено.",
         "Remote {name} update refused: {path} is the {flavor} build's file name, but the file being sent is {local} — a build may only replace its own .nex; nothing was sent.":
             "Удалённое обновление {name} отклонено: {path} — имя файла сборки {flavor}, а отправляемый файл — {local}; сборка может заменить только свой собственный .nex; ничего не отправлено.",
+        "Remote {name} update: sending the other QL job {path} ({size} bytes) alongside…":
+            "Удалённое обновление {name}: отправка другого задания QL {path} ({size} байт) вместе с обновлением…",
+        "The other QL job {path} had already been replaced in HOME too.":
+            "Другое задание QL {path} тоже уже было заменено в HOME.",
+        "Remote {name} update failed while sending the other QL job {path}: {reason}. Nothing was swapped — the QL still runs its current build, but {path} may be missing from HOME now: run the update again, or install it from the package with INSTALL_bas.":
+            "Удалённое обновление {name} не удалось при отправке другого задания QL {path}: {reason}. Ничего не заменено — QL по-прежнему работает на текущей сборке, но {path} теперь может отсутствовать в HOME: запустите обновление снова или установите его из пакета с помощью INSTALL_bas.",
+        "Remote {name} update failed: the session ended while sending the other QL job {path} — it may be missing or cut short in HOME. Nothing was swapped — run the update again, or install it from the package with INSTALL_bas.":
+            "Удалённое обновление {name} не удалось: сеанс завершился во время отправки другого задания QL {path} — оно может отсутствовать или быть обрезано в HOME. Ничего не заменено — запустите обновление снова или установите его из пакета с помощью INSTALL_bas.",
+        "Remote {name} update failed: the session ended after the other QL job {path} had been replaced in HOME, before the build itself was staged. Nothing was swapped — run the update again.":
+            "Удалённое обновление {name} не удалось: сеанс завершился после замены в HOME другого задания QL {path}, до подготовки самой сборки. Ничего не заменено — запустите обновление снова.",
+        "Remote {name} update refused: {path} is the {flavor} job's file name, but the file being sent is {local} — a QL job may only replace its own file; nothing was sent.":
+            "Удалённое обновление {name} отклонено: {path} — имя файла задания {flavor}, а отправляемый файл — {local}; задание QL может заменить только свой собственный файл; ничего не отправлено.",
+        "The package's other QL job(s) — {files} — are sent into the same folder FIRST, each checked against the CRC-32 the QL computes and re-sent up to {retries} times, so both jobs stay in step — written in place, so the .bak revert does not cover them, and a send that fails leaves that job missing until the update is run again.":
+            "Остальные задания QL из пакета — {files} — СНАЧАЛА отправляются в ту же папку, каждое сверяется с CRC-32, вычисленным QL, и пересылается до {retries} раз, чтобы оба задания совпадали — записываются на место, поэтому откат через .bak их не покрывает, а неудачная отправка оставляет это задание отсутствующим до повторного запуска обновления.",
+        "QLNextRemote update: the other QL job {file} goes alongside into {dir} first.":
+            "Обновление QLNextRemote: другое задание QL {file} сначала отправляется вместе с обновлением в {dir}.",
         "{landed} of the {total} deploypak.txt file(s) had already been replaced on the card — the previous build now runs against the new data files; run the update again to put them back in step.":
             "{landed} из {total} файл(ов) из deploypak.txt уже были заменены на карте — прежняя сборка теперь работает с новыми файлами данных; запустите обновление снова, чтобы привести их в соответствие.",
         "{landed} of the {total} deploypak.txt file(s) had already been replaced in HOME — the previous build now runs against the new data files; run the update again to put them back in step.":
@@ -6464,8 +6528,8 @@ CATALOGS = {
             "Aktualizace QLNextRemote: výměna {path} by vyžadovala příkaz k přejmenování delší než {limit} bajtů, které posluchač přijme — zvolte kratší složku; nic nebylo odesláno.",
         "QLNextRemote update: deploypak.txt lists {files} file(s) and {folders} folder(s) for {dir}: {items}":
             "Aktualizace QLNextRemote: deploypak.txt uvádí {files} soubor(ů) a {folders} složek pro {dir}: {items}",
-        "Remote {name} update refused: {path} does not start with the QDOS executable header (type 1) — send the package's qemulator/qlnextremote_exe; nothing was sent.":
-            "Vzdálená aktualizace {name} odmítnuta: {path} nezačíná hlavičkou spustitelného souboru QDOS (typ 1) — pošlete qemulator/qlnextremote_exe z balíčku; nic nebylo odesláno.",
+        "Remote {name} update refused: {path} does not start with the QDOS executable header (type 1) — send the package's {file}; nothing was sent.":
+            "Vzdálená aktualizace {name} odmítnuta: {path} nezačíná hlavičkou spustitelného souboru QDOS (typ 1) — pošlete {file} z balíčku; nic nebylo odesláno.",
         "Remote {name} update failed: the QL's OS protection refused renaming {file} aside — the job must live in HOME, outside the protected roots. Nothing was swapped — the QL still runs its current build.":
             "Vzdálená aktualizace {name} selhala: ochrana systému QL odmítla odložit {file} — úloha musí být v HOME, mimo chráněné kořeny. Nic nebylo vyměněno — QL stále běží s aktuálním sestavením.",
         "Remote {name} update failed: the QL could not rename {target} aside, and whether that file is there could not be checked. Most likely the QL runs QLNextRemote from somewhere else (such as QPC2's dos1_ drive or the root of an sQLux win1 folder), or the file is locked. Nothing was swapped — the QL still runs its current build. See \"Updating the job from ZX-Next-Unite\" in the QLNextRemote user guide.":
@@ -7065,6 +7129,22 @@ CATALOGS = {
             "Vzdálená aktualizace {name} odmítnuta: {path} je zároveň souběžně odesílaný soubor i vyměňované sestavení — zkontrolujte cestu na Nextu; nic nebylo odesláno.",
         "Remote {name} update refused: {path} is the {flavor} build's file name, but the file being sent is {local} — a build may only replace its own .nex; nothing was sent.":
             "Vzdálená aktualizace {name} odmítnuta: {path} je název souboru sestavení {flavor}, ale odesílaný soubor je {local} — sestavení smí nahradit jen vlastní .nex; nic nebylo odesláno.",
+        "Remote {name} update: sending the other QL job {path} ({size} bytes) alongside…":
+            "Vzdálená aktualizace {name}: souběžně se odesílá druhá úloha QL, {path} ({size} bajtů)…",
+        "The other QL job {path} had already been replaced in HOME too.":
+            "Druhá úloha QL, {path}, už byla v HOME nahrazena také.",
+        "Remote {name} update failed while sending the other QL job {path}: {reason}. Nothing was swapped — the QL still runs its current build, but {path} may be missing from HOME now: run the update again, or install it from the package with INSTALL_bas.":
+            "Vzdálená aktualizace {name} selhala při odesílání druhé úlohy QL, {path}: {reason}. Nic nebylo vyměněno — QL stále běží na aktuálním sestavení, ale {path} teď může v HOME chybět: spusťte aktualizaci znovu, nebo ji nainstalujte z balíčku pomocí INSTALL_bas.",
+        "Remote {name} update failed: the session ended while sending the other QL job {path} — it may be missing or cut short in HOME. Nothing was swapped — run the update again, or install it from the package with INSTALL_bas.":
+            "Vzdálená aktualizace {name} selhala: relace skončila během odesílání druhé úlohy QL, {path} — v HOME může chybět nebo být useknutá. Nic nebylo vyměněno — spusťte aktualizaci znovu, nebo ji nainstalujte z balíčku pomocí INSTALL_bas.",
+        "Remote {name} update failed: the session ended after the other QL job {path} had been replaced in HOME, before the build itself was staged. Nothing was swapped — run the update again.":
+            "Vzdálená aktualizace {name} selhala: relace skončila poté, co byla v HOME nahrazena druhá úloha QL, {path}, ještě před přípravou samotného sestavení. Nic nebylo vyměněno — spusťte aktualizaci znovu.",
+        "Remote {name} update refused: {path} is the {flavor} job's file name, but the file being sent is {local} — a QL job may only replace its own file; nothing was sent.":
+            "Vzdálená aktualizace {name} odmítnuta: {path} je název souboru úlohy {flavor}, ale odesílaný soubor je {local} — úloha QL smí nahradit jen vlastní soubor; nic nebylo odesláno.",
+        "The package's other QL job(s) — {files} — are sent into the same folder FIRST, each checked against the CRC-32 the QL computes and re-sent up to {retries} times, so both jobs stay in step — written in place, so the .bak revert does not cover them, and a send that fails leaves that job missing until the update is run again.":
+            "Ostatní úlohy QL z balíčku — {files} — se odešlou NEJPRVE do téže složky, každá se ověří proti CRC-32 spočítanému QL a znovu odešle až {retries}krát, aby obě úlohy zůstaly sladěné — zapisují se na místo, takže obnova z .bak je nepokrývá, a neúspěšné odeslání nechá tuto úlohu chybět, dokud se aktualizace nespustí znovu.",
+        "QLNextRemote update: the other QL job {file} goes alongside into {dir} first.":
+            "Aktualizace QLNextRemote: druhá úloha QL, {file}, jde nejprve souběžně do {dir}.",
         "{landed} of the {total} deploypak.txt file(s) had already been replaced on the card — the previous build now runs against the new data files; run the update again to put them back in step.":
             "{landed} z {total} soubor(ů) z deploypak.txt už bylo na kartě nahrazeno — předchozí sestavení teď běží s novými datovými soubory; spusťte aktualizaci znovu, aby se opět sladily.",
         "{landed} of the {total} deploypak.txt file(s) had already been replaced in HOME — the previous build now runs against the new data files; run the update again to put them back in step.":
@@ -7950,8 +8030,8 @@ CATALOGS = {
             "Mise à jour de QLNextRemote : échanger {path} demanderait une commande de renommage plus longue que les {limit} octets qu'un serveur d'écoute accepte — choisissez un dossier plus court ; rien n'a été envoyé.",
         "QLNextRemote update: deploypak.txt lists {files} file(s) and {folders} folder(s) for {dir}: {items}":
             "Mise à jour de QLNextRemote : deploypak.txt liste {files} fichier(s) et {folders} dossier(s) pour {dir} : {items}",
-        "Remote {name} update refused: {path} does not start with the QDOS executable header (type 1) — send the package's qemulator/qlnextremote_exe; nothing was sent.":
-            "Mise à jour distante de {name} refusée : {path} ne commence pas par l'en-tête d'exécutable QDOS (type 1) — envoyez le qemulator/qlnextremote_exe du paquet ; rien n'a été envoyé.",
+        "Remote {name} update refused: {path} does not start with the QDOS executable header (type 1) — send the package's {file}; nothing was sent.":
+            "Mise à jour distante de {name} refusée : {path} ne commence pas par l'en-tête d'exécutable QDOS (type 1) — envoyez le {file} du paquet ; rien n'a été envoyé.",
         "Remote {name} update failed: the QL's OS protection refused renaming {file} aside — the job must live in HOME, outside the protected roots. Nothing was swapped — the QL still runs its current build.":
             "La mise à jour distante de {name} a échoué : la protection du système du QL a refusé de mettre {file} de côté — le job doit vivre dans HOME, hors des racines protégées. Rien n'a été échangé — le QL exécute toujours sa version actuelle.",
         "Remote {name} update failed: the QL could not rename {target} aside, and whether that file is there could not be checked. Most likely the QL runs QLNextRemote from somewhere else (such as QPC2's dos1_ drive or the root of an sQLux win1 folder), or the file is locked. Nothing was swapped — the QL still runs its current build. See \"Updating the job from ZX-Next-Unite\" in the QLNextRemote user guide.":
@@ -8554,6 +8634,22 @@ CATALOGS = {
             "Mise à jour distante de {name} refusée : {path} est à la fois un fichier envoyé en parallèle et la compilation à remplacer — vérifiez le chemin sur le Next ; rien n'a été envoyé.",
         "Remote {name} update refused: {path} is the {flavor} build's file name, but the file being sent is {local} — a build may only replace its own .nex; nothing was sent.":
             "Mise à jour distante de {name} refusée : {path} est le nom de fichier de la compilation {flavor}, mais le fichier envoyé est {local} — une compilation ne peut remplacer que son propre .nex ; rien n'a été envoyé.",
+        "Remote {name} update: sending the other QL job {path} ({size} bytes) alongside…":
+            "Mise à jour distante de {name} : envoi en parallèle de l'autre job du QL, {path} ({size} octets)…",
+        "The other QL job {path} had already been replaced in HOME too.":
+            "L'autre job du QL, {path}, avait lui aussi déjà été remplacé dans HOME.",
+        "Remote {name} update failed while sending the other QL job {path}: {reason}. Nothing was swapped — the QL still runs its current build, but {path} may be missing from HOME now: run the update again, or install it from the package with INSTALL_bas.":
+            "La mise à jour distante de {name} a échoué à l'envoi de l'autre job du QL, {path} : {reason}. Rien n'a été remplacé — le QL exécute toujours sa compilation actuelle, mais {path} peut désormais manquer dans HOME : relancez la mise à jour, ou installez-le depuis le paquet avec INSTALL_bas.",
+        "Remote {name} update failed: the session ended while sending the other QL job {path} — it may be missing or cut short in HOME. Nothing was swapped — run the update again, or install it from the package with INSTALL_bas.":
+            "La mise à jour distante de {name} a échoué : la session s'est terminée pendant l'envoi de l'autre job du QL, {path} — il peut manquer ou être tronqué dans HOME. Rien n'a été remplacé — relancez la mise à jour, ou installez-le depuis le paquet avec INSTALL_bas.",
+        "Remote {name} update failed: the session ended after the other QL job {path} had been replaced in HOME, before the build itself was staged. Nothing was swapped — run the update again.":
+            "La mise à jour distante de {name} a échoué : la session s'est terminée après le remplacement dans HOME de l'autre job du QL, {path}, avant le dépôt de la compilation elle-même. Rien n'a été remplacé — relancez la mise à jour.",
+        "Remote {name} update refused: {path} is the {flavor} job's file name, but the file being sent is {local} — a QL job may only replace its own file; nothing was sent.":
+            "Mise à jour distante de {name} refusée : {path} est le nom de fichier du job {flavor}, mais le fichier envoyé est {local} — un job du QL ne peut remplacer que son propre fichier ; rien n'a été envoyé.",
+        "The package's other QL job(s) — {files} — are sent into the same folder FIRST, each checked against the CRC-32 the QL computes and re-sent up to {retries} times, so both jobs stay in step — written in place, so the .bak revert does not cover them, and a send that fails leaves that job missing until the update is run again.":
+            "Les autres jobs du QL du paquet — {files} — sont envoyés D'ABORD dans le même dossier, chacun vérifié contre le CRC-32 calculé par le QL et renvoyé jusqu'à {retries} fois, pour que les deux jobs restent en accord — écrits sur place, donc la restauration par .bak ne les couvre pas, et un envoi qui échoue laisse ce job absent jusqu'à ce que la mise à jour soit relancée.",
+        "QLNextRemote update: the other QL job {file} goes alongside into {dir} first.":
+            "Mise à jour de QLNextRemote : l'autre job du QL, {file}, part d'abord, en parallèle, vers {dir}.",
         "{landed} of the {total} deploypak.txt file(s) had already been replaced on the card — the previous build now runs against the new data files; run the update again to put them back in step.":
             "{landed} des {total} fichier(s) de deploypak.txt avaient déjà été remplacés sur la carte — la compilation précédente tourne maintenant avec les nouveaux fichiers de données ; relancez la mise à jour pour les remettre en accord.",
         "{landed} of the {total} deploypak.txt file(s) had already been replaced in HOME — the previous build now runs against the new data files; run the update again to put them back in step.":

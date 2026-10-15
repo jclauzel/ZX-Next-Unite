@@ -70,7 +70,9 @@ SUITES = [
     ("test_listen.py",          120, None),
     # 240 since 9.7.46: ~111 s before it, ~130 s with the QLNextRemote
     # fresh-install cases (each update scenario is a fresh worker, ~1.3 s).
-    ("test_remote_listen.py",   240, None),
+    # 300 since 9.7.50: ~172 s with the QL Next Transfer cases, whose happy
+    # paths move two REAL 192 KB QL jobs each when the QL repo is beside.
+    ("test_remote_listen.py",   300, None),
     ("test_bridge_stall.py",    180, None),
     # A QLNextRemote seat that went silent (9.7.45): the QL-only silence
     # limit, Disconnect's drop, and no quit left behind for another seat -

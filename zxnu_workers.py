@@ -25,10 +25,13 @@ from collections import deque, namedtuple
 from zxnu_config import (IGNOREFILE, MAX_PAYLOAD, PORT, SYNCPOINT,
                          TREE_FONT_MAX_PT, TREE_FONT_MIN_PT,
                          UP_DIRECTORY, VERSION3, VERSION4, ZXNR_NEX_FLAVORS,
+                         QLNR_FLAVORS, QLNR_FLAVOR_JOBS,
                          cspect_can_autostart, emulator_offers_autostart,
                          log_size,
                          is_filetype_a_directory, mame_autostart_staging_dir,
                          mame_can_autostart, qlnextremote_blob_has_header,
+                         qlnextremote_exe_banner,
+                         qlnextremote_exe_foreign_banner, qlnr_job_flavor,
                          qlnr_wire_to_qdos, zxnextremote_nex_banner)
 from PySide6.QtCore import (
     QEvent, QItemSelection, QItemSelectionModel, QObject, QPoint, QRect,
@@ -922,8 +925,9 @@ class RemoteExplorerSignals(QObject):
     drives       = Signal(str, object)
     # (type, number): the far responder's identity from the 'Y' version
     # query - ("httpbridge"/"n2n"/"zxnt", "1.0.2") for a ZX Next Remote
-    # listener (ZXNR_NEX_FLAVORS), ("sync", "5.8.0") for a dot. ("", "")
-    # when the far build predates the
+    # listener (ZXNR_NEX_FLAVORS), ("sync", "5.8.0") for a dot,
+    # ("qlnextremote"/"qlnt", "1.7.0") for a QL job (QLNR_FLAVORS; "qlnt" =
+    # QL Next Transfer, 9.7.50). ("", "") when the far build predates the
     # command (ZXNR < 1.0.2 / dot < 5.8) - the pane then shows nothing,
     # exactly the pre-ident behaviour.
     ident        = Signal(str, str)
@@ -1212,15 +1216,24 @@ PEER_SILENCE_LIMIT = 620.0
 
 #: 9.7.45: the QLNextRemote exception. Everything below is gated on the
 #: SESSION'S OWN 'Y' answer (sess_ident, the one this session's own TCP
-#: peer gave): its type, stripped and lower-cased, must equal THIS exactly.
+#: peer gave): its type, stripped and lower-cased, must be one of
+#: RE_QLNR_IDENT_TYPES exactly (9.7.50; one type, THIS one, before).
 #: An ident never asked (None), a listener too old for 'Y' (("", "")) and
 #: every other brand - the .sync5 dot "sync", ZX Next Remote "httpbridge" /
 #: "n2n" / "zxnt", CSpect/MAME Nexts running any - keep PEER_SILENCE_LIMIT and
 #: the code path above untouched, except a ZX Spectrum Next dialing from
 #: another machine since 9.7.47 (RE_NEXT_IDENT_TYPES and the NEXT_*
-#: numbers below). Hand-kept twin of the widget's QLNR_IDENT_TYPE
-#: (zxnu_remote_explorer) and RE_CRC_FLOORS' key below.
+#: numbers below). RE_QLNR_IDENT_TYPE stays the QLNextRemote job's own type
+#: (the first of the flavors), kept for the code and tests that name it.
 RE_QLNR_IDENT_TYPE = "qlnextremote"
+#: Every QL job's 'Y' type (9.7.50): QLNextRemote and QL Next Transfer
+#: ("qlnt", QLNextRemote 1.7.0's landing-screen job - the same Listener on
+#: the same QL core, so the same hard-reset field case and the same rules).
+#: DERIVED from zxnu_config.QLNR_FLAVORS, never a hand-kept twin, the way
+#: RE_NEXT_IDENT_TYPES is derived from ZXNR_NEX_FLAVORS below: a QL flavor
+#: Unite did not know took the Next rule before its ident and the 620 s path
+#: after it, and Disconnect could not clear it (QLNR 1.7.0's release notes).
+RE_QLNR_IDENT_TYPES = tuple(QLNR_FLAVORS)
 
 #: Seconds of silence after which a QLNextRemote seat is reaped (9.7.45).
 #: Why a QL gets its own limit: a QL core that is hard-reset cannot reset
@@ -1486,11 +1499,18 @@ RE_LINK_RETRY_OPS = frozenset(("ls", "get", "put", "mkdir", "rmdir", "rm",
 #: Listener builds that answer the 'K' (crc) op, by 'Y' ident type:
 #: the .sync5 dot from v5.9.2, ZX Next Remote (httpbridge/n2n) from 1.0.8,
 #: ZX Next Transfer (zxnt, the third ZXNR flavor) from its first build, 1.6.0
-#: (9.7.49). Every key but sync/qlnextremote must be a ZXNR_NEX_FLAVORS
-#: entry: RE_NEXT_IDENT_TYPES is derived from that tuple and
-#: tests/test_next_stale_seat.py asserts each of its kinds has a floor here.
+#: (9.7.49), QLNextRemote from 0.1.0 and QL Next Transfer (qlnt, 9.7.50) at
+#: that SAME floor: it is the same listener.c, so every qlnt build answers
+#: 'K' - a floor at its first release (1.7.0) would make every pre-release
+#: build skip the verify here and the HTTP bridge answer 501 "peer has no
+#: crc op" for it, a provably-old verdict that is false. Every key but sync
+#: and the QLNR_FLAVORS must be a ZXNR_NEX_FLAVORS entry:
+#: RE_NEXT_IDENT_TYPES is derived from that tuple and
+#: tests/test_next_stale_seat.py asserts each of its kinds has a floor here;
+#: tests/test_remote_listen.py asserts every QL flavor has one too.
 RE_CRC_FLOORS = {"sync": (5, 9, 2), "httpbridge": (1, 0, 8), "n2n": (1, 0, 8),
-                 "zxnt": (1, 6, 0), "qlnextremote": (0, 1, 0)}
+                 "zxnt": (1, 6, 0), "qlnextremote": (0, 1, 0),
+                 "qlnt": (0, 1, 0)}
 #: Verify-after-put reply wait = floor + size/rate (the HTTP bridge's /crc
 #: formula, 15 KB/s worst case plus a minute), capped at the crc op's hour.
 #: Read at CALL time so the test suite can shorten the floor.
@@ -1544,16 +1564,18 @@ def re_verify_wait(size_bytes):
 
 def re_ident_is_qlnr(ident):
     """True only when a session's cached 'Y' answer (type, number) names a
-    QLNextRemote Listener (9.7.45): the type, stripped and lower-cased, is
-    exactly RE_QLNR_IDENT_TYPE (read at call time). None (never asked),
-    ("", "") (a listener too old for 'Y') and every other brand => False,
-    so each QL-only rule falls back to the code path every Next takes."""
+    QLNextRemote Listener (9.7.45) - either QL job since 9.7.50: the type,
+    stripped and lower-cased, is exactly one of RE_QLNR_IDENT_TYPES (read
+    at call time; "qlnextremote" or QL Next Transfer's "qlnt"). None (never
+    asked), ("", "") (a listener too old for 'Y') and every other brand =>
+    False, so each QL-only rule falls back to the code path every Next
+    takes."""
     if not ident:
         return False
     rtype = ident[0]
     if not isinstance(rtype, str):
         return False
-    return rtype.strip().lower() == RE_QLNR_IDENT_TYPE
+    return rtype.strip().lower() in RE_QLNR_IDENT_TYPES
 
 
 def re_ident_is_next(ident):
@@ -2238,10 +2260,26 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                 "them back in step.").format(
                     landed=sent, total=_upd_extra_total(job))
         for rel in job.get('sib_sent', ()):
-            note += " " + ui_tr_now(
-                "The other flavor's build {path} had already been replaced "
-                "on the card too.").format(path=job.get('dir', '') + "/" + rel)
+            note += " " + _upd_sib_sentence(job, rel)
         return note
+
+    def _upd_sib_sentence(job, rel):
+        # "...had already been replaced too" for ONE sibling that landed:
+        # a ZXNR .nex is the other flavor's build on the card; a QL job
+        # (9.7.50, QL Next Transfer beside QLNextRemote) is the other QL
+        # JOB, and it went into HOME - a QL has no card. Keyed on the job's
+        # BRAND, which stays "QLNextRemote" for both QL flavors. Pre-try
+        # like _upd_extras_note: the finally block composes verdicts with
+        # it.
+        job = job or {}
+        path = job.get('dir', '') + "/" + rel
+        if job.get('brand') == "QLNextRemote":
+            return ui_tr_now(
+                "The other QL job {path} had already been replaced in HOME "
+                "too.").format(path=path)
+        return ui_tr_now(
+            "The other flavor's build {path} had already been replaced "
+            "on the card too.").format(path=path)
     # Verify-after-put jobs (9.7.3): id -> {'remote', 'crc' (8 hex of the
     # bytes SENT), 'size', 'state', 'got'}. Pre-try like upd_jobs: the
     # finally settles the ONE put_done each still owes. vstate carries the
@@ -2850,7 +2888,15 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                 job['ex_data'] = blob
                 job['ex_crc'] = "%08X" % (zlib.crc32(blob) & 0xffffffff)
                 job['ex_size'] = len(blob)
-                if job['ex_try'] == 0 and step[0] == "sibling":
+                if (job['ex_try'] == 0 and step[0] == "sibling"
+                        and job.get('brand') == "QLNextRemote"):
+                    # 9.7.50: the other QL job (QL Next Transfer beside
+                    # QLNextRemote), into the job's own folder.
+                    sig.log.emit(ui_tr_now(
+                        "Remote {name} update: sending the other QL job "
+                        "{path} ({size} bytes) alongside…").format(
+                            name=job['name'], path=remote, size=len(blob)))
+                elif job['ex_try'] == 0 and step[0] == "sibling":
                     sig.log.emit(ui_tr_now(
                         "Remote {name} update: sending the other flavor's "
                         "build {path} ({size} bytes) alongside…").format(
@@ -3988,22 +4034,43 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         # brand alone would pass an n2n build misnamed as the
                         # zxnt one. The BRAND stays what it was: the toast's
                         # title (dot_update_toast_title) and the QL gate.
+                        # 9.7.50, the same rule for the QL's two jobs: the
+                        # qlnexttransfer_exe job's banner is
+                        # "QLNextTransfer", every other QL file's
+                        # "QLNextRemote" (qlnextremote_exe_banner) - and the
+                        # qlnt job still names its PEER "A QLNextRemote
+                        # Listener", so the brand alone would pass a
+                        # qlnextremote build misnamed as the qlnt one. The
+                        # BRAND stays "QLNextRemote" for both jobs, so the
+                        # nine QL gates below keep working unchanged. One
+                        # more check than ZXNR has: a file whose banner is
+                        # QLNextRemote must not carry QLNextTransfer
+                        # (qlnextremote_exe_foreign_banner), closing the
+                        # residual of a qlnt build misnamed qlnextremote_exe.
                         bad = False
                         # ...keyed off the LOCAL file, the bytes being
                         # read — never the typed target (base), which
                         # may name another flavor: nextsync5 keys its twin
                         # off os.path.basename(a1) the same way, and the
                         # typed-vs-local rule below refuses such a target.
-                        banner = (zxnextremote_nex_banner(
-                                      os.path.basename(local))
-                                  if brand == "ZXNextRemote" else brand)
+                        if brand == "ZXNextRemote":
+                            banner = zxnextremote_nex_banner(
+                                os.path.basename(local))
+                        elif brand == "QLNextRemote":
+                            banner = qlnextremote_exe_banner(
+                                os.path.basename(local))
+                        else:
+                            banner = brand
                         if brand == "NextSync":
                             bad = bool(dver) and (
                                 b"NextSync " + dver.encode()) not in blob
                         else:
                             bad = (banner.encode() not in blob or
                                    (bool(dver) and
-                                    dver.encode() not in blob))
+                                    dver.encode() not in blob) or
+                                   (brand == "QLNextRemote" and bool(
+                                       qlnextremote_exe_foreign_banner(
+                                           os.path.basename(local), blob))))
                         if bad:
                             sig.dot_update.emit(False, ui_tr_now(
                                 "Remote {name} update refused: {path} does "
@@ -4041,6 +4108,34 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                     brand)
                                 _idle()
                                 continue
+                        # The QL's twin of that rule (9.7.50): the typed
+                        # target may not be ANOTHER QL job's name. The QL
+                        # Listener relaunches only a file named for its
+                        # OWN job (listener.c do_rename, a case-blind
+                        # suffix test), so a qlnextremote build typed as
+                        # W:/HOME/qlnexttransfer_exe would be swapped in
+                        # over QL Next Transfer and never started - and a
+                        # 1.3.x package carries no qlnt sibling for the
+                        # clash check below to catch. Suffix tests both
+                        # ways (qlnr_job_flavor); a local file that is no
+                        # job's name counts as the qlnextremote job its
+                        # banner was checked as.
+                        if brand == "QLNextRemote":
+                            _tfl = qlnr_job_flavor(base)
+                            _lfl = (qlnr_job_flavor(os.path.basename(local))
+                                    or QLNR_FLAVORS[0])
+                            if _tfl and _tfl != _lfl:
+                                sig.dot_update.emit(False, ui_tr_now(
+                                    "Remote {name} update refused: {path} "
+                                    "is the {flavor} job's file name, but "
+                                    "the file being sent is {local} — a QL "
+                                    "job may only replace its own file; "
+                                    "nothing was sent.").format(
+                                        name=disp, path=rdir + "/" + base,
+                                        flavor=_tfl, local=local),
+                                    brand)
+                                _idle()
+                                continue
                         # QLNextRemote only (the Sinclair QL port): the
                         # file must be the package's qemulator form, which
                         # starts with the 30-byte "]!QDOS File Header" of
@@ -4048,15 +4143,21 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         # that prefix into the real file header on the
                         # put. The bare body (the sqlux or qdos forms)
                         # would land a data file the QL cannot EXEC, so
-                        # it is refused before a byte moves.
+                        # it is refused before a byte moves. The file to
+                        # send is named for the job being updated (9.7.50:
+                        # qemulator/qlnexttransfer_exe for QL Next
+                        # Transfer).
                         if (brand == "QLNextRemote"
                                 and not qlnextremote_blob_has_header(blob)):
                             sig.dot_update.emit(False, ui_tr_now(
                                 "Remote {name} update refused: {path} does "
                                 "not start with the QDOS executable header "
-                                "(type 1) — send the package's "
-                                "qemulator/qlnextremote_exe; nothing was "
-                                "sent.").format(name=disp, path=local),
+                                "(type 1) — send the package's {file}; "
+                                "nothing was sent.").format(
+                                    name=disp, path=local,
+                                    file="qemulator/" + QLNR_FLAVOR_JOBS.get(
+                                        qlnr_job_flavor(base),
+                                        QLNR_FLAVOR_JOBS[QLNR_FLAVORS[0]])),
                                 brand)
                             _idle()
                             continue
@@ -4076,6 +4177,15 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         # name (rel), never the staged file's: an n2n
                         # update sends zxnextremote-zxnt.nex, whose title
                         # is ZXNextTransfer.
+                        # 9.7.50, the QL: the sibling is the package's OTHER
+                        # job (qlnextremote_exe <-> qlnexttransfer_exe, from
+                        # QLNextRemote 1.7.0), held to ITS banner
+                        # (qlnextremote_exe_banner by rel) and, unlike a
+                        # .nex, to the QDOS header too: the QL stores a
+                        # headerless put whole as a plain file and its 'K'
+                        # then matches the bytes sent, so a headerless
+                        # sibling would replace the user's WORKING other job
+                        # in HOME with a data file and still verify.
                         extras = []
                         bad_extra = ""
                         bad_why = "deploypak.txt names a file that is not there"
@@ -4092,7 +4202,11 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                     and isinstance(step[2], str)):
                                 if not os.path.isfile(step[1]):
                                     bad_extra = step[1]
-                                    if step[0] == "sibling":
+                                    if (step[0] == "sibling"
+                                            and brand == "QLNextRemote"):
+                                        bad_why = ("the other QL job is not "
+                                                   "there")
+                                    elif step[0] == "sibling":
                                         bad_why = ("the other flavor's build "
                                                    "is not there")
                                     break
@@ -4103,12 +4217,34 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                     except OSError as ex:
                                         bad_extra, bad_why = step[1], str(ex)
                                         break
-                                    sban = (zxnextremote_nex_banner(step[2])
-                                            if brand == "ZXNextRemote"
-                                            else brand)
+                                    if (brand == "QLNextRemote"
+                                            and not qlnextremote_blob_has_header(
+                                                sblob)):
+                                        bad_extra = ""
+                                        sig.dot_update.emit(False, ui_tr_now(
+                                            "Remote {name} update refused: "
+                                            "{path} does not start with the "
+                                            "QDOS executable header (type 1) "
+                                            "— send the package's {file}; "
+                                            "nothing was sent.").format(
+                                                name=disp, path=step[1],
+                                                file="qemulator/" + step[2]),
+                                            brand)
+                                        bad = True
+                                        break
+                                    if brand == "ZXNextRemote":
+                                        sban = zxnextremote_nex_banner(step[2])
+                                    elif brand == "QLNextRemote":
+                                        sban = qlnextremote_exe_banner(step[2])
+                                    else:
+                                        sban = brand
                                     if (sban.encode() not in sblob
                                             or (bool(dver)
-                                                and dver.encode() not in sblob)):
+                                                and dver.encode() not in sblob)
+                                            or (brand == "QLNextRemote"
+                                                and bool(
+                                                    qlnextremote_exe_foreign_banner(
+                                                        step[2], sblob)))):
                                         bad_extra = ""
                                         sig.dot_update.emit(False, ui_tr_now(
                                             "Remote {name} update refused: "
@@ -4401,7 +4537,26 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         _kind = (_ex[job['ex_i']][0]
                                  if _ex and job.get('ex_i', 0) < len(_ex)
                                  else "put")
-                        if _kind == "sibling":
+                        if (_kind == "sibling"
+                                and job.get('brand') == "QLNextRemote"):
+                            # 9.7.50: the other QL JOB. The QL's put deletes
+                            # the old file first (qlfs_create_fresh) and a
+                            # copy that failed its retries is deleted too,
+                            # so HOME may now hold NO copy of that app:
+                            # name it, and the two ways back.
+                            sig.dot_update.emit(False, ui_tr_now(
+                                "Remote {name} update failed while sending the "
+                                "other QL job {path}: {reason}. Nothing was "
+                                "swapped — the QL still runs its current "
+                                "build, but {path} may be missing from HOME "
+                                "now: run the update again, or install it "
+                                "from the package with INSTALL_bas.").format(
+                                    name=job.get('name', ''),
+                                    path=(job.get('dir', '') + "/" + _rel),
+                                    reason=why)
+                                + _upd_extras_note(job),
+                                job.get('brand'))
+                        elif _kind == "sibling":
                             sig.dot_update.emit(False, ui_tr_now(
                                 "Remote {name} update failed while sending the "
                                 "other flavor's build {path}: {reason}. Nothing "
@@ -4425,11 +4580,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                     reason=why,
                                     landed=len(job.get('ex_sent', ())),
                                     total=_upd_extra_total(job))
-                                + "".join(" " + ui_tr_now(
-                                    "The other flavor's build {path} had already "
-                                    "been replaced on the card too.").format(
-                                        path=job.get('dir', '') + "/" + r)
-                                    for r in job.get('sib_sent', ())),
+                                + "".join(" " + _upd_sib_sentence(job, r)
+                                          for r in job.get('sib_sent', ())),
                                 (job or {}).get('brand', 'NextSync'))
                         _idle()
                     elif op == "upd_verify":
@@ -4605,11 +4757,19 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 ("upd_ren2", jid) if op == "upd_ren1"
                                 else ("upd_done", jid))
                             continue
+                        # 9.7.50: "the relaunch rule's name" is the job of
+                        # THIS session's own flavor (QLNR_FLAVOR_JOBS by
+                        # its 'Y' type: qlnexttransfer_exe for a QL Next
+                        # Transfer seat) - each QL job's do_rename knows
+                        # only its own name, so a target named for the
+                        # OTHER job would be installed and never started.
+                        _own_job = (QLNR_FLAVOR_JOBS.get(
+                            str(sess_ident[0]).strip().lower())
+                            if _ql_self() else None)
                         if (got_reply and op == "upd_ren1" and not res['osp']
                                 and job.get('brand') == "QLNextRemote"
-                                and _ql_self()
-                                and job['base'].lower().endswith(
-                                    "qlnextremote_exe")):
+                                and _own_job
+                                and job['base'].lower().endswith(_own_job)):
                             # 9.7.46, QLNextRemote only — the job's brand AND
                             # this session's own 'Y' answer: a plain 'F' on
                             # the first rename most often means there is NO
@@ -4622,8 +4782,10 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             # post-'U' contract that keeps a Next to V/X/Q
                             # does not bind it. Only for a job named the way
                             # the QL Listener's relaunch rule wants it (the
-                            # target ends in "qlnextremote_exe", case-blind:
-                            # listener.c do_rename): any other name - a typo
+                            # target ends in the session's own job name,
+                            # "qlnextremote_exe" or, 9.7.50, a QL Next
+                            # Transfer seat's "qlnexttransfer_exe", case-
+                            # blind: listener.c do_rename): any other name - a typo
                             # in the dialog, a custom name - would be
                             # installed and then never started, the old
                             # build coming back as if nothing happened, so
@@ -4731,7 +4893,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         # 9.7.46, QLNextRemote only (queued by the ren arm
                         # above, gated there on the job's brand, this
                         # session's own 'Y' answer AND a job name ending in
-                        # qlnextremote_exe): the first rename was
+                        # that flavor's job, qlnextremote_exe or (9.7.50)
+                        # qlnexttransfer_exe): the first rename was
                         # refused with a plain 'F'. One 'L' of the job's
                         # folder tells why. Only a COMPLETE listing ('E'
                         # reached) that shows the staged <base>.new — the
@@ -5184,6 +5347,25 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
             _cur = _job['dir'] + "/" + _job.get('base', 'sync5')
             if (_job.get('extras') and not _job.get('staged')
                     and _job['ex_i'] < len(_job['extras'])
+                    and _job['extras'][_job['ex_i']][0] == "sibling"
+                    and _job.get('brand') == "QLNextRemote"):
+                # 9.7.50: died while the other QL job was in flight. The
+                # QL deleted the old copy before the put and deletes a
+                # partial one when the link drops, so HOME may hold NO
+                # copy of that app: name it, and the two ways back.
+                _ex = _job['extras']
+                sig.dot_update.emit(False, ui_tr_now(
+                    "Remote {name} update failed: the session ended while "
+                    "sending the other QL job {path} — it may be missing or "
+                    "cut short in HOME. Nothing was swapped — run the "
+                    "update again, or install it from the package with "
+                    "INSTALL_bas.").format(
+                        name=_job.get('name', ''),
+                        path=_job['dir'] + "/" + _ex[_job['ex_i']][-1])
+                    + _upd_extras_note(_job),
+                    _job.get('brand'))
+            elif (_job.get('extras') and not _job.get('staged')
+                    and _job['ex_i'] < len(_job['extras'])
                     and _job['extras'][_job['ex_i']][0] == "sibling"):
                 # Died while the other flavor's build was in flight.
                 _ex = _job['extras']
@@ -5214,11 +5396,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         path=_job['dir'] + "/" + _ex[_job['ex_i']][-1],
                         landed=len(_job.get('ex_sent', ())),
                         total=_upd_extra_total(_job))
-                    + "".join(" " + ui_tr_now(
-                        "The other flavor's build {path} had already been "
-                        "replaced on the card too.").format(
-                            path=_job['dir'] + "/" + r)
-                        for r in _job.get('sib_sent', ())),
+                    + "".join(" " + _upd_sib_sentence(_job, r)
+                              for r in _job.get('sib_sent', ())),
                     _job.get('brand', 'NextSync'))
             elif (_job.get('extras') and not _job.get('staged')
                     and _upd_extra_total(_job)):
@@ -5233,12 +5412,22 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                     "all.").format(
                         name=_job.get('name', ''),
                         total=_upd_extra_total(_job))
-                    + "".join(" " + ui_tr_now(
-                        "The other flavor's build {path} had already been "
-                        "replaced on the card too.").format(
-                            path=_job['dir'] + "/" + r)
-                        for r in _job.get('sib_sent', ())),
+                    + "".join(" " + _upd_sib_sentence(_job, r)
+                              for r in _job.get('sib_sent', ())),
                     _job.get('brand', 'NextSync'))
+            elif (_job.get('extras') and not _job.get('staged')
+                    and _job.get('brand') == "QLNextRemote"):
+                # The same gap on a QL (9.7.50): only the other QL job
+                # landed, and it went into HOME.
+                _last = (_job.get('sib_sent') or [_job['extras'][-1][-1]])[-1]
+                sig.dot_update.emit(False, ui_tr_now(
+                    "Remote {name} update failed: the session ended after "
+                    "the other QL job {path} had been replaced in HOME, "
+                    "before the build itself was staged. Nothing was "
+                    "swapped — run the update again.").format(
+                        name=_job.get('name', ''),
+                        path=_job['dir'] + "/" + _last),
+                    _job.get('brand'))
             elif _job.get('extras') and not _job.get('staged'):
                 # The same gap, for a package with no manifest: only the
                 # other flavor's build landed — say that, not "all 0 files".

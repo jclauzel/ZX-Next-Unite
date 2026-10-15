@@ -465,7 +465,8 @@ def test_helpers():
                   ("httpbridge", "1.5.4"), ("Sync", "")):
         check(f"Next ident: {ident!r}", f(ident) is True)
     for ident in (("qlnextremote", "1.1.4"), ("test", "1.5.4"),
-                  ("syncx", "1"), (5, ""), (), "", ("ql", "")):
+                  ("syncx", "1"), (5, ""), (), "", ("ql", ""),
+                  ("qlnt", "1.7.0"), (" QLNT ", "")):
         check(f"not a Next ident: {ident!r}", f(ident) is False)
     check("the Next types are the dot's plus zxnu_config's ZXNR flavours",
           zxnu_workers.RE_NEXT_IDENT_TYPES
@@ -474,8 +475,14 @@ def test_helpers():
     check("...each of them answers 'K' at some build (RE_CRC_FLOORS)",
           all(t in zxnu_workers.RE_CRC_FLOORS
               for t in zxnu_workers.RE_NEXT_IDENT_TYPES))
-    check("...and never the QL's", zxnu_workers.RE_QLNR_IDENT_TYPE
-          not in zxnu_workers.RE_NEXT_IDENT_TYPES)
+    # Element by element (9.7.50): the QL types are a TUPLE now
+    # (RE_QLNR_IDENT_TYPES - QLNextRemote and QL Next Transfer), and
+    # `tuple not in tuple` is True whatever the contents - a vacuous pin.
+    check("...and never a QL's (either QL job's type, element by element)",
+          zxnu_workers.RE_QLNR_IDENT_TYPES == ("qlnextremote", "qlnt")
+          and all(t not in zxnu_workers.RE_NEXT_IDENT_TYPES
+                  for t in zxnu_workers.RE_QLNR_IDENT_TYPES),
+          (zxnu_workers.RE_QLNR_IDENT_TYPES, zxnu_workers.RE_NEXT_IDENT_TYPES))
 
     class FakeConn:
         def __init__(self, own, broken=False):

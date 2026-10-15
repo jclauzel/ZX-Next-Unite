@@ -42,6 +42,53 @@ def rx_payload(s):
 def settle():
     time.sleep(0.003)
 
+# The REAL QLNextRemote 1.3.6 job (9.7.50): the package's qemulator form,
+# 192,144 bytes with its 30-byte QDOS header in front, read from the
+# QLNextRemote repo's dist when that repo sits beside this one (or from the
+# file ZXNU_QLNR_EXE names). The qlnt wrong-file checks are then pinned
+# against the bytes a release really carries: "QLNextRemote" ten times, ONE
+# NUL-delimited _prog_name, "A QLNextRemote Listener" naming the PEER - the
+# word the qlnt job keeps, the trap the per-file banner exists for. Anywhere
+# else (CI has no QL repo) a stand-in with that same string census is used,
+# and the suite says which. No QL Next Transfer build exists yet, so the
+# qlnt blob is the real job with its brand bytes patched: the _prog_name
+# "\0QLNextRemote\0\0\0" becomes "\0QLNextTransfer\0" (same length, the
+# padding absorbs the two extra letters), and "1.3.6" becomes "1.7.0" for
+# the 1.7.0 package.
+QLNR_REAL_EXE = os.environ.get("ZXNU_QLNR_EXE") or os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "QLNextRemote", "dist", "qlnextremote-1.3.6", "qemulator",
+    "qlnextremote_exe")
+QL_PROG_NAME = b"\x00QLNextRemote\x00\x00\x00"
+QLNT_PROG_NAME = b"\x00QLNextTransfer\x00"
+
+def ql_job_blobs():
+    """(qlnextremote 1.3.6, qlnextremote 1.7.0, qlnt 1.7.0, source) - the
+    three QL job blobs the 9.7.50 scenarios send, see QLNR_REAL_EXE."""
+    hdr = (b"]!QDOS File Header" + bytes([0, 15]) + bytes([0, 1])
+           + (120 * 1024).to_bytes(4, "big") + bytes(4))
+    real = b""
+    try:
+        with open(QLNR_REAL_EXE, "rb") as fh:
+            real = fh.read()
+    except OSError:
+        pass
+    if (real[:18] == b"]!QDOS File Header" and b"1.3.6" in real
+            and real.count(QL_PROG_NAME) == 1
+            and b"QLNextTransfer" not in real):
+        r136, src = real, "the real QLNextRemote 1.3.6 job"
+    else:
+        r136 = (hdr + b"\x60\x00" + bytes(range(256)) * 8
+                + b"QLNextRemote %s - %s\x00QLNextRemote %s\x00"
+                + b"\x001.3.6\x00A QLNextRemote Listener\x00" + bytes(64)
+                + QL_PROG_NAME + bytes(32) + b"\x001.3.6\x00")
+        src = "a stand-in (no QLNextRemote 1.3.6 dist beside this repo)"
+    r170 = r136.replace(b"1.3.6", b"1.7.0")
+    t170 = r170.replace(QL_PROG_NAME, QLNT_PROG_NAME, 1)
+    assert len(QL_PROG_NAME) == len(QLNT_PROG_NAME)
+    assert len(t170) == len(r136) and b"QLNextTransfer" in t170
+    return r136, r170, t170, src
+
 def fs_node(fs, path):
     """Walk the mock filesystem dict to ``path``; None if missing. Dirs are
     dicts, files are bytes."""
@@ -711,14 +758,20 @@ def main():
     _yes = [('sync', '5.9.2'), ('sync', '5.10.0'), ('sync', '5.9.10'),
             ('httpbridge', '1.0.8'), ('n2n', '1.0.9'), (' SYNC ', '5.9.2'),
             ('qlnextremote', '0.1.0'), ('qlnextremote', '0.2.0'),
-            ('zxnt', '1.6.0'), ('zxnt', '1.6.1'), (' ZXNT ', '2.0.0')]
+            ('zxnt', '1.6.0'), ('zxnt', '1.6.1'), (' ZXNT ', '2.0.0'),
+            # 9.7.50: QL Next Transfer at QLNextRemote's floor - a pre-
+            # release build (the QL keeps 1.3.6 until its version bump) and
+            # the first release alike
+            ('qlnt', '0.1.0'), ('qlnt', '1.3.6'), ('qlnt', '1.7.0'),
+            (' QLNT ', '1.7.0')]
     _no = [('sync', '5.9.1'), ('n2n', '1.0.7'), ('', ''), ('sync', ''),
            ('sync', 'x.y'), ('other', '9.9.9'), (None, None),
-           ('qlnextremote', '0.0.1'), ('zxnt', '1.5.9'), ('zxnt', '')]
+           ('qlnextremote', '0.0.1'), ('zxnt', '1.5.9'), ('zxnt', ''),
+           ('qlnt', '0.0.9'), ('qlnt', '')]
     if (all(re_peer_answers_crc(*p) for p in _yes)
             and not any(re_peer_answers_crc(*p) for p in _no)):
         print("PASS vcrc-gate: dot >= 5.9.2 / ZXNR >= 1.0.8 / zxnt >= 1.6.0 / "
-              "QLNR >= 0.1.0 answer 'K', nothing else")
+              "QLNR and qlnt >= 0.1.0 answer 'K', nothing else")
     else:
         print("FAIL vcrc-gate:", [(p, re_peer_answers_crc(*p)) for p in _yes + _no]); ok = False
     if (re_verify_wait(0) == 60.0 and re_verify_wait(1_500_000) == 160.0
@@ -2555,6 +2608,352 @@ def main():
     else:
         print("FAIL updot-dot-ren1-unchanged: ops=", ops, "upd=", upd); ok = False
 
+    # ── the second QL job: QL Next Transfer, "qlnt" (9.7.50) ────────────
+    # QLNextRemote 1.7.0 ships TWO jobs in one package: qlnextremote_exe and
+    # QL Next Transfer's qlnexttransfer_exe, whose Listener answers 'Y' with
+    # "qlnt". The job BRAND stays "QLNextRemote" for both (the nine QL gates
+    # of the worker and the toast title are untouched); only the per-file
+    # BANNER differs, by the JOB name (qlnextremote_exe_banner): the qlnt
+    # job's is QLNextTransfer, and it still names its peer "A QLNextRemote
+    # Listener" - so the brand alone would pass a misnamed build. The other
+    # job rides first as a ("sibling", …) step, held to its own banner AND
+    # to the QDOS header (a headerless sibling would land a data file over
+    # the user's working job and still pass the CRC).
+    qr136, qr170, qt170, ql_src = ql_job_blobs()
+    print(f"NOTE qlnt: the QL blobs are {ql_src} ({len(qr136)} bytes)")
+    qt_pkg = os.path.join(tmp, "qlnextremote-1.7.0")
+    os.makedirs(os.path.join(qt_pkg, "qemulator"))
+    qt_file = os.path.join(qt_pkg, "qemulator", "qlnexttransfer_exe")
+    qr_file = os.path.join(qt_pkg, "qemulator", "qlnextremote_exe")
+    open(qt_file, "wb").write(qt170)
+    open(qr_file, "wb").write(qr170)
+    qt_readme = os.path.join(qt_pkg, "README.md")
+    qt_readme_b = b"# QLNextRemote 1.7.0\r\nTwo jobs: QLNextRemote and QL Next Transfer.\r\n"
+    open(qt_readme, "wb").write(qt_readme_b)
+    qo_pkg = os.path.join(tmp, "qlnextremote-1.3.6")
+    os.makedirs(os.path.join(qo_pkg, "qemulator"))
+    qo_file = os.path.join(qo_pkg, "qemulator", "qlnextremote_exe")
+    open(qo_file, "wb").write(qr136)
+    qo_readme = os.path.join(qo_pkg, "README.md")
+    open(qo_readme, "wb").write(b"# QLNextRemote 1.3.6\r\n")
+    qlnt170 = b'Oqlnt' + bytes([0]) + b'1.7.0'
+    qlnr136 = b'Oqlnextremote' + bytes([0]) + b'1.3.6'
+    qlnr135 = b'Oqlnextremote' + bytes([0]) + b'1.3.5'
+    qtb, qrb = "W:/HOME/qlnexttransfer_exe", "W:/HOME/qlnextremote_exe"
+    qt_readme_r = "W:/HOME/README.md"
+
+    def _ql_tail(b):
+        return [('P', b + ".new"), ('K', b + ".new"), ('U', ""),
+                ('X', b + ".bak"), ('V', b + "\x00" + b + ".bak"),
+                ('V', b + ".new\x00" + b), ('Q', "X")]
+
+    # The ident: either QL job takes the QL rules (the short silence limit,
+    # Disconnect's drop, the exit purge), never the Next's; the tuple is
+    # DERIVED from zxnu_config, pinned literally here.
+    _qi = [("qlnt", "1.7.0"), (" QLNT ", ""), ("qlnextremote", "1.3.6")]
+    if (zxnu_workers.RE_QLNR_IDENT_TYPES == ("qlnextremote", "qlnt")
+            == tuple(zxnu_config.QLNR_FLAVORS)
+            and zxnu_workers.RE_QLNR_IDENT_TYPE == "qlnextremote"
+            and all(zxnu_workers.re_ident_is_qlnr(i) for i in _qi)
+            and not any(zxnu_workers.re_ident_is_next(i) for i in _qi)
+            and not zxnu_workers.re_ident_is_qlnr(("qlnt2", "1.7.0"))
+            and not zxnu_workers.re_ident_is_qlnr(("zxnt", "1.6.1"))
+            and not zxnu_http_bridge.peer_lacks_crc(
+                {"ok": True, "type": "qlnt", "number": "1.3.6"})):
+        print("PASS qlnt-ident: a 'qlnt' seat is a QL (both QL types, derived "
+              "from zxnu_config), never a Next, and never provably crc-less")
+    else:
+        print("FAIL qlnt-ident:", zxnu_workers.RE_QLNR_IDENT_TYPES,
+              [(i, zxnu_workers.re_ident_is_qlnr(i)) for i in _qi]); ok = False
+
+    # A qlnt 1.7.0 seat updates ITS job: the qlnextremote job goes first
+    # (P + the 'Y' probe + K, its header in the bytes), then the README,
+    # then the stage/verify/swap of qlnexttransfer_exe and the marked quit
+    # the QL's own success wording describes.
+    qt_cmd = ("update_dot", qt_file, "W:/HOME", "1.7.0", "qlnexttransfer_exe",
+              "QLNextRemote", True,
+              [("sibling", qr_file, "qlnextremote_exe"),
+               ("put", qt_readme, "README.md")])
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 110, [qt_cmd], "ok", qt170, ident=qlnt170)
+    if (ops == [('P', qrb), ('Y', ""), ('K', qrb),
+                ('P', qt_readme_r), ('K', qt_readme_r)] + _ql_tail(qtb)
+            and staged == [(qrb, qr170), (qt_readme_r, qt_readme_b),
+                           (qtb + ".new", qt170)]
+            and staged[0][1][:18] == b"]!QDOS File Header"
+            and len(upd) == 1 and upd[0][0] and not puts
+            and upd[0][2] == "QLNextRemote"
+            and "restart into the new build and seat itself again" in upd[0][1]
+            and any("sending the other QL job " + qrb in l for l in logs)
+            and not any("other flavor's build" in l or "on the card" in l
+                        for l in logs)):
+        print("PASS qlnt-update: a qlnt seat stages qlnexttransfer_exe, the "
+              "qlnextremote job (header and all) riding first, the README, "
+              "the swap, the QL's restart wording")
+    else:
+        print("FAIL qlnt-update: ops=", ops, "staged=",
+              [(p, len(b)) for p, b in staged], "upd=", upd, "logs=", logs)
+        ok = False
+    # ...and the reverse: a QLNextRemote seat of the same 1.7.0 package
+    # sends the qlnt job first, header and all.
+    qr_cmd = ("update_dot", qr_file, "W:/HOME", "1.7.0", "qlnextremote_exe",
+              "QLNextRemote", True, [("sibling", qt_file, "qlnexttransfer_exe")])
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 111, [qr_cmd], "ok", qr170, ident=qlnr136)
+    if (ops == [('P', qtb), ('Y', ""), ('K', qtb)] + _ql_tail(qrb)
+            and staged == [(qtb, qt170), (qrb + ".new", qr170)]
+            and staged[0][1][:18] == b"]!QDOS File Header"
+            and len(upd) == 1 and upd[0][0] and upd[0][2] == "QLNextRemote"):
+        print("PASS qlnt-sibling: a QLNextRemote seat sends the qlnt job "
+              "first, with its header, then swaps its own")
+    else:
+        print("FAIL qlnt-sibling: ops=", ops, "upd=", upd); ok = False
+    # A package from before QL Next Transfer (1.3.6) is whole with one job:
+    # the QLNextRemote update runs exactly as before, the real job's own
+    # bytes passing its banner check.
+    qo_cmd = ("update_dot", qo_file, "W:/HOME", "1.3.6", "qlnextremote_exe",
+              "QLNextRemote", True, [("put", qo_readme, "README.md")])
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 112, [qo_cmd], "ok", qr136, ident=qlnr135)
+    if (ops == [('P', qt_readme_r), ('Y', ""), ('K', qt_readme_r)]
+            + _ql_tail(qrb)
+            and staged[-1] == (qrb + ".new", qr136)
+            and len(upd) == 1 and upd[0][0]):
+        print("PASS qlnt-pre170: a 1.3.6 package without the qlnt job still "
+              "updates QLNextRemote, no sibling")
+    else:
+        print("FAIL qlnt-pre170: ops=", ops, "upd=", upd); ok = False
+
+    # Small stand-ins for the refusals and failures below (no bytes move,
+    # or they move several times): the same banner shapes.
+    ql_h = ql_hdr
+    sq_dir = os.path.join(tmp, "qlnt-small", "qlnextremote-1.7.0", "qemulator")
+    os.makedirs(sq_dir)
+    sq_r = os.path.join(sq_dir, "qlnextremote_exe")
+    sq_t = os.path.join(sq_dir, "qlnexttransfer_exe")
+    sq_r_b = ql_h + b"\x60\x00" + b"QLNextRemote\x00" + b"1.7.0\x00r"
+    sq_t_b = (ql_h + b"\x60\x00" + b"QLNextTransfer\x00" + b"1.7.0\x00"
+              + b"A QLNextRemote Listener\x00t")
+    open(sq_r, "wb").write(sq_r_b)
+    open(sq_t, "wb").write(sq_t_b)
+    mis_dir = os.path.join(tmp, "qlnt-mis", "qlnextremote-1.7.0", "qemulator")
+    os.makedirs(mis_dir)
+    mis_t = os.path.join(mis_dir, "qlnexttransfer_exe")   # QLNextRemote bytes
+    mis_r = os.path.join(mis_dir, "qlnextremote_exe")     # QLNextTransfer bytes
+    mis_nohdr = os.path.join(mis_dir, "nohdr_qlnexttransfer_exe")
+    open(mis_t, "wb").write(sq_r_b)
+    open(mis_r, "wb").write(sq_t_b)
+    open(mis_nohdr, "wb").write(sq_t_b[30:])
+
+    def _refused(port, cmd, ident, *needles):
+        o, s, u, p, l = run_update_scenario(
+            port, [cmd, ("quit",)], "ok", sq_t_b, ident=ident)
+        good = (o == [('Q', "")] and s == [] and len(u) == 1 and not u[0][0]
+                and u[0][2] == "QLNextRemote" and not p
+                and all(n in u[0][1] for n in needles))
+        return good, o, u
+
+    # The per-file banner, both ways: a qlnexttransfer_exe holding only the
+    # QLNextRemote banner, and a qlnextremote_exe carrying QLNextTransfer
+    # (the negative check - it contains "QLNextRemote" too, so the banner
+    # alone would pass it).
+    good, o, u = _refused(
+        PORT + 113, ("update_dot", mis_t, "W:/HOME", "1.7.0",
+                     "qlnexttransfer_exe", "QLNextRemote", True, []),
+        qlnt170, "does not look like a QLNextTransfer 1.7.0 build", mis_t)
+    print(("PASS" if good else "FAIL") + " qlnt-banner: a qlnexttransfer_exe "
+          "without the QLNextTransfer banner refuses, nothing sent"
+          + ("" if good else f" ops={o} upd={u}"))
+    ok = ok and good
+    good, o, u = _refused(
+        PORT + 114, ("update_dot", mis_r, "W:/HOME", "1.7.0",
+                     "qlnextremote_exe", "QLNextRemote", True, []),
+        qlnr136, "does not look like a QLNextRemote 1.7.0 build", mis_r)
+    print(("PASS" if good else "FAIL") + " qlnt-banner-neg: a qlnextremote_exe "
+          "that carries QLNextTransfer refuses, though it says QLNextRemote too"
+          + ("" if good else f" ops={o} upd={u}"))
+    ok = ok and good
+    # The sibling's own banner and its QDOS header, before a byte moves.
+    good, o, u = _refused(
+        PORT + 115, ("update_dot", sq_r, "W:/HOME", "1.7.0",
+                     "qlnextremote_exe", "QLNextRemote", True,
+                     [("sibling", mis_t, "qlnexttransfer_exe")]),
+        qlnr136, "does not look like a QLNextTransfer 1.7.0 build", mis_t)
+    print(("PASS" if good else "FAIL") + " qlnt-sib-banner: a qlnt sibling "
+          "without its banner refuses, nothing sent"
+          + ("" if good else f" ops={o} upd={u}"))
+    ok = ok and good
+    good, o, u = _refused(
+        PORT + 116, ("update_dot", sq_r, "W:/HOME", "1.7.0",
+                     "qlnextremote_exe", "QLNextRemote", True,
+                     [("sibling", mis_nohdr, "qlnexttransfer_exe")]),
+        qlnr136, "does not start with the QDOS executable header",
+        "qemulator/qlnexttransfer_exe", mis_nohdr)
+    print(("PASS" if good else "FAIL") + " qlnt-sib-header: a headerless "
+          "sibling refuses before a byte moves, naming the file to send"
+          + ("" if good else f" ops={o} upd={u}"))
+    ok = ok and good
+    # A sibling the plan names but the disk lacks: refused, QL words.
+    good, o, u = _refused(
+        PORT + 117, ("update_dot", sq_r, "W:/HOME", "1.7.0",
+                     "qlnextremote_exe", "QLNextRemote", True,
+                     [("sibling", os.path.join(sq_dir, "gone_exe"),
+                       "qlnexttransfer_exe")]),
+        qlnr136, "the other QL job is not there", "nothing was sent")
+    print(("PASS" if good else "FAIL") + " qlnt-sib-missing: a sibling not on "
+          "disk refuses, nothing sent"
+          + ("" if good else f" ops={o} upd={u}"))
+    ok = ok and good
+    # The typed-other rule, both ways: a target named for the OTHER job
+    # would be swapped in over it and never started (each job's relaunch
+    # rule knows only its own name).
+    good, o, u = _refused(
+        PORT + 118, ("update_dot", sq_r, "W:/HOME", "1.7.0",
+                     "qlnexttransfer_exe", "QLNextRemote", True, []),
+        qlnr136, "is the qlnt job's file name", qtb, sq_r)
+    print(("PASS" if good else "FAIL") + " qlnt-typed-other: a QLNextRemote "
+          "build typed as qlnexttransfer_exe refuses, nothing sent"
+          + ("" if good else f" ops={o} upd={u}"))
+    ok = ok and good
+    good, o, u = _refused(
+        PORT + 119, ("update_dot", sq_t, "W:/HOME", "1.7.0",
+                     "qlnextremote_exe", "QLNextRemote", True, []),
+        qlnt170, "is the qlnextremote job's file name", qrb, sq_t)
+    print(("PASS" if good else "FAIL") + " qlnt-typed-other-rev: the qlnt "
+          "build typed as qlnextremote_exe refuses, nothing sent"
+          + ("" if good else f" ops={o} upd={u}"))
+    ok = ok and good
+
+    # QL words for a sibling that fails: the QL deletes the old copy before
+    # the put (and a copy that failed its retries too), so HOME may hold NO
+    # copy of the other app - name it, and the way back.
+    sq_cmd = ("update_dot", sq_t, "W:/HOME", "1.7.0", "qlnexttransfer_exe",
+              "QLNextRemote", True, [("sibling", sq_r, "qlnextremote_exe")])
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 120, [sq_cmd, ("quit",)], "ok", sq_t_b, ident=qlnt170,
+        pak={'k_bad': {qrb: -1}})
+    if (len(upd) == 1 and not upd[0][0] and upd[0][2] == "QLNextRemote"
+            and "failed while sending the other QL job " + qrb in upd[0][1]
+            and qrb + " may be missing from HOME now" in upd[0][1]
+            and "INSTALL_bas" in upd[0][1]
+            and "the QL still runs its current build" in upd[0][1]
+            and not any(o in ('U', 'V') for o, _a in ops)):
+        print("PASS qlnt-sib-fail: a sibling that never verifies -> the QL's "
+              "words: the other job may be missing from HOME, INSTALL_bas")
+    else:
+        print("FAIL qlnt-sib-fail: ops=", ops, "upd=", upd); ok = False
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 121, [sq_cmd], "ok", sq_t_b, ident=qlnt170,
+        pak={'kill_at': qrb})
+    if (len(upd) == 1 and not upd[0][0] and upd[0][2] == "QLNextRemote"
+            and "the session ended while sending the other QL job " + qrb
+            in upd[0][1]
+            and "in HOME" in upd[0][1] and "INSTALL_bas" in upd[0][1]
+            and "on the card" not in upd[0][1]):
+        print("PASS qlnt-sib-death: link lost during the sibling -> the QL's "
+              "words, in HOME, INSTALL_bas")
+    else:
+        print("FAIL qlnt-sib-death: ops=", ops, "upd=", upd); ok = False
+    # A sibling that LANDED, then the swap refused: the note says HOME.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 122, [sq_cmd], "ren1_osp", sq_t_b, ident=qlnt170)
+    if (len(upd) == 1 and not upd[0][0]
+            and ("The other QL job " + qrb
+                 + " had already been replaced in HOME too.") in upd[0][1]
+            and "on the card" not in upd[0][1]):
+        print("PASS qlnt-sib-note: a refused swap after the sibling landed "
+              "says the other QL job was replaced in HOME")
+    else:
+        print("FAIL qlnt-sib-note: upd=", upd); ok = False
+    # The out-of-reach probe follows the SEAT's own job (9.7.50): a qlnt
+    # seat lists HOME for qlnexttransfer_exe and installs it...
+    sqt_alone = sq_cmd[:7] + ([],)
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 123, [sqt_alone], "ren1_refuse", sq_t_b, ident=qlnt170,
+        ql_ls={"W:/HOME": ["qlnexttransfer_exe.new", "README.md"]})
+    if (ops[-3:] == [('L', "W:/HOME"), ('V', qtb + ".new\x00" + qtb),
+                     ('Q', "X")]
+            and len(upd) == 1 and upd[0][0]
+            and "installed as " + qtb in upd[0][1]
+            and "EXEC_W win1_HOME_qlnexttransfer_exe" in upd[0][1]):
+        print("PASS qlnt-probe: a qlnt seat probes and installs "
+              "qlnexttransfer_exe, EXEC_W win1_HOME_qlnexttransfer_exe")
+    else:
+        print("FAIL qlnt-probe: ops=", ops, "upd=", upd); ok = False
+    # ...but never for the OTHER job's name: a qlnt seat's relaunch rule
+    # would not start qlnextremote_exe, so no 'L' and the plain failure.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 124, [("update_dot", sq_r, "W:/HOME", "1.7.0",
+                      "qlnextremote_exe", "QLNextRemote", True, [])],
+        "ren1_refuse", sq_r_b, ident=qlnt170,
+        ql_ls={"W:/HOME": ["qlnextremote_exe.new", "README.md"]})
+    if (ops[-2:] == [('V', qrb + "\x00" + qrb + ".bak"), ('Q', "")]
+            and not any(o == 'L' for o, _a in ops)
+            and len(upd) == 1 and not upd[0][0]
+            and "installed as" not in upd[0][1]):
+        print("PASS qlnt-probe-gate: a qlnt seat never probes for "
+              "qlnextremote_exe - no 'L', plain 'Q'")
+    else:
+        print("FAIL qlnt-probe-gate: ops=", ops, "upd=", upd); ok = False
+
+    # The pure twins agree: the QL flavor table, the first-release table and
+    # the job / banner / foreign-banner / due-job helpers answer identically
+    # in zxnu_config (the app) and nextsync5 (the console, which imports no
+    # app module) - and the values are the ones the QL repo ships.
+    _qn = ["qlnexttransfer_exe", "QLNEXTTRANSFER_EXE", "W:/HOME/qlnexttransfer_exe",
+           "win1_HOME_qlnexttransfer_exe", "C:\\pkg\\qemulator\\qlnexttransfer_exe",
+           "qlnextremote_exe", "W:/HOME/qlnextremote_exe", "qlnexttransfer_exe.bak",
+           "qlnexttransfer_exe.new", "myjob_exe", "", None]
+    _qv = ["1.3.6", "1.6.9", "1.7.0", "1.7.1", "0.5.0", "", "beta", "1.7", None]
+    _qb = [b"", b"QLNextRemote", b"QLNextTransfer", b"QLNextRemote QLNextTransfer"]
+    C = zxnu_config
+    if (C.QLNR_FLAVORS == ("qlnextremote", "qlnt") == nextsync5.QLNR_FLAVORS
+            and C.QLNR_FLAVOR_JOBS == nextsync5.QLNR_FLAVOR_JOBS
+            == {"qlnextremote": "qlnextremote_exe", "qlnt": "qlnexttransfer_exe"}
+            and C.QLNR_FLAVOR_SINCE == nextsync5.QLNR_FLAVOR_SINCE
+            and C.QLNR_FLAVOR_SINCE["qlnt"] == (1, 7, 0)
+            and all(C.qlnr_job_flavor(n) == nextsync5._qlnr_job_flavor(n)
+                    for n in _qn)
+            and all(C.qlnextremote_exe_banner(n) == nextsync5._qlnr_exe_banner(n)
+                    for n in _qn)
+            and all(C.qlnextremote_exe_foreign_banner(n, b)
+                    == nextsync5._qlnr_exe_foreign_banner(n, b)
+                    for n in _qn for b in _qb)
+            and all(C.qlnextremote_flavors_due(v) == nextsync5._qlnr_flavors_due(v)
+                    for v in _qv)
+            and C.qlnr_job_flavor("W:/HOME/qlnexttransfer_exe") == "qlnt"
+            and C.qlnr_job_flavor("qlnexttransfer_exe.bak") == ""
+            and C.qlnextremote_exe_banner("qlnexttransfer_exe") == "QLNextTransfer"
+            and C.qlnextremote_exe_banner("myjob_exe") == "QLNextRemote"
+            and C.qlnextremote_exe_foreign_banner(
+                "qlnextremote_exe", b"QLNextTransfer") == "QLNextTransfer"
+            and C.qlnextremote_exe_foreign_banner(
+                "qlnexttransfer_exe", b"A QLNextRemote Listener") == ""
+            and C.qlnextremote_flavors_due("1.6.9") == ("qlnextremote",)
+            and C.qlnextremote_flavors_due("1.7.0") == ("qlnextremote", "qlnt")
+            and C.qlnextremote_flavors_due("") == ("qlnextremote", "qlnt")):
+        print("PASS qlnt-twins: QL flavors, jobs, first releases, and the job, "
+              "banner, foreign-banner and due-job helpers agree across the app "
+              "and the console")
+    else:
+        print("FAIL qlnt-twins:", C.QLNR_FLAVORS, nextsync5.QLNR_FLAVORS,
+              [(n, C.qlnr_job_flavor(n), nextsync5._qlnr_job_flavor(n)) for n in _qn],
+              [(v, C.qlnextremote_flavors_due(v), nextsync5._qlnr_flavors_due(v))
+               for v in _qv])
+        ok = False
+    # The real (or stand-in) jobs pass their own banner and fail the other's.
+    if (C.qlnextremote_exe_banner("qlnexttransfer_exe").encode() in qt170
+            and not C.qlnextremote_exe_foreign_banner("qlnexttransfer_exe", qt170)
+            and C.qlnextremote_exe_banner("qlnextremote_exe").encode() in qr170
+            and not C.qlnextremote_exe_foreign_banner("qlnextremote_exe", qr170)
+            and C.qlnextremote_exe_foreign_banner("qlnextremote_exe", qt170)
+            and b"QLNextTransfer" not in qr170
+            and b"A QLNextRemote Listener" in qt170):
+        print("PASS qlnt-blobs: each job carries its own banner; the qlnt one "
+              "still names its peer 'A QLNextRemote Listener' (the trap)")
+    else:
+        print("FAIL qlnt-blobs"); ok = False
+
     # ── verify-after-put (Settings → Verify CRC, 9.7.3) ────────────────
     # A UI put is followed by the worker's own 'K' exchange as a local_cmds
     # continuation, gated on the session's 'Y' ident (self-probed when nobody
@@ -2854,6 +3253,18 @@ def main():
     else:
         print("FAIL twin: a ZXNR flavor lacks a crc floor:",
               [(n, t) for n, t in _floors]); ok = False
+    # ...and every QL flavor too (9.7.50), qlnt at QLNextRemote's OWN floor:
+    # the same listener.c answers 'K' in both jobs, and a floor at qlnt's
+    # first release would make every pre-release build skip the verify here
+    # and the bridge answer 501 "peer has no crc op" - provably old, falsely.
+    if (all(f in t[1] for t in _floors for f in zxnu_config.QLNR_FLAVORS)
+            and all(t[1]["qlnt"] == t[1]["qlnextremote"] == (0, 1, 0)
+                    for t in _floors)):
+        print("PASS twin: every QL flavor has a crc floor, qlnt's is "
+              "QLNextRemote's 0.1.0")
+    else:
+        print("FAIL twin: a QL flavor lacks a crc floor:",
+              [(n, t) for n, t in _floors]); ok = False
 
     # And the bridge's strict verdict must never contradict the worker's
     # gate: anything the bridge is willing to call PROVABLY old, the worker
@@ -2864,6 +3275,7 @@ def main():
                ("n2n", "1.0.7"), ("n2n", "1.0.8"), ("httpbridge", "1.1.9"),
                ("httpbridge", "1.0.7"), ("weird", "9.9.9"),
                ("zxnt", "1.5.9"), ("zxnt", "1.6.0"), ("zxnt", "1.6.1"),
+               ("qlnt", "0.0.9"), ("qlnt", "1.3.6"), ("qlnt", "1.7.0"),
                ("sync", "banana"), ("sync", ""), ("", "1.0.8")]
     _bad = [i for i in _idents
             if zxnu_http_bridge.peer_lacks_crc(

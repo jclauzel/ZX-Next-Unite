@@ -9,7 +9,9 @@ could not clear it - its quit is only served in reply to a Poll - and the
 quit even stayed on the shared queue for the NEXT baton holder to pop.
 
 Everything new is gated on the SESSION'S OWN 'Y' answer being exactly
-"qlnextremote". What this locks down, with the limits shortened:
+"qlnextremote" - or, since 9.7.50, QL Next Transfer's "qlnt" (the second
+QL job, QLNextRemote 1.7.0; a qlnt reap round and a qlnt Disconnect drop
+below). What this locks down, with the limits shortened:
 
 * A silent seat that answered "qlnextremote" is reaped at
   QLNR_PEER_SILENCE_LIMIT with the existing "no word from the Next" line;
@@ -78,6 +80,11 @@ PORT = 0
 ok = True
 
 QL = b"qlnextremote\x001.1.4"
+# 9.7.50: QL Next Transfer, the second QL job (QLNextRemote 1.7.0's landing
+# screen) - the same Listener on the same QL core, so the same field case
+# and the same rules (zxnu_workers.RE_QLNR_IDENT_TYPES).
+QLNT = b"qlnt\x001.7.0"
+ZXNT = b"zxnt\x001.6.1"
 SYNC = b"sync\x005.9.13"
 N2N = b"n2n\x001.5.4"
 HTTPB = b"httpbridge\x001.5.4"
@@ -284,10 +291,11 @@ def shared_items(q):
 # ---------------------------------------------------------------------------
 # 1. the QL-only silence limit, against every other brand
 # ---------------------------------------------------------------------------
-def _limit_round(label, twins, ql_limit=2.0, peer_limit=8.0):
-    """One server: a QL seat (sid 1, active) plus `twins` [(name, ident)]
-    benched behind it. Everyone goes silent together; record when each
-    seat leaves the roster."""
+def _limit_round(label, twins, ql_limit=2.0, peer_limit=8.0, ql=QL):
+    """One server: a QL seat (sid 1, active; ``ql`` its 'Y' answer - either
+    QL job since 9.7.50) plus `twins` [(name, ident)] benched behind it.
+    Everyone goes silent together; record when each seat leaves the
+    roster."""
     next_port()
     cmd_q, stop = queue.Queue(), threading.Event()
     control = {"seq": 0}
@@ -302,7 +310,7 @@ def _limit_round(label, twins, ql_limit=2.0, peer_limit=8.0):
             check(f"{label}: the QL holds the baton (first seated)",
                   wait_until(lambda: active(control) == 1), active(control))
             cmd_q.put(("version",))         # what the widget asks the driven seat
-            answer_y(q, QL, f"{label} QL")
+            answer_y(q, ql, f"{label} QL")
             # Each seat's own last word, and a watcher recording when each
             # leaves the roster - started NOW, so a slow setup below cannot
             # hide when the QL went.
@@ -318,8 +326,9 @@ def _limit_round(label, twins, ql_limit=2.0, peer_limit=8.0):
                     time.sleep(0.05)
             watcher = threading.Thread(target=_watch, daemon=True)
             watcher.start()
+            _qlt, _qln = (p.decode() for p in ql.split(b"\x00", 1))
             check(f"{label}: the QL's ident reached the widget",
-                  wait_until(lambda: ("qlnextremote", "1.1.4") in state["idents"]),
+                  wait_until(lambda: (_qlt, _qln) in state["idents"]),
                   state["idents"])
             peers = []
             for i, (name, ident) in enumerate(twins):
@@ -377,6 +386,10 @@ def test_ql_limit_reaps_only_the_ql():
                              ("a seat never asked", "never")])
     _limit_round("round 2", [("httpbridge", HTTPB),
                              ("a listener too old for 'Y'", "old")])
+    # 9.7.50: a QL Next Transfer seat ('qlnt') is reaped at the QL limit
+    # exactly like QLNextRemote's - Unite 9.7.49 left it on the 620 s path -
+    # while ZX Next Transfer ('zxnt', a NEXT job, local here) is not.
+    _limit_round("round 3 (qlnt)", [("zxnt", ZXNT), ("n2n", N2N)], ql=QLNT)
 
 
 # ---------------------------------------------------------------------------
@@ -520,6 +533,64 @@ def test_disconnect_drop():
             check("only ONE drop line was logged",
                   len(logged(state, DROPPED, n_log)) == 1, state["logs"][n_log:])
             check("no error signal", state["errors"] == [], state["errors"])
+        finally:
+            stop.set()
+            close_all(socks)
+            th.join(timeout=10)
+
+
+def test_disconnect_drop_qlnt():
+    """9.7.50: Disconnect's drop clears a silent QL Next Transfer seat
+    ('qlnt') as it does a QLNextRemote one - under 9.7.49 such a seat took
+    neither the QL rule nor the Next rule, and Disconnect could not clear
+    it - while a marked ZX Next Transfer seat ('zxnt', a Next job dialing
+    from this PC here) is left alone and collects the plain marked quit at
+    its next Poll."""
+    print("\n== Disconnect drops a silent QL Next Transfer seat ==")
+    next_port()
+    cmd_q, stop = queue.Queue(), threading.Event()
+    control = {"seq": 0}
+    socks = []
+    with Limits(QLNR_PEER_SILENCE_LIMIT=60.0, PEER_SILENCE_LIMIT=600.0,
+                QLNR_DROP_SILENCE=1.0):
+        th, state = start_server(cmd_q, stop, control)
+        try:
+            q = connect_next()
+            socks.append(q)
+            cmd_q.put(("version",))
+            answer_y(q, QLNT, "qlnt")
+            z = connect_next()
+            socks.append(z)
+            check("qlnt: the zxnt seat is #2",
+                  wait_until(lambda: seated(control) == [1, 2]), seated(control))
+            control["enqueue_to"](2, ("version",))
+            answer_y(z, ZXNT, "zxnt")
+            n_log = len(state["logs"])
+            cmd_q.put(("quit_app",))                  # the driven qlnt's quit
+            check("qlnt: enqueue_to the zxnt seat",
+                  control["enqueue_to"](2, ("quit_app",)))
+            t0 = time.monotonic()
+            check("qlnt: mark the qlnt seat", control["drop_silent"](1) is True)
+            check("qlnt: mark the zxnt seat", control["drop_silent"](2) is True)
+            check("qlnt: the silent qlnt seat is dropped",
+                  wait_until(lambda: 1 not in seated(control), timeout=5.0),
+                  seated(control))
+            took = time.monotonic() - t0
+            check("qlnt: ...within about QLNR_DROP_SILENCE", took < 3.5,
+                  f"{took:.1f}s")
+            check("qlnt: ...its link is closed", link_closed(q, 2.0))
+            check("qlnt: ...with the drop line naming it, not a silence verdict",
+                  any(ADDR in m for m in logged(state, DROPPED, n_log))
+                  and not logged(state, NO_WORD, n_log), state["logs"][n_log:])
+            check("qlnt: ...and its quit left the shared queue with it",
+                  shared_items(cmd_q) == [], shared_items(cmd_q))
+            time.sleep(1.5)
+            check("qlnt: the marked zxnt seat is untouched",
+                  2 in seated(control), seated(control))
+            got = safe_poll(z)
+            check("qlnt: ...and still gets the plain marked quit at its Poll",
+                  got == QUIT_X, got)
+            check("qlnt: no error signal", state["errors"] == [], state["errors"])
         finally:
             stop.set()
             close_all(socks)
@@ -1171,11 +1242,17 @@ def test_helpers():
     f = zxnu_workers.re_ident_is_qlnr
     check("QL ident: exact type", f(("qlnextremote", "1.1.4")))
     check("QL ident: stripped and case-folded", f((" QLNextRemote ", "")))
+    # 9.7.50: QL Next Transfer is a QL too - every type of the tuple derived
+    # from zxnu_config.QLNR_FLAVORS, pinned literally here.
+    check("QL ident: QL Next Transfer's 'qlnt', exact and case-folded",
+          f(("qlnt", "1.7.0")) and f((" QLNT ", ""))
+          and zxnu_workers.RE_QLNR_IDENT_TYPES == ("qlnextremote", "qlnt"))
     check("not QL: None (never asked)", not f(None))
     check("not QL: ('', '') (too old for 'Y')", not f(("", "")))
     check("not QL: the other brands",
           not any(f((t, "1")) for t in ("sync", "n2n", "httpbridge", "test",
-                                        "qlnextremote2", "ql", "QLNR")))
+                                        "qlnextremote2", "ql", "QLNR",
+                                        "qlnt2", "zxnt", "qlnextt")))
     q = queue.Queue()
     r = BridgeReply()
     for c in [("mkdir", "/a"), ("quit_app",), ("ls", "/"), ("quit_app", r),
@@ -1198,6 +1275,7 @@ if __name__ == "__main__":
     test_ql_limit_reaps_only_the_ql()
     test_long_command_then_late_poll()
     test_disconnect_drop()
+    test_disconnect_drop_qlnt()
     test_live_marked_ql_still_quits()
     test_busy_marked_ql_is_not_dropped()
     test_drop_spares_the_put_eof_pull()
