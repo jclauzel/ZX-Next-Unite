@@ -46,6 +46,7 @@ SUITES = [
     ("test_startup_tab_activation.py", 120, None),
     ("test_transfer_tab.py",     120, None),
     ("test_cspect_autostart.py",  120, None),
+    ("test_cspect_launch.py",    120, None),
     ("test_mame_autostart.py",   120, None),
     ("test_nextsync_autostart.py", 120, None),
     ("test_nextsync_verify_crc.py", 120, None),

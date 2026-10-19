@@ -616,6 +616,31 @@ TEXTS = {
               "dans /games/StarterPack, chacun dans son dossier. Voulez-"
               "vous que je le lance pour vous ?",
     },
+    # 9.7.51: the emulator no longer freezes the window while it runs, so
+    # the pack can be asked for while the card is still mounted in it.
+    "sp.wait_free": {
+        "en": "The card is still mounted in the emulator, so nothing can "
+              "be copied onto it yet. Close the emulator and I'll fill it "
+              "with the starter pack right away. 🎁",
+        "es": "La tarjeta sigue montada en el emulador, así que todavía "
+              "no se puede copiar nada en ella. Cierra el emulador y la "
+              "llenaré con el pack de inicio enseguida. 🎁",
+        "pt": "O cartão ainda está montado no emulador, por isso ainda "
+              "não dá para copiar nada para ele. Fecha o emulador e eu "
+              "encho-o já com o pacote inicial. 🎁",
+        "pl": "Karta jest wciąż zamontowana w emulatorze, więc nie można "
+              "jeszcze nic na nią skopiować. Zamknij emulator, a od razu "
+              "wypełnię ją pakietem startowym. 🎁",
+        "ru": "Карта всё ещё подключена к эмулятору, поэтому на неё пока "
+              "ничего нельзя скопировать. Закройте эмулятор, и я сразу "
+              "наполню её стартовым набором. 🎁",
+        "cs": "Karta je pořád připojená v emulátoru, takže na ni zatím "
+              "nejde nic zkopírovat. Zavři emulátor a hned ji naplním "
+              "startovním balíčkem. 🎁",
+        "fr": "La carte est encore montée dans l'émulateur, on ne peut "
+              "donc rien y copier pour l'instant. Fermez l'émulateur et "
+              "je la remplis aussitôt avec le pack de démarrage. 🎁",
+    },
     "sp.offer": {
         "en": "Nice, your disk image is loaded! Shall I fill it with the "
               "🎁 Starter pack — 20 great freely-distributable homebrew "

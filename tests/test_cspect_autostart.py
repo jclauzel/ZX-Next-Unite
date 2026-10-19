@@ -76,8 +76,13 @@ if fn is not None:
     check("a Qt clicked() bool cannot be taken for a file name",
           "isinstance" in body,
           "launch_cspect is also a clicked() slot")
+    # The two APPENDS themselves, not the first mention of each: "-mmc=" and
+    # "autostart_file.strip" both occur in the docstring and the guard first,
+    # so comparing those positions passed whatever order the appends had.
+    _mmc_at = src.find('cspect_arguments += " -mmc=" + mmc_path')
+    _auto_at = src.find("cspect_arguments += f'\"{_auto}\" '")
     check("the file is appended after -mmc, not before",
-          src.index("-mmc=") < src.index("autostart_file.strip"))
+          -1 < _mmc_at < _auto_at, f"mmc={_mmc_at} auto={_auto_at}")
     # THE bug this feature shipped with: CSpect resolves the trailing argument
     # against its own working directory, so an in-image path made it look for
     # <cspect dir>/<in-image path> and fail. The argument must be an absolute
@@ -171,14 +176,31 @@ check("the image-explorer action sits above the rest of that menu",
       f"cspect={img_at} newfolder={newfolder_at}")
 
 # The local action must upload BEFORE launching, and not launch on failure.
-loc_at = ops.find("def _send_and_start")
-seg = ops[loc_at:loc_at + 1400] if loc_at != -1 else ""
+loc_at = ops.find("def _send_and_start(")
+seg = ops[loc_at:ops.find("menu.addAction", loc_at)] if loc_at != -1 else ""
 check("the local action uploads first, then launches",
       seg.index("image_upload_external_paths") > seg.index("_launch_cspect_fn")
       or "on_complete=_after" in seg,
       "upload must drive the launch through its completion callback")
 check("a failed transfer does not start CSpect",
       "if not success" in seg)
+# 9.7.51: CSpect no longer blocks the UI, so its own running session is the
+# usual holder of the image. The launcher's gate must be asked BEFORE the
+# upload - asking after it wrote into a card a live NextZXOS had mounted, and
+# then refused to start anyway.
+check("the local action asks the launch gate before it uploads",
+      "_send_and_start_refused(\"CSpect\")" in seg
+      and seg.index("_send_and_start_refused") < seg.index("image_upload_external_paths"))
+_gate = ops[ops.find("def _send_and_start_refused"):]
+_gate = _gate[:_gate.find("def _send_and_start(")]
+check("that gate is the launcher's own blocker, not a re-derived rule",
+      "_emulator_launch_blocker" in _gate)
+_mame_at = ops.find("def _send_and_start_mame(")
+_mame_seg = ops[_mame_at:ops.find("menu.addAction", _mame_at)]
+check("the MAME twin asks its gate before uploading too",
+      "_send_and_start_refused(\"MAME\")" in _mame_seg
+      and _mame_seg.index("_send_and_start_refused")
+      < _mame_seg.index("image_upload_external_paths"))
 
 print()
 if FAIL:

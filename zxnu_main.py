@@ -1880,7 +1880,8 @@ class MainWindow(QMainWindow):
             # their own gate (an image must be ready AND free), and a blunt
             # setDisabled(False) here silently un-greyed a button whose
             # image another emulator still holds - at the end of every
-            # transfer, every load and every CSpect exit. _update_*_controls
+            # transfer and every load (and, until CSpect stopped blocking
+            # the UI in 9.7.51, every CSpect exit). _update_*_controls
             # at the tail of this function decides them instead.
             self.cspect_screensize.setDisabled(False)
             self.cspect_sound.setDisabled(False)

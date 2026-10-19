@@ -1514,6 +1514,9 @@ def build_nextsync_pane(
             # the classic explorer; the widget itself knows nothing about which
             # emulators are installed.
             emulator_entries=lambda path: emulator_autostart_entries(host, path),
+            image_write_blocker=lambda path: (
+                getattr(host, "_image_write_blocker", None)
+                or (lambda _p: ""))(path),
             on_toast=lambda title, msg, variant="red": host._show_toast(
                 title, msg, variant=variant, duration_ms=9000))
         host._re_widget = widget
@@ -1758,13 +1761,26 @@ def build_nextsync_pane(
     def _re_auto_relisten():
         """Deferred restart of the listen server after the Next hung up
         (see _nextsync_on_re_disconnected). Skipped if the user restarted
-        it themselves or left Remote Explorer mode in the meantime."""
+        it themselves or left Remote Explorer mode in the meantime.
+
+        "Left Remote Explorer mode" means CHOSE CLASSIC, and nothing else
+        (9.7.51). This tested `currentIndex() != TRANSFER_SUBTAB_REMOTE`,
+        which before the 9.7.38 merge meant exactly that - the bar held only
+        the two NextSync experiences. The merge put the SD Card Utility in
+        front of them, and since then a Next hanging up while the user was
+        on the SD Card page (launching CSpect, say) never got its listener
+        back: the console still said "restarting the listen server", and
+        nothing listened. The SD Card page leaves the NextSync experience
+        untouched (see _nextsync_on_mode_tab_changed), so on it the choice
+        is the one last made between the other two."""
         if host._re_running:
             return
         try:
-            if host.nextsync_mode_tabs.currentIndex() != TRANSFER_SUBTAB_REMOTE:
-                return
+            index = host.nextsync_mode_tabs.currentIndex()
         except RuntimeError:
+            return
+        if not transfer_relisten_allowed(
+                index, getattr(host, "_nextsync_last_experience", "remote")):
             return
         _nextsync_start_listen_server()
 
@@ -2261,6 +2277,11 @@ def build_nextsync_pane(
     host._nextsync_re_toggle_server = _nextsync_re_toggle_server
 
     def _nextsync_toggle_remote_explorer(checked):
+        # The NextSync experience last shown, in memory and whatever the
+        # restore flags say (the persisted setting is skipped while one is
+        # set): _re_auto_relisten reads it when the user is on the SD Card
+        # page, which leaves the experience as it was (9.7.51).
+        host._nextsync_last_experience = "remote" if checked else "classic"
         if checked:
             _nextsync_build_remote_explorer()
             # The stack entry is the container (explorer + mini log).

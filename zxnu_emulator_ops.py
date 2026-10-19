@@ -27,6 +27,7 @@ getter hook. See CLAUDE.md and the memory ``strangler-extraction-pattern``.
 """
 from __future__ import annotations
 
+import collections
 import json
 import logging
 import os
@@ -37,6 +38,7 @@ import sys
 import threading
 import time
 import urllib.request
+import weakref
 import webbrowser
 import zipfile
 
@@ -430,11 +432,37 @@ def build_emulator_ops(
         save_configuration_file()
 
     def open_cspect_configuration_file():
-        if platform.system() == "Windows":
-            execute_shell_command("notepad", ZX_NEXT_UNITE_CONFIG_FILE_NAME)
-        else:
-            execute_shell_command("vim", "./" + ZX_NEXT_UNITE_CONFIG_FILE_NAME)
-        return
+        """Open hdfg.cfg in a text editor, WITHOUT waiting for it (9.7.51).
+
+        This went through the same blocking shell helper CSpect's launch
+        did, so the app froze until the editor was closed - on Linux/macOS
+        with vim, no terminal and a piped stdout, on a "./"-prefixed path
+        that has been ABSOLUTE since the data root (ZXNU_DATA_ROOT) existed.
+        Notepad gets the path as one argv entry, so a data root with spaces
+        in it is not split; elsewhere the OS's own association opens it.
+        """
+        path = ZX_NEXT_UNITE_CONFIG_FILE_NAME
+        opened = False
+        try:
+            if platform.system() == "Windows":
+                subprocess.Popen(["notepad.exe", path])
+                opened = True
+            else:
+                opened = open_path_with_system_shell(path)
+        except OSError:
+            logging.exception("could not open the configuration file")
+        if not opened:
+            message = ui_tr_now(
+                "Could not open the configuration file {path}.").format(
+                    path=path)
+            add_main_log_window(message)
+            # The button lives on the Settings tab, where the SD Card log
+            # cannot be seen - so say it where the user is, too.
+            try:
+                host._show_toast(ui_tr_now("Open config file"), message,
+                                 variant="red", duration_ms=9000)
+            except (RuntimeError, AttributeError):
+                logging.exception("could not show the config-file toast")
 
     def _emulator_launch_failed(emulator, message):
         """Report a launch that produced nothing, where the user can see it.
@@ -454,6 +482,10 @@ def build_emulator_ops(
         except (RuntimeError, AttributeError):
             # Toasts are best-effort UI; never let one break a launch path.
             logging.exception("could not show the launch-failure toast")
+
+    # The SD Card pane's "Send to SD Card and start …" refuses through this
+    # too, before it writes anything into the image (9.7.51).
+    host._emulator_launch_failed = _emulator_launch_failed
 
     # Cached probe verdicts, keyed by _image_state_key(path). Set up here
     # rather than in __init__ so the closures below can never read an
@@ -481,8 +513,9 @@ def build_emulator_ops(
     # open() on a network or removable path must never run.
     #
     # The cache is refreshed only where the answer can genuinely have
-    # changed: a new image selected, a launch clicked, a MAME we started
-    # exiting, or the SD Card tab opened while the last verdict was busy.
+    # changed: a new image selected, a launch clicked, a MAME or (since
+    # 9.7.51, when it stopped blocking the UI) a CSpect we started exiting,
+    # or the SD Card tab opened while the last verdict was busy.
     def _image_for(emulator):
         """The image path THAT emulator would actually open.
 
@@ -546,6 +579,68 @@ def build_emulator_ops(
         return bool(alive)
 
     host._image_held_by_us = _image_held_by_us
+
+    def _image_write_blocker(path):
+        """Why *path* must not be WRITTEN right now, or "" when it may (9.7.51).
+
+        An emulator this app launched is still running on it. Until 9.7.51
+        nothing had to ask: CSpect's launch blocked the UI thread for its
+        whole run, so no write could start while it held the image. The OS
+        will not refuse one either - CSpect opens -mmc with full read/write
+        sharing, and on Linux/macOS nothing refuses a second writer at all
+        (MAME's share=READ only makes hdfmonkey fail on Windows). hdfmonkey
+        rewriting the FAT under a running NextZXOS is how an image gets
+        corrupted, so the write paths ask this first: _check_image_writable,
+        and execute_hdf_monkey for its write verbs, which also covers the
+        writers that never call that check.
+
+        READ-ONLY and thread-safe on purpose: transfers call it from worker
+        threads, and _image_held_by_us PRUNES the record - a worker writing
+        back a list it read before the UI thread appended a new launch to it
+        would erase that launch's record.
+        """
+        key = _image_state_key(path)
+        if not key:
+            return ""
+        def _alive(procs):
+            for proc in list(procs):
+                try:
+                    if proc.poll() is None:
+                        return True
+                except Exception:
+                    pass
+            return False
+
+        held = host._images_held_by_us
+        hit = _alive(held.get(key, ()))
+        if not hit and held:
+            # The key is TEXT, and a path the local explorers hand over (an
+            # Unzip target) can name the held image under another spelling:
+            # a junction or symlink, a subst drive, an 8.3 name, a case the
+            # key does not fold on macOS. Compare file identity instead -
+            # against LIVE holders only (an exited one may linger until the
+            # next prune, and must neither cost a stat nor end the search),
+            # and only when something is held at all, so the usual call
+            # costs nothing.
+            clean = normalize_sd_image_path(path)
+            for other, plist in list(held.items()):
+                if other == key or not _alive(plist):
+                    continue
+                try:
+                    if os.path.samefile(clean, other):
+                        hit = True
+                        break
+                except (OSError, ValueError):
+                    continue
+        if hit:
+            return ui_tr_now(
+                "The disk image {path} is in use by an emulator started "
+                "from ZX-Next-Unite. Close the emulator before changing "
+                "the files on the image.").format(
+                    path=normalize_sd_image_path(path))
+        return ""
+
+    host._image_write_blocker = _image_write_blocker
 
     def _image_busy_reason(emulator):
         """Empty, unless *emulator*'s image is held by something else.
@@ -618,6 +713,14 @@ def build_emulator_ops(
         refresh = getattr(host, "_refresh_emulator_strips", None)
         if refresh is not None:
             refresh()
+        # Gallery item viewers still open re-wire too (9.7.51). Wiring them
+        # once on open was fine while a CSpect the app started froze the
+        # window for its whole run; now a viewer opened DURING the run
+        # would keep a greyed Launch button after CSpect exits, and a
+        # greyed button cannot be clicked to re-check.
+        rewire = getattr(host, "_rewire_open_viewers", None)
+        if rewire is not None:
+            rewire()
 
     host._refresh_emulator_launchability = _refresh_emulator_launchability
 
@@ -835,6 +938,24 @@ def build_emulator_ops(
         when there is not.
         """
         if autostart:
+            # A FILE launch needs no image and is never gated on one. But when
+            # an image IS loaded the launcher still mounts it, and refuses it
+            # when it is held (both launchers re-probe it) - so say so up
+            # front, or the Remote Explorer downloads the file off the Next
+            # first and only then hears "no" (9.7.51: with CSpect no longer
+            # blocking the UI, its own running session is the common holder).
+            path = _image_for(emulator)
+            if path and os.path.isfile(path):
+                # Asked only at the click (the Remote Explorer's "Start …
+                # with file"), never from a tooltip, so a cached BUSY is
+                # re-probed here exactly as the launcher would: a holder this
+                # app did not start may have gone since it was recorded, and
+                # the cache alone would refuse a launch that works.
+                key = _image_state_key(path)
+                if (not _image_held_by_us(key)
+                        and host._image_write_state.get(key) == IMAGE_WRITE_BUSY):
+                    _probe_image_write_access(path)
+                return _image_busy_reason(emulator)
             return ""
         if emulator == "CSpect":
             if not _right_disk_content():
@@ -923,7 +1044,14 @@ def build_emulator_ops(
             _emulator_launch_failed("CSpect", _image_busy_message(_img_now))
             return
 
-        set_all_buttons_disabled()
+        # No set_all_buttons_disabled() here any more (9.7.51). It bracketed
+        # the blocking run below together with set_all_buttons_enabled(), and
+        # since nothing was painted in between it never showed - while the
+        # enable at the end could hand back controls a load still running at
+        # the time had locked. CSpect now runs in the background, the SD
+        # Card tab stays usable, and what must not happen while it runs is
+        # gated where it happens: a second launch on the image by the record
+        # taken below, a write into the image by _image_write_blocker.
 
         # Editable "CSpect default launch parameters" from the Settings
         # tab (persisted in SETTING_CUSTOM), falling back to the built-in
@@ -1017,42 +1145,166 @@ def build_emulator_ops(
         logging.info(f"Cspect start with arguments: {cspect_arguments}")
         add_main_log_window(f"Cspect start with arguments: {cspect_arguments}")
 
+        # Started in the BACKGROUND (9.7.51). This was a blocking
+        # subprocess.run on the UI thread: cmd.exe /c waits for the
+        # console-subsystem CSpect.exe, so the window sat "Not Responding"
+        # for as long as CSpect ran (reported 2026-10-19), and nothing a
+        # NextSync session needed from the UI thread could run either - the
+        # Remote Explorer's relisten after a Next hung up among them. The
+        # command string is EXACTLY the one run() was given, so the shell
+        # still splits the launch parameters and the Popen handle is the
+        # shell, which waits for CSpect: see cspect_popen_kwargs.
+        _cmd = cspect_executable + " " + cspect_arguments
         try:
-            execute_shell_command(cspect_executable, cspect_arguments, cwd=cspect_cwd)
-        except subprocess.CalledProcessError as ex:
-            if ex.returncode == 1:
-                logging.error("CSpect.exe is not present in the same local directory as zx-next-unite.Please install it from http://cspect.org")
+            cspect_proc = subprocess.Popen(_cmd, **cspect_popen_kwargs(cspect_cwd))
+        except (OSError, ValueError) as ex:
+            logging.exception("could not start CSpect")
+            _emulator_launch_failed("CSpect", ui_tr_now(
+                "ERROR: Failed to launch CSpect: {error}").format(error=ex))
+            return
+        _started = time.monotonic()
+
+        # The image this CSpect holds, for as long as it runs. The UI used
+        # to be frozen for exactly that long, which is what made a record
+        # unnecessary; it is live now, so the same record MAME has always
+        # had stands in: _image_busy_reason greys every launch surface on
+        # it, the launch gate above refuses a second emulator (a double
+        # click included), and _image_write_blocker refuses hdfmonkey writes.
+        # Appended only once Popen succeeded and never removed by hand -
+        # _image_held_by_us prunes it through poll().
+        _held_image = img_path if mmc_path else ""
+        _held_key = _image_state_key(_held_image) if _held_image else ""
+        if _held_key:
+            host._images_held_by_us.setdefault(_held_key, []).append(cspect_proc)
+        _refresh_emulator_launchability()
+
+        cspect_signals = CSpectProcessSignals()
+        _run = {"tail": collections.deque(maxlen=CSPECT_OUTPUT_TAIL_LINES),
+                "elapsed": 0.0, "lines": 0, "first_error": ""}
+
+        def _on_cspect_finished(return_code, _sig=cspect_signals):
+            host._cspect_signals_live.discard(_sig)
+            elapsed = _run.get("elapsed", 0.0)
+            tail = list(_run.get("tail", ()))
+            kind = cspect_exit_kind(return_code, elapsed,
+                                    program_known=bool(use_bundled))
+            logging.info(f"CSpect exited with code "
+                         f"{describe_exit_code(return_code)} after "
+                         f"{elapsed:.1f} s ({kind}).")
+            add_main_log_window(ui_tr_now(
+                "CSpect exited with code {code}.").format(code=return_code))
+            if kind != "ok":
+                # The output is the only account of WHY; it stays English,
+                # it is CSpect's (or the shell's, or mono's) own words. A
+                # .NET/mono trace puts the exception FIRST and its frames
+                # after, so a long one pushes the message out of the tail:
+                # the first such line is kept apart and shown ahead of it.
+                shown = list(tail)
+                first = _run.get("first_error", "")
+                if first and first not in shown:
+                    shown = [first, "…"] + shown
+                for line in shown:
+                    add_main_log_window(f"CSpect: {line}")
+                # The file log already holds the output when the run printed
+                # no more than its head copy; past that, it gets the tail too,
+                # or a chatty session that crashed leaves no trace on disk.
+                if _run.get("lines", 0) > CSPECT_OUTPUT_LOG_LINES:
+                    for line in shown:
+                        logging.error(f"CSpect: {line}")
+            _windows = platform.system() == "Windows"
+            if kind == "not-found":
+                logging.error("CSpect could not be started: the shell did "
+                              f"not find it ({describe_exit_code(return_code)}).")
+                # On Linux/macOS a 127/126 names mono at least as often as
+                # CSpect.exe, so the mono advice IS the failure message there.
                 _emulator_launch_failed("CSpect", ui_tr_now(
                     "ERROR: CSpect.exe is not present in the same local "
                     "directory as zx-next-unite. Please install it from "
-                    "http://cspect.org"))
-            else:
-                logging.error(f"ERROR: Unknown shell execute error: {ex.returncode} - :{ex}")
-                # The raw shell error stays English (a diagnostic), but the
-                # user still needs to see that nothing started.
-                add_main_log_window(f"ERROR: Unknown shell execute error: {ex.returncode} - :{ex}")
-                _emulator_launch_failed("CSpect", ui_tr_now(
-                    "ERROR: Failed to launch CSpect: {error}").format(error=ex))
-
-            if platform.system() != "Windows":
-                logging.error("On MacOS and Linux mono is required as it runs under it. Please make sure mono is installed.")
-                add_main_log_window(ui_tr_now(
+                    "http://cspect.org") if _windows else ui_tr_now(
                     "On MacOS and Linux mono is required as it runs under "
                     "it. Please make sure mono is installed."))
+            elif kind == "early":
+                logging.error("CSpect stopped right after starting: "
+                              f"{describe_exit_code(return_code)}")
+                _emulator_launch_failed("CSpect", ui_tr_now(
+                    "CSpect stopped right after starting (exit code "
+                    "{code}).").format(code=describe_exit_code(return_code)))
+            elif kind == "error":
+                logging.error("CSpect ended with an error: "
+                              f"{describe_exit_code(return_code)}")
+                add_main_log_window(ui_tr_now(
+                    "CSpect ended with an error (exit code {code}).").format(
+                        code=describe_exit_code(return_code)))
+            if kind in ("not-found", "early") and not _windows:
+                logging.error("On MacOS and Linux mono is required as it runs under it. Please make sure mono is installed.")
+                if kind == "early":    # not-found already said it, as the toast
+                    add_main_log_window(ui_tr_now(
+                        "On MacOS and Linux mono is required as it runs "
+                        "under it. Please make sure mono is installed."))
                 if os.environ.get("FLATPAK_ID"):
                     add_main_log_window(ui_tr_now(
                         "Running as a Flatpak: mono must be installed on "
                         "the HOST system — the launch is delegated there "
                         "via flatpak-spawn."))
+            # This CSpect has let go of its image: re-probe THAT image and
+            # re-gate, so the launch surfaces come back now rather than at
+            # the next thing that happens to ask. The image this launch
+            # mounted, never right_disk_image_path - the image box is no
+            # longer locked while CSpect runs, so it may name another image.
+            if _held_image:
+                _probe_image_write_access(_held_image)
+            _refresh_emulator_launchability()
 
-        # execute_shell_command above is a BLOCKING subprocess.run, so
-        # reaching this line means our CSpect has exited (or never
-        # started) and the image it held is free again. Re-probe before
-        # re-enabling, or the buttons come back greyed on a stale verdict.
-        if _img_now:
-            _probe_image_write_access(_img_now)
-        set_all_buttons_enabled()
-        _refresh_emulator_launchability()
+        cspect_signals.finished.connect(_on_cspect_finished, Qt.QueuedConnection)
+        # Kept alive until its finished signal is delivered - a SET, as for
+        # MAME, because several CSpects can run at once on different images.
+        if not hasattr(host, "_cspect_signals_live"):
+            host._cspect_signals_live = set()
+        host._cspect_signals_live.add(cspect_signals)
+
+        def _read_cspect_output(proc, signals):
+            """Drain CSpect's output to EOF, then wait, then report.
+
+            A plain daemon thread, never a QRunnable: the app's exit waits
+            for the global thread pool, so a pool task would keep Unite from
+            closing until CSpect did. Draining is not optional - a pipe left
+            full blocks CSpect's next write - so a line that fails to decode
+            or log is skipped, never allowed to end the loop.
+            """
+            logged = 0
+            try:
+                stream = proc.stdout
+                if stream is not None:
+                    for raw in iter(lambda: stream.readline(65536), b""):
+                        try:
+                            line = decode_console_line(raw)
+                            if not line:
+                                continue
+                            _run["tail"].append(line)
+                            _run["lines"] += 1
+                            if not _run["first_error"]:
+                                low = line.lower()
+                                if "exception" in low or "fatal" in low:
+                                    _run["first_error"] = line
+                            if logged < CSPECT_OUTPUT_LOG_LINES:
+                                logging.info(f"CSpect: {line}")
+                                logged += 1
+                        except Exception:
+                            pass
+            except Exception:
+                logging.exception("reading CSpect output")
+            finally:
+                try:
+                    proc.wait()
+                except Exception:
+                    logging.exception("waiting for CSpect")
+                _run["elapsed"] = time.monotonic() - _started
+                signals.finished.emit(proc.returncode
+                                      if proc.returncode is not None else -1)
+
+        threading.Thread(target=_read_cspect_output,
+                         args=(cspect_proc, cspect_signals),
+                         name="cspect-output", daemon=True).start()
 
 
     def launch_mame(autostart_file=None):
@@ -1302,10 +1554,11 @@ def build_emulator_ops(
         host._mame_missing_files = False
         # The image this launch will hold, for as long as it holds it. On
         # Windows the probe would find it anyway; on Linux/macOS (native or
-        # either Flatpak mode) this reference count is the ONLY way the app
-        # can know, because POSIX lets a second emulator open the same file
-        # and quietly corrupt the FAT. Taken before Popen and released in
-        # _on_mame_finished, so a launch that raises never leaks one.
+        # either Flatpak mode) this record is the ONLY way the app can
+        # know, because POSIX lets a second emulator open the same file and
+        # quietly corrupt the FAT. Appended only once Popen has succeeded,
+        # so a launch that raises never leaks one, and never released by
+        # hand: _image_held_by_us prunes it through poll().
         _held_key = host._image_state_key(mame_image) if mame_image else ""
         try:
             if platform.system() == "Windows":
@@ -3465,6 +3718,10 @@ def build_emulator_ops(
         # tab the moment a rule was added in only one of the three places.
         _cspect_why = _emulator_launch_blocker("CSpect")
         _mame_why   = _emulator_launch_blocker("MAME")
+        try:
+            host._wired_viewers[viewer] = allow
+        except TypeError:
+            pass                       # not weak-referenceable: wired once
         viewer.set_emulator_actions(
             cspect_cb=(host._launch_cspect_fn if cspect_ok else None),
             mame_cb=(host._launch_mame_fn if mame_ok else None),
@@ -3482,6 +3739,19 @@ def build_emulator_ops(
             mame_label=host._mame_launch_label(),
         )
     host._wire_viewer_emulators = _wire_viewer_emulators
+    # The viewers wired so far, weakly: a closed viewer simply drops out.
+    host._wired_viewers = weakref.WeakKeyDictionary()
+
+    def _rewire_open_viewers():
+        for viewer, allow in list(host._wired_viewers.items()):
+            try:
+                _wire_viewer_emulators(viewer, allow)
+            except RuntimeError:       # its C++ side is gone
+                host._wired_viewers.pop(viewer, None)
+            except Exception:
+                logging.exception("could not re-wire a gallery viewer")
+                host._wired_viewers.pop(viewer, None)
+    host._rewire_open_viewers = _rewire_open_viewers
 
     # ── OpenAL 1.1 guided install (CSpect sound on Windows) ──────────────
     # After an itch.io CSpect install, zxnu_main's detection toast checks
