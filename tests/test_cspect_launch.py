@@ -455,9 +455,13 @@ check("Send-and-start re-probes before asking the cached gate",
 # Wizzy: a wait belongs to its bubble and to Wizzy being on.
 say = function_code(wz, "_say")
 check("a new bubble cancels a pending wait", "self._cancel_qs_wait()" in say)
-qw = function_code(wz, "_qs_wait")
+# The RAW source here, not function_code: ast.unparse spells a tuple
+# assignment differently across Python versions (3.10 vs 3.13), and CI runs
+# both. "self._say(" occurs in this function's code only.
+qw = function_source(wz, "_qs_wait")
+_arm = "self._qs_pred, self._qs_then = predicate, then"
 check("a wait is armed only after its own bubble is said",
-      qw.index("self._say(") < qw.index("self._qs_pred, self._qs_then = (predicate, then)"))
+      _arm in qw and qw.index("self._say(") < qw.index(_arm))
 se = function_source(wz, "set_enabled")
 check("turning Wizzy off cancels a pending wait",
       "self._cancel_qs_wait()" in se[se.index("else:"):])
