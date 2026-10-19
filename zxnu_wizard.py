@@ -651,6 +651,10 @@ class WizardManager(QObject):
         else:
             self.bubble.hide()
             self.sprite.hide()
+            # A wait must not outlive Wizzy (9.7.51): the starter pack's
+            # wait lasts a whole emulator session, and would otherwise jump
+            # to GetIt and open its prompt long after Wizzy was turned off.
+            self._cancel_qs_wait()
         # Keep the Settings checkbox in sync when it exists.
         cb = getattr(self._host, "settings_wizard_checkbox", None)
         if cb is not None and cb.isChecked() != bool(on):
@@ -769,6 +773,11 @@ class WizardManager(QObject):
             self.sprite.set_gesture("idle")
 
     def _say(self, text, buttons, gesture="talk", cycles=8, links=None):
+        # A wait belongs to its own bubble (9.7.51): whatever replaces it -
+        # the click menu, another offer - ends it, so a wait that resolves
+        # later can never act over a bubble the user has moved on to.
+        # _qs_wait arms its wait AFTER saying its own bubble.
+        self._cancel_qs_wait()
         self._offer_shown = False      # offer_guide/offer_help re-set it
         # A fresh bubble: show_message rebuilds _pages from scratch, so
         # whatever teaser was appended to the previous one is gone.
@@ -1029,17 +1038,22 @@ class WizardManager(QObject):
 
     def _qs_wait(self, predicate, wait_key, then):
         """Show a waiting bubble and poll until *predicate* holds."""
-        self._qs_pred, self._qs_then = predicate, then
         self._respeak = lambda: self.bubble.show_message(
             self._tr(wait_key), [(self._tr("btn.later"), self._dismiss)])
         self._say(self._tr(wait_key),
                   [(self._tr("btn.later"), self._dismiss)],
                   gesture="talk", cycles=30)
+        # Armed after _say, which cancels any wait before it.
+        self._qs_pred, self._qs_then = predicate, then
         self._qs_timer.start()
 
+    def _cancel_qs_wait(self):
+        self._qs_pred = self._qs_then = None
+        self._qs_timer.stop()
+
     def _qs_tick(self):
-        if self._qs_pred is None:
-            self._qs_timer.stop()
+        if self._qs_pred is None or not self.enabled():
+            self._cancel_qs_wait()
             return
         if self._qs_pred():
             self._qs_timer.stop()
@@ -1119,9 +1133,29 @@ class WizardManager(QObject):
             self.show_health()
 
     # ── GetIt starter pack ───────────────────────────────────────────────
+    def _sp_image_held(self):
+        """Is the loaded image mounted in an emulator this app started?"""
+        host = self._host
+        blocker = getattr(host, "_image_write_blocker", None)
+        path = getattr(host, "right_disk_image_path", "") or ""
+        try:
+            return bool(blocker is not None and path and blocker(path))
+        except Exception:
+            return False
+
     def _sp_do(self):
         """Jump to the GetIt tab and press the 🎁 button for the user (its
-        own confirm dialog + progress take over from there)."""
+        own confirm dialog + progress take over from there).
+
+        While the card is still mounted in an emulator this app started,
+        wait for it to let go instead (9.7.51). Quick Start offers the pack
+        right after its launch, and the launch no longer blocks until the
+        emulator exits, so the pack used to be offered at a moment when
+        every file it wrote would be refused."""
+        if self._sp_image_held():
+            self._qs_wait(lambda: not self._sp_image_held(),
+                          "sp.wait_free", self._sp_do)
+            return
         self._dismiss()
         self._goto_tab(getattr(zxnu_config, "ZX_NEXT_UNITE_TAB_TITLE_GETIT",
                                "GetIt"))
@@ -1290,6 +1324,12 @@ class WizardManager(QObject):
         host = self._host
         _prev = getattr(host, "_re_open_restoring", False)
         _prev_sub = getattr(host, "_transfer_subtab_restoring", False)
+        # The experience last shown, which the flags above do not cover: it
+        # lives in memory and decides whether the Remote Explorer listener
+        # restarts while the user is on the SD Card page (9.7.51). A tour
+        # stop on Classic is a preview, not that choice.
+        _missing = object()
+        _prev_exp = getattr(host, "_nextsync_last_experience", _missing)
         host._re_open_restoring = True
         host._transfer_subtab_restoring = True
         try:
@@ -1299,6 +1339,13 @@ class WizardManager(QObject):
         finally:
             host._re_open_restoring = _prev
             host._transfer_subtab_restoring = _prev_sub
+            if _prev_exp is _missing:
+                try:
+                    del host._nextsync_last_experience
+                except AttributeError:
+                    pass
+            else:
+                host._nextsync_last_experience = _prev_exp
 
     def _goto_tab(self, title_prefix, subtab=None):
         """Switch the main tab widget to the tab whose title starts with

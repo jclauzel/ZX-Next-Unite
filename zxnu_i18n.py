@@ -725,6 +725,18 @@ CATALOGS = {
             "hdfmonkey encontrado junto a CSpect: {path}",
         "MAME exited with code {code}.":
             "MAME finalizó con el código {code}.",
+        "CSpect exited with code {code}.":
+            "CSpect finalizó con el código {code}.",
+        "CSpect stopped right after starting (exit code {code}).":
+            "CSpect se detuvo justo después de arrancar (código de salida {code}).",
+        "CSpect ended with an error (exit code {code}).":
+            "CSpect terminó con un error (código de salida {code}).",
+        "The disk image {path} is in use by an emulator started from ZX-Next-Unite. Close the emulator before changing the files on the image.":
+            "La imagen de disco {path} está en uso por un emulador iniciado desde ZX-Next-Unite. Cierra el emulador antes de cambiar los archivos de la imagen.",
+        "Could not open the configuration file {path}.":
+            "No se pudo abrir el archivo de configuración {path}.",
+        "Disk image in use":
+            "Imagen de disco en uso",
         "MAME install ▸ SUCCESS — MAME detected at: {path}":
             "Instalación de MAME ▸ CORRECTA — MAME detectado en: {path}",
         "Pygame mode unavailable — run: pip install pygame-ce":
@@ -2227,6 +2239,18 @@ CATALOGS = {
             "hdfmonkey encontrado junto ao CSpect: {path}",
         "MAME exited with code {code}.":
             "O MAME terminou com o código {code}.",
+        "CSpect exited with code {code}.":
+            "O CSpect terminou com o código {code}.",
+        "CSpect stopped right after starting (exit code {code}).":
+            "O CSpect parou logo após arrancar (código de saída {code}).",
+        "CSpect ended with an error (exit code {code}).":
+            "O CSpect terminou com um erro (código de saída {code}).",
+        "The disk image {path} is in use by an emulator started from ZX-Next-Unite. Close the emulator before changing the files on the image.":
+            "A imagem de disco {path} está a ser usada por um emulador iniciado a partir do ZX-Next-Unite. Feche o emulador antes de alterar os ficheiros da imagem.",
+        "Could not open the configuration file {path}.":
+            "Não foi possível abrir o ficheiro de configuração {path}.",
+        "Disk image in use":
+            "Imagem de disco em uso",
         "MAME install ▸ SUCCESS — MAME detected at: {path}":
             "Instalação do MAME ▸ CONCLUÍDA — MAME detetado em: {path}",
         "Pygame mode unavailable — run: pip install pygame-ce":
@@ -3725,6 +3749,18 @@ CATALOGS = {
             "Znaleziono hdfmonkey obok CSpect: {path}",
         "MAME exited with code {code}.":
             "MAME zakończył działanie z kodem {code}.",
+        "CSpect exited with code {code}.":
+            "CSpect zakończył działanie z kodem {code}.",
+        "CSpect stopped right after starting (exit code {code}).":
+            "CSpect zatrzymał się zaraz po uruchomieniu (kod wyjścia {code}).",
+        "CSpect ended with an error (exit code {code}).":
+            "CSpect zakończył działanie z błędem (kod wyjścia {code}).",
+        "The disk image {path} is in use by an emulator started from ZX-Next-Unite. Close the emulator before changing the files on the image.":
+            "Obraz dysku {path} jest używany przez emulator uruchomiony z ZX-Next-Unite. Zamknij emulator przed zmianą plików na obrazie.",
+        "Could not open the configuration file {path}.":
+            "Nie można otworzyć pliku konfiguracyjnego {path}.",
+        "Disk image in use":
+            "Obraz dysku w użyciu",
         "MAME install ▸ SUCCESS — MAME detected at: {path}":
             "Instalacja MAME ▸ SUKCES — MAME wykryty w: {path}",
         "Pygame mode unavailable — run: pip install pygame-ce":
@@ -5225,6 +5261,18 @@ CATALOGS = {
             "hdfmonkey найден рядом с CSpect: {path}",
         "MAME exited with code {code}.":
             "MAME завершился с кодом {code}.",
+        "CSpect exited with code {code}.":
+            "CSpect завершился с кодом {code}.",
+        "CSpect stopped right after starting (exit code {code}).":
+            "CSpect остановился сразу после запуска (код выхода {code}).",
+        "CSpect ended with an error (exit code {code}).":
+            "CSpect завершился с ошибкой (код выхода {code}).",
+        "The disk image {path} is in use by an emulator started from ZX-Next-Unite. Close the emulator before changing the files on the image.":
+            "Образ диска {path} используется эмулятором, запущенным из ZX-Next-Unite. Закройте эмулятор, прежде чем изменять файлы в образе.",
+        "Could not open the configuration file {path}.":
+            "Не удалось открыть файл конфигурации {path}.",
+        "Disk image in use":
+            "Образ диска используется",
         "MAME install ▸ SUCCESS — MAME detected at: {path}":
             "Установка MAME ▸ УСПЕШНО — MAME найден: {path}",
         "Pygame mode unavailable — run: pip install pygame-ce":
@@ -6721,6 +6769,18 @@ CATALOGS = {
             "hdfmonkey nalezen vedle CSpectu: {path}",
         "MAME exited with code {code}.":
             "MAME skončil s kódem {code}.",
+        "CSpect exited with code {code}.":
+            "CSpect skončil s kódem {code}.",
+        "CSpect stopped right after starting (exit code {code}).":
+            "CSpect se zastavil hned po spuštění (návratový kód {code}).",
+        "CSpect ended with an error (exit code {code}).":
+            "CSpect skončil s chybou (návratový kód {code}).",
+        "The disk image {path} is in use by an emulator started from ZX-Next-Unite. Close the emulator before changing the files on the image.":
+            "Obraz disku {path} používá emulátor spuštěný ze ZX-Next-Unite. Před změnou souborů na obrazu emulátor zavřete.",
+        "Could not open the configuration file {path}.":
+            "Konfigurační soubor {path} se nepodařilo otevřít.",
+        "Disk image in use":
+            "Obraz disku se používá",
         "MAME install ▸ SUCCESS — MAME detected at: {path}":
             "Instalace MAME ▸ ÚSPĚCH — MAME nalezen v: {path}",
         "Pygame mode unavailable — run: pip install pygame-ce":
@@ -8225,6 +8285,18 @@ CATALOGS = {
             "hdfmonkey trouvé à côté de CSpect : {path}",
         "MAME exited with code {code}.":
             "MAME s'est terminé avec le code {code}.",
+        "CSpect exited with code {code}.":
+            "CSpect s'est terminé avec le code {code}.",
+        "CSpect stopped right after starting (exit code {code}).":
+            "CSpect s'est arrêté juste après son démarrage (code de sortie {code}).",
+        "CSpect ended with an error (exit code {code}).":
+            "CSpect s'est terminé sur une erreur (code de sortie {code}).",
+        "The disk image {path} is in use by an emulator started from ZX-Next-Unite. Close the emulator before changing the files on the image.":
+            "L'image disque {path} est utilisée par un émulateur lancé depuis ZX-Next-Unite. Fermez l'émulateur avant de modifier les fichiers de l'image.",
+        "Could not open the configuration file {path}.":
+            "Impossible d'ouvrir le fichier de configuration {path}.",
+        "Disk image in use":
+            "Image disque utilisée",
         "MAME install ▸ SUCCESS — MAME detected at: {path}":
             "Installation de MAME ▸ RÉUSSIE — MAME détecté dans : {path}",
         "Pygame mode unavailable — run: pip install pygame-ce":

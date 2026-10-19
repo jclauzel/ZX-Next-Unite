@@ -45,7 +45,10 @@ emulator launch buttons below:
 
 - **Transfer tools → SD Card Utility** — mount an HDF image, copy files in/out
   with a built-in explorer, then launch **CSpect** or **MAME** directly. No
-  emulator command lines to remember.
+  emulator command lines to remember. The emulator runs alongside the app
+  (since 9.7.51 CSpect no longer freezes the window until it is closed),
+  and while an emulator started from the app has the card mounted, the app
+  does not write into that image.
 - **Transfer tools → NextSync** — push files over Wi-Fi from your PC to a real Spectrum Next
   (KS1/KS2 or clones with an ESP module) using the `.sync5` dot command.
   The Next can push files back the other way with `-send`, served by the

@@ -1241,7 +1241,7 @@ class RemoteExplorerWidget(QWidget):
                  on_emulator_recheck=None, update_prompt_enabled=None,
                  on_update_prompt=None,
                  local_history=None, on_local_history_changed=None,
-                 drop_silent=None):
+                 drop_silent=None, image_write_blocker=None):
         super().__init__(parent)
         self._enqueue_raw = enqueue          # host closure: put one command
         # host closure: enqueue_to(sid, cmd) -> bool, delivering ONE command
@@ -1271,6 +1271,10 @@ class RemoteExplorerWidget(QWidget):
         # deliberately does not know which emulators exist; without the hook it
         # simply offers nothing.
         self._emulator_entries = emulator_entries or (lambda path: [])
+        # host closure: path -> "" or why that file must not be WRITTEN now
+        # (a disk image an emulator the app started still holds - 9.7.51).
+        # The local pane's Unzip asks it per member before truncating one.
+        self._image_write_blocker = image_write_blocker or (lambda path: "")
         # host closure: () -> [(name, launch_callable)] for the emulators
         # that are INSTALLED right now, newest detection wins. Drives the
         # left-hand emulator strip. The widget deliberately knows nothing
@@ -2951,10 +2955,11 @@ class RemoteExplorerWidget(QWidget):
     def _launch_emulator(self, fn):
         """Run one emulator launcher, called with NO arguments - the bare
         launch the SD Card tab's button makes. Deferred by a zero-timer so
-        the click that started it has finished delivering first: the
-        launcher disables and re-enables widgets around a blocking call,
-        and doing that from inside a mouse handler is how a repaint gets
-        skipped."""
+        the click that started it has finished delivering first: a launch
+        re-gates every launch surface (9.7.51: it records the image it
+        holds the moment the emulator starts), which rebuilds this very
+        strip, and doing that from inside its own mouse handler deletes the
+        tab under the event being delivered to it."""
         QTimer.singleShot(0, lambda: self._run_emulator_launcher(fn))
 
     def _run_emulator_launcher(self, fn):
@@ -6532,7 +6537,8 @@ class RemoteExplorerWidget(QWidget):
         name = os.path.basename(zip_path)
         dest = os.path.dirname(zip_path) or "."
         res = zip_extract_with_dialog(self.window(), zip_path, dest,
-                                      log=self._log)
+                                      log=self._log,
+                                      refuse=self._image_write_blocker)
         if res["cancelled"]:
             self._log(f"Unzip of {name} cancelled — already-extracted "
                       "files remain.")

@@ -568,10 +568,11 @@ class SdCardExplorerPane(QWidget):
     def _launch_emulator(self, fn):
         """Run one emulator launcher, called with NO arguments - the bare
         launch this tab's own Launch buttons make. Deferred by a zero-timer
-        so the click that started it has finished delivering first: the
-        launcher disables and re-enables widgets around a blocking call,
-        and doing that from inside a mouse handler is how a repaint gets
-        skipped."""
+        so the click that started it has finished delivering first: a
+        launch re-gates every launch surface (9.7.51: it records the image
+        it holds the moment the emulator starts), which rebuilds this very
+        strip, and doing that from inside its own mouse handler deletes the
+        tab under the event being delivered to it."""
         QTimer.singleShot(0, lambda: self._run_emulator_launcher(fn))
 
     def _run_emulator_launcher(self, fn):

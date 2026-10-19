@@ -1508,6 +1508,15 @@ def build_getit_pane(
                 ui_tr_now("Load a disk image first (SD Card tab), "
                           "then try again."))
             return
+        # The card may be mounted in an emulator this app started (9.7.51:
+        # CSpect no longer freezes the window while it runs, and Wizzy's
+        # Quick Start offers this pack right after launching it). Every put
+        # would be refused one by one; say it once, before the confirm.
+        _blocker = getattr(host, "_image_write_blocker", None)
+        _why = _blocker(host.right_disk_image_path) if _blocker else ""
+        if _why:
+            QMessageBox.information(host, ui_tr_now("Starter pack"), _why)
+            return
         if QMessageBox.question(
                 host, ui_tr_now("Starter pack"),
                 ui_tr_now("Fill your SD image with {count} hand-picked "

@@ -24,7 +24,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.50"
+ZX_NEXT_UNITE_VERSION = "9.7.51"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -177,6 +177,24 @@ TRANSFER_SUBTAB_TOKENS = {
     TRANSFER_SUBTAB_CLASSIC: "classic",
 }
 TRANSFER_SUBTAB_BY_TOKEN = {v: k for k, v in TRANSFER_SUBTAB_TOKENS.items()}
+
+
+def transfer_relisten_allowed(subtab_index, last_experience="remote"):
+    """May the Remote Explorer listen server restart itself after a Next
+    hung up, with the sub-tab bar at *subtab_index*?
+
+    Only the user CHOOSING Classic says no. Before 9.7.51 this was
+    `index == TRANSFER_SUBTAB_REMOTE`, the pre-merge meaning of index 0, so a
+    Next hanging up while the user was on the SD Card page - launching
+    CSpect, for one - never got its listener back. The SD Card page leaves
+    the NextSync experience as it was, so there the answer is the experience
+    last shown (*last_experience*, ``"remote"`` or ``"classic"``).
+    """
+    if subtab_index == TRANSFER_SUBTAB_REMOTE:
+        return True
+    if subtab_index == TRANSFER_SUBTAB_SDCARD:
+        return last_experience != "classic"
+    return False
 
 
 def migrate_legacy_tab_index(legacy, remote_explorer_pref=False):
@@ -606,6 +624,152 @@ def subprocess_no_window_kwargs(extra_flags=0, gui_app=False):
         startupinfo.wShowWindow = subprocess.SW_HIDE
         kwargs["startupinfo"] = startupinfo
     return kwargs
+
+# ---- CSpect runs in the BACKGROUND (9.7.51) -------------------------------
+# launch_cspect (zxnu_emulator_ops) used to start CSpect with a blocking
+# subprocess.run on the UI thread, so the whole window sat "Not Responding"
+# for as long as CSpect ran. It now starts it with Popen and watches it from a
+# reader thread, the way launch_mame always has. These are the pure pieces of
+# that, kept here so tests/test_cspect_launch.py can pin them headlessly.
+CSPECT_QUICK_EXIT_S = 10.0       # a non-zero exit sooner than this = "did not start"
+CSPECT_OUTPUT_TAIL_LINES = 12    # output lines kept for a failure report
+CSPECT_OUTPUT_LOG_LINES = 200    # output lines copied to the file log per run
+
+# Exit codes that mean the SHELL could not find the program at all, counted
+# only for an exit inside CSPECT_QUICK_EXIT_S. MEASURED on Windows 11 (and
+# pinned by tests/test_cspect_launch.py, which re-measures on every run):
+# `cmd /c` exits with 1 both for "is not recognized" and for "The system
+# cannot find the path specified" - 9009 and 3 are only the %ERRORLEVEL% it
+# sets INSIDE the shell, kept here for a cmd build that passes them out. A 1
+# is ambiguous (CSpect can exit 1 itself), so cspect_exit_kind only reads it
+# as "not found" when the program was not already known to exist. sh answers
+# 127 for "not found" and 126 for "found but not executable".
+CSPECT_NOT_FOUND_EXIT_CODES_WINDOWS = frozenset({1, 3, 9009})
+CSPECT_NOT_FOUND_EXIT_CODES_POSIX = frozenset({126, 127})
+
+# hdfmonkey verbs that WRITE into the image. execute_hdf_monkey refuses these
+# while an emulator this app launched still holds the image (see
+# _image_write_blocker in zxnu_emulator_ops): CSpect opens -mmc with full
+# read/write sharing, so nothing in the OS stops hdfmonkey rewriting the FAT
+# under a running NextZXOS. The frozen UI used to be the only thing that did.
+HDFMONKEY_WRITE_VERBS = frozenset({"put", "mkdir", "rm", "rmdir", "rename",
+                                   "format"})
+
+
+def cspect_popen_kwargs(cwd=None, windows=None):
+    """The Popen keyword arguments for a background CSpect launch.
+
+    shell=True on purpose: the command is the SAME string the old blocking
+    run() was given, with the user-editable "CSpect default launch parameters"
+    in it, and the shell is what has always split those. The handle Popen
+    returns is therefore cmd.exe (or sh), which waits for the console-subsystem
+    CSpect.exe, so poll() tracks CSpect's lifetime - never put `start` or
+    anything else that detaches in front of the command.
+
+    stdout is a pipe the reader thread drains to EOF (an undrained pipe would
+    block CSpect once it filled) with stderr folded into it, so a crash's .NET
+    stack trace reaches the failure report. stdin is left as it always was.
+    Deliberately NOT subprocess_no_window_kwargs: Python already hides the
+    shell's own console for shell=True, and a CREATE_NO_WINDOW or SW_HIDE
+    reaching CSpect is untested. CREATE_NEW_PROCESS_GROUP / a new session
+    detach CSpect from Unite's console, so a Ctrl+C in the terminal a source
+    checkout runs from does not take CSpect with it.
+    """
+    if windows is None:
+        windows = platform.system() == "Windows"
+    kwargs = {"shell": True, "cwd": cwd,
+              "stdout": subprocess.PIPE, "stderr": subprocess.STDOUT}
+    if windows:
+        kwargs["creationflags"] = 0x00000200     # CREATE_NEW_PROCESS_GROUP
+    else:
+        kwargs["start_new_session"] = True
+    return kwargs
+
+
+def cspect_exit_kind(returncode, elapsed_s, windows=None, program_known=False):
+    """Classify how a background CSpect ended.
+
+    ``"ok"`` (exit code 0, a normal close), ``"not-found"`` (the shell could
+    not run the program), ``"early"`` (any other non-zero exit within
+    CSPECT_QUICK_EXIT_S - it never really started) or ``"error"`` (a non-zero
+    exit after a real session, i.e. a crash).
+
+    *program_known* is True when the launch named a CSpect.exe the app had
+    already found on disk (the bundled itch.io copy, by absolute path). cmd's
+    "not found" code is then impossible, and a quick exit 1 is CSpect's own.
+    On POSIX it does not matter: 127/126 there name mono as often as CSpect.
+    """
+    if windows is None:
+        windows = platform.system() == "Windows"
+    if returncode == 0:
+        return "ok"
+    try:
+        elapsed = float(elapsed_s)
+    except (TypeError, ValueError):
+        elapsed = 0.0
+    if elapsed >= CSPECT_QUICK_EXIT_S:
+        return "error"
+    if windows:
+        if not program_known and returncode in CSPECT_NOT_FOUND_EXIT_CODES_WINDOWS:
+            return "not-found"
+    elif returncode in CSPECT_NOT_FOUND_EXIT_CODES_POSIX:
+        return "not-found"
+    return "early"
+
+
+_EXIT_STATUS_NAMES = {
+    0xC0000005: "access violation",
+    0xC00000FD: "stack overflow",
+    0xC000013A: "closed with Ctrl+C or its console",
+    0xC0000409: "stack buffer overrun",
+    0xE0434352: "unhandled .NET exception",
+}
+
+
+def describe_exit_code(returncode):
+    """An exit code in words for the log - a diagnostic, kept in English.
+
+    Windows reports an NTSTATUS crash as a large unsigned number
+    (3221225477), which says nothing until it is shown in hex and named;
+    POSIX reports a process killed by a signal as a negative one.
+    """
+    if returncode is None:
+        return "unknown"
+    try:
+        code = int(returncode)
+    except (TypeError, ValueError):
+        return str(returncode)
+    if code < 0:
+        return f"{code} (killed by signal {-code})"
+    name = _EXIT_STATUS_NAMES.get(code & 0xFFFFFFFF)
+    if code >= 0x80000000 or name:
+        text = f"{code} (0x{code & 0xFFFFFFFF:08X}"
+        return text + (f", {name})" if name else ")")
+    return str(code)
+
+
+def decode_console_line(raw, windows=None):
+    """One line of an emulator's captured output, as text, never raising.
+
+    A console program on Windows writes in the OEM code page (437/850 here),
+    not the ANSI one Python's text mode would assume - and a strict decoder
+    raising on one stray byte is how a reader thread dies early and reports
+    an exit that has not happened. Undecodable bytes become U+FFFD instead.
+    """
+    if isinstance(raw, str):
+        return raw.rstrip("\r\n")
+    if windows is None:
+        windows = platform.system() == "Windows"
+    data = bytes(raw or b"")
+    text = None
+    if windows:
+        try:
+            text = data.decode("oem", errors="replace")
+        except LookupError:               # the "oem" codec exists on Windows only
+            text = None
+    if text is None:
+        text = data.decode("utf-8", errors="replace")
+    return text.rstrip("\r\n")
 
 def open_path_with_system_shell(path):
     """Hand ``path`` to the operating system so whatever the OS associates

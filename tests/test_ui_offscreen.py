@@ -3222,6 +3222,295 @@ def inspect_phase11():
     app.quit()
 
 
+def _phase12_cspect_in_background(win, toasts):
+    """CSpect runs in the BACKGROUND and the card it holds is gated (9.7.51).
+
+    Reported 2026-10-19: the whole window sat "Not Responding" for as long
+    as CSpect ran, because launch_cspect started it with a blocking
+    subprocess.run on the UI thread. Driven here through the REAL launcher
+    with Popen swapped for a fake (CI has no CSpect), the fake being a
+    process that stays "running" until the test lets it go - the state the
+    old code could never be inspected in, since nothing else ran then.
+    """
+    import subprocess as _real_subprocess
+    import threading as _th
+    import zxnu_emulator_ops as _zeo
+    import zxnu_main as _zm
+    from zxnu_config import (IMAGE_WRITE_BUSY, describe_exit_code,
+                             normalize_sd_image_path)
+    from zxnu_i18n import ui_tr_now as _tr
+
+    class _FakeOut:
+        def __init__(self, lines, gate):
+            self._lines, self._gate = list(lines), gate
+
+        def readline(self, size=-1):
+            if self._lines:
+                return self._lines.pop(0)
+            self._gate.wait(30)            # "running" until finish()
+            return b""
+
+        def close(self):
+            pass
+
+    class _FakePopen:
+        made = []
+        next_code = 0
+        next_lines = [b"fake CSpect up\r\n"]
+
+        def __init__(self, cmd, **kw):
+            self.cmd, self.kw = cmd, kw
+            self.gate = _th.Event()
+            self.returncode = None
+            self._code = _FakePopen.next_code
+            self.stdout = _FakeOut(_FakePopen.next_lines, self.gate)
+            _FakePopen.made.append(self)
+
+        def poll(self):
+            if self.gate.is_set():
+                self.returncode = self._code
+            return self.returncode
+
+        def wait(self, timeout=None):
+            self.gate.wait(30)
+            self.returncode = self._code
+            return self.returncode
+
+        def finish(self):
+            self.gate.set()
+
+    class _Shim:
+        """subprocess with ONLY Popen replaced, and only in that module:
+        patching subprocess.Popen itself would also swap the Popen that
+        every hdfmonkey call's subprocess.run uses underneath."""
+        Popen = _FakePopen
+
+        def __getattr__(self, name):
+            return getattr(_real_subprocess, name)
+
+    cs_img = os.path.join(SCRATCH, "phase12-cspect.img")
+    fake_exe = os.path.join(SCRATCH, "phase12-cspect", "CSpect.exe")
+    os.makedirs(os.path.dirname(fake_exe), exist_ok=True)
+    with open(cs_img, "wb") as fh:
+        fh.write(b"\0" * 512)
+    with open(fake_exe, "wb") as fh:
+        fh.write(b"MZ")
+    saved = (win.right_disk_image_path, _zm.right_disk_image_explorer_content,
+             getattr(win, "_cspect_executable_path", None),
+             getattr(win, "_cspect_from_downloads", False))
+    key = win._image_state_key(cs_img)
+
+    def _finished(proc, what):
+        """Let *proc* exit; wait until its finished signal was delivered."""
+        proc.finish()
+        return wait_until(
+            lambda: not getattr(win, "_cspect_signals_live", set()), 10, what)
+
+    # The phase's own select_emulator_image() above starts an image load,
+    # which fails without hdfmonkey and then CLEARS the loaded listing - in
+    # the middle of this block if it is still running. Let it settle first.
+    wait_until(lambda: not getattr(win, "_sdcard_controls_locked", False), 30,
+               "the phase's own image load to settle")
+    _zeo.subprocess = _Shim()
+    try:
+        win.right_disk_image_path = cs_img
+        _zm.right_disk_image_explorer_content = [["fake.nex", "", "", ""]]
+        # Not bundled: the launcher runs a bare "CSpect.exe" through the
+        # shell, the path the old blocking code took for a PATH install.
+        win._cspect_executable_path = os.path.join(SCRATCH, "nowhere", "CSpect.exe")
+        win._cspect_from_downloads = False
+        win._image_write_state.pop(key, None)
+        win._images_held_by_us.pop(key, None)
+
+        toasts.clear()
+        t0 = time.monotonic()
+        win._launch_cspect_fn()
+        took = time.monotonic() - t0
+        check("launch_cspect returns at once (CSpect runs in the background)",
+              took < 2.0 and len(_FakePopen.made) == 1,
+              f"{took:.2f}s, {len(_FakePopen.made)} launch(es)")
+        if not _FakePopen.made:
+            return
+        proc = _FakePopen.made[0]
+        check("it is still started through the shell, -mmc=<image> and all",
+              proc.kw.get("shell") is True and "-mmc=" in proc.cmd
+              and os.path.basename(cs_img) in proc.cmd, proc.cmd)
+        check("the card is recorded as held by THAT process",
+              proc in win._images_held_by_us.get(key, []))
+        check("the SD Card tab is not locked while CSpect runs",
+              not getattr(win, "_sdcard_controls_locked", False))
+        check("every launch surface sees the card as busy",
+              bool(win._emulator_launch_blocker("CSpect")))
+        check("the Launch CSpect button is greyed while it runs",
+              not win.button_start_cspect.isEnabled())
+
+        why = win._image_write_blocker(cs_img)
+        check("the write gate refuses the held card", bool(why), repr(why))
+        check("_check_image_writable refuses it with the same words",
+              win._check_image_writable(cs_img) == why)
+        res = win.execute_hdf_monkey("put", cs_img, extra_argv=[cs_img, "/x.img"])
+        check("an hdfmonkey WRITE is refused without running hdfmonkey",
+              res.returncode == -1 and list(res.args)[1:2] == ["put"]
+              and (res.stderr or b"").decode("utf-8") == why, repr(res))
+        res2 = win.execute_hdf_monkey("ls", cs_img, extra_argv=["/"],
+                                      silent=True, prompt_if_missing=False)
+        check("a READ is never refused",
+              (res2.stderr or b"").decode("utf-8", "replace") != why)
+        check("the refusal reaches the UI thread as one red toast",
+              wait_until(lambda: any(t[0] == _tr("Disk image in use")
+                                     and t[1] == why and t[2] == "red"
+                                     for t in toasts), 5, "image-in-use toast"))
+
+        # The same card under ANOTHER spelling (a local explorer's Unzip
+        # target through a junction / symlink) is the same file: refused.
+        alias = SCRATCH + "-alias"
+        made_alias = False
+        try:
+            if sys.platform == "win32":
+                import _winapi
+                _winapi.CreateJunction(SCRATCH, alias)
+            else:
+                os.symlink(SCRATCH, alias)
+            made_alias = True
+        except (OSError, AttributeError):
+            pass
+        if made_alias:
+            try:
+                via = os.path.join(alias, os.path.basename(cs_img))
+                # (The reason names the path the user acted on.)
+                check("the held card is recognised through a junction/symlink",
+                      win._image_state_key(via) != key
+                      and bool(win._image_write_blocker(via)),
+                      repr(win._image_write_blocker(via)))
+            finally:
+                # The LINK only - never a recursive delete through it.
+                if sys.platform == "win32":
+                    os.rmdir(alias)
+                else:
+                    os.unlink(alias)
+
+        # A double click (or a click queued while the old code froze the
+        # window) lands while the first CSpect is running: refused.
+        toasts.clear()
+        win._launch_cspect_fn()
+        check("a second launch on the held card is refused, and says so",
+              len(_FakePopen.made) == 1 and any(t[2] == "red" for t in toasts),
+              f"{len(_FakePopen.made)} launch(es), {toasts}")
+
+        toasts.clear()
+        check("the exit is reported back to the UI thread",
+              _finished(proc, "CSpect finished signal"))
+        check("a normal close shows no failure toast",
+              not [t for t in toasts if t[2] == "red"], str(toasts))
+        check("the exit is logged",
+              recent_log(win, _tr("CSpect exited with code {code}.").format(code=0), n=20))
+        check("the card is free again by itself",
+              win._image_write_blocker(cs_img) == ""
+              and win._emulator_launch_blocker("CSpect") == "")
+        check("the exited process is pruned from the record",
+              key not in win._images_held_by_us)
+        check("and the Launch CSpect button comes back",
+              win.button_start_cspect.isEnabled())
+
+        # A CSpect the app found on disk (bundled) that exits 1 at once
+        # failed by itself: say it stopped, with its own last words.
+        win._cspect_executable_path = fake_exe
+        win._cspect_from_downloads = True
+        _FakePopen.next_code = 1
+        _FakePopen.next_lines = [b"Unhandled Exception: boom\r\n"]
+        toasts.clear()
+        win._launch_cspect_fn()
+        proc2 = _FakePopen.made[-1]
+        check("the bundled copy is launched by its absolute path, from its folder",
+              fake_exe in proc2.cmd and proc2.kw.get("cwd") == os.path.dirname(fake_exe),
+              f"{proc2.cmd} cwd={proc2.kw.get('cwd')}")
+        _finished(proc2, "quick CSpect failure")
+        early = _tr("CSpect stopped right after starting (exit code {code}).").format(
+            code=describe_exit_code(1))
+        check("a quick failure toasts that CSpect stopped right after starting",
+              any(t[1] == early and t[2] == "red" for t in toasts), str(toasts))
+        check("with CSpect's own last words in the log",
+              recent_log(win, "CSpect: Unhandled Exception: boom", n=20))
+
+        # A bare CSpect.exe the shell could not find: cmd /c answers 1
+        # (measured - not 9009), sh answers 127.
+        win._cspect_executable_path = os.path.join(SCRATCH, "nowhere", "CSpect.exe")
+        win._cspect_from_downloads = False
+        _FakePopen.next_code = 1 if sys.platform == "win32" else 127
+        _FakePopen.next_lines = [b"'CSpect.exe' is not recognized\r\n"]
+        toasts.clear()
+        win._launch_cspect_fn()
+        _finished(_FakePopen.made[-1], "CSpect not found")
+        missing = (_tr("ERROR: CSpect.exe is not present in the same local "
+                       "directory as zx-next-unite. Please install it from "
+                       "http://cspect.org") if sys.platform == "win32" else
+                   _tr("On MacOS and Linux mono is required as it runs under "
+                       "it. Please make sure mono is installed."))
+        check("a program the shell could not find says what to install",
+              any(t[1] == missing and t[2] == "red" for t in toasts), str(toasts))
+
+        # A CSpect this app did NOT start (one left by an earlier Unite, or
+        # run by hand) holds -mmc with FULL read/write sharing, so the r+b
+        # open in _check_image_writable succeeds against it. The probe sees
+        # it; the write check re-probes that cached verdict and refuses.
+        if sys.platform == "win32":
+            import ctypes
+            from ctypes import wintypes
+            _k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            _k32.CreateFileW.restype = wintypes.HANDLE
+            _k32.CreateFileW.argtypes = [
+                wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD,
+                wintypes.HANDLE]
+            win.right_disk_image_path = cs_img
+            win._images_held_by_us.pop(key, None)
+            h = _k32.CreateFileW(cs_img, 0xC0000000, 0x00000003, None, 3, 0, None)
+            if h != wintypes.HANDLE(-1).value:
+                try:
+                    win._reprobe_and_regate(cs_img)
+                    busy_msg = _tr(".img file {path} already in use.").format(
+                        path=normalize_sd_image_path(cs_img))
+                    check("a CSpect-style shared lock this app did not start is probed busy",
+                          win._image_write_state.get(key) == IMAGE_WRITE_BUSY,
+                          repr(win._image_write_state.get(key)))
+                    check("...and a write into that image is refused",
+                          win._check_image_writable(cs_img) == busy_msg,
+                          repr(win._check_image_writable(cs_img)))
+                finally:
+                    _k32.CloseHandle(h)
+                check("a launch surface shows that holder while it lasts",
+                      not win.button_start_cspect.isEnabled())
+                check("once that holder is gone the write is allowed again",
+                      win._check_image_writable(cs_img) is None,
+                      repr(win._check_image_writable(cs_img)))
+                # The write check's re-probe RE-GATES: the hover re-check
+                # could not, since it compares against the (now free) cache.
+                check("...and that re-probe gives the Launch button back by itself",
+                      win.button_start_cspect.isEnabled())
+
+        # With NO image loaded, running a file is never gated - whatever an
+        # earlier launch held.
+        win.right_disk_image_path = ""
+        check("with no image loaded a file launch is never blocked",
+              win._emulator_launch_blocker("CSpect", autostart=True) == "")
+    finally:
+        _zeo.subprocess = _real_subprocess
+        for p in _FakePopen.made:
+            p.finish()
+        wait_until(lambda: not getattr(win, "_cspect_signals_live", set()), 10,
+                   "the fake CSpects to report")
+        (win.right_disk_image_path, _zm.right_disk_image_explorer_content,
+         win._cspect_executable_path, win._cspect_from_downloads) = saved
+        win._images_held_by_us.pop(key, None)
+        win._image_write_state.pop(key, None)
+        win._refresh_emulator_launchability()
+        for _stale in (cs_img, fake_exe):
+            try:
+                os.remove(_stale)
+            except OSError:
+                pass
+
+
 def inspect_phase12():
     # The resting state (no image loaded, or a failed load) must not hold
     # the SD Card lock: it would leave the hover re-check dead (review).
@@ -3396,8 +3685,41 @@ def inspect_phase12():
             # history, "in use" alone does not say WHICH one to swap away from.
             check("the reason names the busy file",
                   os.path.basename(busy_img) in why, repr(why))
-            check("a busy image does NOT block running a downloaded file",
-                  blocker("MAME", autostart=True) == "")
+            # A FILE launch still MOUNTS the loaded image, and launch_mame
+            # re-probes it and refuses when it is held - so the up-front
+            # check has to say so too (9.7.51). It used to answer "" here,
+            # and the strip offered "Start MAME with file" for the launcher
+            # to refuse after the Remote Explorer had downloaded the file.
+            # With NO image loaded a file launch is never gated: that half
+            # is pinned in _phase12_cspect_in_background.
+            #
+            # A file launch is asked at the CLICK, so it re-probes a cached
+            # BUSY the way the launcher does. With the real lock (Windows)
+            # the probe still answers busy. Without one (POSIX, where the
+            # probe sees nobody, or a lock that could not be taken) the
+            # hand-seeded verdict is rightly found stale - there what
+            # blocks is an emulator this app launched, so seed that instead
+            # and leave the seeded verdict for the checks below untouched.
+            if holder is not None:
+                _file_why = blocker("MAME", autostart=True)
+            else:
+                class _Running:
+                    def poll(self):
+                        return None
+                win._images_held_by_us[key] = [_Running()]
+                try:
+                    _file_why = blocker("MAME", autostart=True)
+                finally:
+                    win._images_held_by_us.pop(key, None)
+            check("a busy LOADED image blocks running a downloaded file too",
+                  bool(_file_why), repr(_file_why))
+            if holder is None:
+                check("...and a seeded BUSY nobody holds is re-probed at the click",
+                      blocker("MAME", autostart=True) == ""
+                      and win._image_write_state.get(key) != IMAGE_WRITE_BUSY,
+                      repr(win._image_write_state.get(key)))
+                win._image_write_state[key] = IMAGE_WRITE_BUSY   # for the checks below
+                win._refresh_emulator_launchability()
             check("the greyed MAME button explains itself in its tooltip",
                   win.button_start_mame.toolTip() == why,
                   repr(win.button_start_mame.toolTip()))
@@ -3594,6 +3916,7 @@ def inspect_phase12():
                     os.remove(_stale)
                 except OSError:
                     pass
+        _phase12_cspect_in_background(win, toasts)
     finally:
         win._show_toast = real_toast
     app.quit()

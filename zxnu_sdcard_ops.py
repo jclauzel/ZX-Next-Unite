@@ -40,6 +40,8 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import threading
+import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -892,6 +894,15 @@ def build_sdcard_utils(
                             logging.info(
                                 f"Extracting {member.filename} "
                                 f"({member.file_size} bytes) to {target}")
+                            # Never extract over an image an emulator this app
+                            # started is running on (9.7.51): the "wb" open
+                            # below truncates it under a live NextZXOS, and
+                            # CSpect shares the file for writing, so the OS
+                            # would not refuse it. The except below reports it.
+                            _blocker = getattr(host, "_image_write_blocker", None)
+                            _why = _blocker(target) if _blocker is not None else ""
+                            if _why:
+                                raise RuntimeError(_why)
                             download_progress.setValue(0)
                             download_progress.setFormat(
                                 ui_tr_now("Extracting image... %p%"))
@@ -1098,6 +1109,40 @@ def build_sdcard_utils(
             p = pathlib.Path(clean)
             if not p.exists():
                 return f"Image file not found: {clean}"
+            # An emulator this app started still has the card mounted
+            # (9.7.51). The r+b open below cannot see it: CSpect shares the
+            # file for writing, and POSIX refuses no second writer at all.
+            _blocker = getattr(host, "_image_write_blocker", None)
+            _why = _blocker(clean) if _blocker is not None else ""
+            if _why:
+                return _why
+            # ...or an emulator this app did NOT start - one left running by
+            # an earlier Unite (closing Unite while CSpect runs became an
+            # ordinary thing to do in 9.7.51), or one started by hand. The
+            # Windows probe sees it, and its verdict is cached; re-probe a
+            # cached BUSY rather than trust it, since the holder may be gone.
+            # (Never a blind fresh probe: an exclusive open also "sees" this
+            # app's own hdfmonkey reading the image.) POSIX: never BUSY.
+            #
+            # On the UI thread the re-probe RE-GATES too: a verdict flipped
+            # back to free must un-grey the Launch buttons and both strips,
+            # and the hover re-check cannot do it afterwards (it compares
+            # against the cache, which already says free). On a worker the
+            # verdict is NOT recorded: the cache and every surface it gates
+            # belong to the UI thread.
+            _state_key = getattr(host, "_image_state_key", None)
+            if (_state_key is not None
+                    and getattr(host, "_image_write_state", {}).get(
+                        _state_key(clean)) == IMAGE_WRITE_BUSY):
+                _regate = getattr(host, "_reprobe_and_regate", None)
+                if (threading.current_thread() is threading.main_thread()
+                        and _regate is not None):
+                    _free = _regate(clean)
+                else:
+                    _free = probe_image_write_access(clean) != IMAGE_WRITE_BUSY
+                if not _free:
+                    return ui_tr_now(".img file {path} already in use.").format(
+                        path=normalize_sd_image_path(clean))
             # Check for offline cloud file (OneDrive file not downloaded locally)
             if hasattr(p.stat(), 'st_file_attributes'):
                 OFFLINE = 0x1000  # FILE_ATTRIBUTE_OFFLINE
@@ -1125,12 +1170,54 @@ def build_sdcard_utils(
             return f"Cannot check image file: {e}"
         return None
 
+    # An hdfmonkey write refused because the image is in use (9.7.51) is
+    # reported on the UI thread: execute_hdf_monkey runs on transfer
+    # workers, where the SD Card log must not be touched. One log line and
+    # one toast per message every few seconds - a folder transfer is refused
+    # once per file, and a hundred identical lines say less than one.
+    host._image_write_refused_signals = ImageWriteRefusedSignals()
+    _write_refused_clock = {}
+
+    def _on_image_write_refused(message):
+        now = time.monotonic()
+        if now - _write_refused_clock.get(message, -1e9) < 5.0:
+            return
+        _write_refused_clock[message] = now
+        add_main_log_window(message)
+        try:
+            host._show_toast(ui_tr_now("Disk image in use"), message,
+                             variant="red", duration_ms=9000)
+        except (RuntimeError, AttributeError):
+            logging.exception("could not show the image-in-use toast")
+
+    host._image_write_refused_signals.refused.connect(
+        _on_image_write_refused, Qt.QueuedConnection)
+
     def execute_hdf_monkey(command_to_execute, image_path, additional_args="", silent=False, extra_argv=None, prompt_if_missing=True):
         # Sentinel with a non-zero returncode in case we never reach subprocess.run
         exec_process = subprocess.CompletedProcess(args=[], returncode=-1)
         # Prefer a bundled hdfmonkey discovered under downloads/cspect
         # (Windows only); otherwise fall back to the PATH/"hdfmonkey" default.
         hdfmonkey_exe = getattr(host, "_hdfmonkey_executable_path", None) or HDFMONKEY_EXECUTABLE
+        # Never write into an image an emulator this app started still has
+        # mounted (9.7.51). This is the one place EVERY hdfmonkey write goes
+        # through - transfers, deletes, renames, new folders, the gallery
+        # panes' "send to image", the starter pack, the .sync5 deploy - so
+        # it is the gate that cannot be bypassed, whatever the caller checked
+        # first. Reads (ls, get) are never refused.
+        if command_to_execute in HDFMONKEY_WRITE_VERBS:
+            _blocker = getattr(host, "_image_write_blocker", None)
+            _why = _blocker(image_path) if _blocker is not None else ""
+            if _why:
+                logging.warning(f"hdfmonkey {command_to_execute} refused: {_why}")
+                if not silent:
+                    _sig = getattr(host, "_image_write_refused_signals", None)
+                    if _sig is not None:
+                        _sig.refused.emit(_why)
+                return subprocess.CompletedProcess(
+                    args=[hdfmonkey_exe, command_to_execute, image_path],
+                    returncode=-1, stdout=b"",
+                    stderr=_why.encode("utf-8", "replace"))
         execution_cmd = f'{hdfmonkey_exe} {command_to_execute} {image_path} {additional_args}'
         # On Linux/macOS the itch.io CSpect bundle ships hdfmonkey without
         # its executable bit set, so the OS would refuse to launch it
@@ -1850,6 +1937,33 @@ def build_local_explorer_ops(
         if _emu_direct:
             menu.addSeparator()
 
+        def _send_and_start_refused(emulator):
+            """True (and said, toast included) when *emulator* could not boot
+            the image right now - asked before the upload, not after it.
+
+            The image is re-probed first, as the launcher itself does: the
+            blocker reads a CACHED verdict (it also feeds tooltips), and a
+            holder this app did not start may have gone since."""
+            try:
+                raw = (host.imageinput.currentText() if emulator == "MAME"
+                       else host.right_disk_image_path)
+            except (RuntimeError, AttributeError):
+                raw = ""
+            path = normalize_sd_image_path(raw or "")
+            reprobe = getattr(host, "_reprobe_and_regate", None)
+            if path and os.path.isfile(path) and reprobe is not None:
+                reprobe(path)
+            blocker = getattr(host, "_emulator_launch_blocker", None)
+            why = blocker(emulator) if blocker is not None else ""
+            if not why:
+                return False
+            failed = getattr(host, "_emulator_launch_failed", None)
+            if failed is not None:
+                failed(emulator, why)
+            else:
+                add_main_log_window(why)
+            return True
+
         # "Send to SD Card and start CSpect with <file>" — offered only with
         # CSpect installed, an image loaded, and a file CSpect can boot. It
         # uploads into the folder the image explorer is showing and, once that
@@ -1861,6 +1975,12 @@ def build_local_explorer_ops(
                 and getattr(host, "_launch_cspect_fn", None)
                 and getattr(host, "image_upload_external_paths", None)):
             def _send_and_start(_p=file_path):
+                # Ask the launcher's own gate BEFORE writing anything: the
+                # image may already be mounted in a running emulator, and
+                # finding that out after the upload meant writing into a card
+                # a live NextZXOS was using and then refusing to start (9.7.51).
+                if _send_and_start_refused("CSpect"):
+                    return
                 target = (host.diskimageexplorerpathinput.text() or "/").strip()
                 target = ("/" + target.strip("/")) if target.strip("/") else "/"
 
@@ -1895,6 +2015,8 @@ def build_local_explorer_ops(
                 and getattr(host, "_launch_mame_fn", None)
                 and getattr(host, "image_upload_external_paths", None)):
             def _send_and_start_mame(_p=file_path):
+                if _send_and_start_refused("MAME"):
+                    return
                 target = (host.diskimageexplorerpathinput.text() or "/").strip()
                 target = ("/" + target.strip("/")) if target.strip("/") else "/"
 
@@ -2144,7 +2266,9 @@ def build_local_explorer_ops(
         what was already extracted."""
         name = os.path.basename(zip_path)
         dest = os.path.dirname(zip_path) or "."
-        res = zip_extract_with_dialog(host, zip_path, dest, log=log_fn)
+        res = zip_extract_with_dialog(
+            host, zip_path, dest, log=log_fn,
+            refuse=getattr(host, "_image_write_blocker", None))
         if res["cancelled"]:
             log_fn(f"Unzip of {name} cancelled — already-extracted files remain.")
         elif res["error"]:
@@ -2791,6 +2915,21 @@ def build_transfer_clipboard_ops(
         else:
             img_items = list(data["items"])
             img_paths = [p for (p, _d) in img_items]
+            if is_cut:
+                # A MOVE ends by deleting the sources from the image, so ask
+                # the image's writability first, as the other two move paths
+                # do: refused only after the copy (a running emulator holds
+                # the card - 9.7.51), the deletes fail one by one while the
+                # log still says "Moved" and the cut is gone from the
+                # clipboard.
+                img_err = _check_image_writable(host.right_disk_image_path,
+                                                check_free_space=False)
+                if img_err:
+                    logging.error(img_err)
+                    add_main_log_window(f"ERROR: {img_err}")
+                    QMessageBox.critical(host, ui_tr_now("Image not writable"),
+                                         img_err)
+                    return
             def _after(success, _p=img_paths):
                 if success and is_cut:
                     # Defer so the download dialog's event loop fully unwinds

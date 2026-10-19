@@ -6323,6 +6323,28 @@ class MameProcessSignals(QObject):
     finished = Signal(int)   # process return code
 
 
+class CSpectProcessSignals(QObject):
+    """Marshals a background CSpect's end back to the UI thread (9.7.51).
+
+    CSpect's output is NOT forwarded line by line the way MAME's is: the
+    reader thread keeps a short tail and copies a bounded number of lines to
+    the file log itself, and the SD Card console only shows that tail when
+    the run failed - CSpect's console chatter is not news on a normal run.
+
+    ``object``, NOT ``int``: a Windows crash ends with an NTSTATUS such as
+    3221225477 (0xC0000005), which does not fit Qt's signed 32-bit int -
+    measured, shiboken wraps it to -1073741819 with only a warning, and the
+    exit code then reads as "killed by signal 1073741819"."""
+    finished = Signal(object)   # process return code, unsigned on Windows
+
+
+class ImageWriteRefusedSignals(QObject):
+    """Carries an "image in use, write refused" message from whichever thread
+    execute_hdf_monkey refused it on (transfers run on workers) to the UI
+    thread, where the SD Card log and the toast may be touched (9.7.51)."""
+    refused = Signal(str)
+
+
 class MameInstallSignals(QObject):
     """Marshals updates from the MAME auto-install worker thread to the UI
     thread, so each step of the download-then-extract job can be reported as it
@@ -6532,10 +6554,14 @@ def _zip_dialog(parent, title):
     return dlg, state
 
 
-def zip_extract_with_dialog(parent, zip_path, dest_dir, log=None):
+def zip_extract_with_dialog(parent, zip_path, dest_dir, log=None, refuse=None):
     """Extract *zip_path* into *dest_dir* with a cancellable progress dialog
     that names every file as it comes out. Zip-slip entries ('..' segments,
     absolute or drive-prefixed paths) are skipped and logged, not extracted.
+    *refuse* (path -> "" or a reason) is asked before each file is
+    truncated; a reason skips that member (9.7.51: the local panes pass the
+    image write gate, so re-unzipping the archive a mounted image came from
+    cannot truncate it under the running emulator).
     Returns {'ok', 'files', 'skipped', 'bytes', 'cancelled', 'error'};
     'ok' is True only when the archive extracted without cancel or error
     (skipped entries alone don't clear it), 'bytes' totals the uncompressed
@@ -6568,6 +6594,12 @@ def zip_extract_with_dialog(parent, zip_path, dest_dir, log=None):
                 if m.is_dir():
                     os.makedirs(target, exist_ok=True)
                     continue
+                if refuse is not None:
+                    why = refuse(target)
+                    if why:
+                        res["skipped"] += 1
+                        log(f"Unzip: skipped {mname}: {why}")
+                        continue
                 os.makedirs(os.path.dirname(target), exist_ok=True)
                 with zf.open(m) as src, open(target, "wb") as dst:
                     shutil.copyfileobj(src, dst)
