@@ -1821,6 +1821,18 @@ def build_local_explorer_ops(
         holds-port-2048 advisory)."""
         if getattr(host, "_re_running", False):
             return                      # started elsewhere meanwhile
+        # The view FIRST (9.7.52): host._re_sync_root is filled only when the
+        # Remote Explorer widget is built - the first time its view shows -
+        # from the saved sync root (or, since 9.7.52, the default one). Asked
+        # before that, a session that had not opened the view yet was told
+        # to "select a sync root first" with one saved all along.
+        tabs = getattr(host, "nextsync_mode_tabs", None)
+        if tabs is not None and tabs.currentIndex() != TRANSFER_SUBTAB_REMOTE:
+            host._re_open_restoring = True
+            try:
+                tabs.setCurrentIndex(TRANSFER_SUBTAB_REMOTE)
+            finally:
+                host._re_open_restoring = False
         if not getattr(host, "_re_sync_root", ""):
             # The listen server refuses to start without a sync root; say
             # so with a toast HERE instead of a log line on another tab.
@@ -1830,13 +1842,6 @@ def build_local_explorer_ops(
                 "Explorer tab and retry.",
                 variant="yellow", duration_ms=10000)
             return
-        tabs = getattr(host, "nextsync_mode_tabs", None)
-        if tabs is not None and tabs.currentIndex() != TRANSFER_SUBTAB_REMOTE:
-            host._re_open_restoring = True
-            try:
-                tabs.setCurrentIndex(TRANSFER_SUBTAB_REMOTE)
-            finally:
-                host._re_open_restoring = False
         toggle = getattr(host, "_nextsync_re_toggle_server", None)
         if toggle is not None:
             toggle()

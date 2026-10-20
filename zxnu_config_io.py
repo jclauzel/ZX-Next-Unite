@@ -123,6 +123,106 @@ def build_config_io(
         configuration_dictionary[SETTING_DEFAULT_TAB_WHEN_OPENING] = (
             getattr(_page, "tab_name_private", "") or tabw.tabText(target))
 
+    def _fill_default_nextsync_root():
+        """Give a run with NO sync root saved the default one (9.7.52).
+
+        Without it the Remote Explorer's Start button stayed disabled until
+        the user browsed to a folder and pressed "Set current folder as new
+        sync root folder". The default is the folder the app was started
+        from, or the app's data folder when that one would make a Classic
+        sync dangerous (see default_nextsync_sync_root). Only ever fills an
+        EMPTY setting - a sync root the user chose is never replaced - and
+        returns True when it did. Persisted by the next save (this runs while
+        __init__ still holds saves off), so it is the default once, not on
+        every launch from a different folder.
+        """
+        if (configuration_dictionary.get(SETTING_NEXTSYNC_EXPLORERPATH)
+                or "").strip():
+            return False
+        root = default_nextsync_sync_root()
+        if not root:
+            logging.info("NextSync: no default sync root - neither the start "
+                         f"folder ({ZXNU_START_DIR!r}) nor the data folder "
+                         f"({ZXNU_DATA_ROOT!r}) is suitable")
+            return False
+        why = nextsync_root_unsuitable(ZXNU_START_DIR)
+        logging.info(f"NextSync: default sync root {root}"
+                     + (f" (the start folder {ZXNU_START_DIR!r} is {why})"
+                        if why else " (the folder the app was started from)"))
+        configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH] = root
+
+        # Said once the event loop runs, i.e. AFTER __init__ has applied the
+        # UI language: ui_tr_now translates against the language last
+        # applied, which is still the default while the config is loading,
+        # and a log line is list content the later widget walk never
+        # re-translates - so said now it would stay English for the session,
+        # naming a button the user sees translated.
+        def _say(_root=root):
+            try:
+                add_nextsync_log_window(ui_tr_now(
+                    "NextSync sync root set to {path}: none had been chosen yet. "
+                    "To use another folder, browse to it and press '{button}'."
+                    ).format(path=_root, button=ui_tr_now(
+                        "Set current folder as new sync root folder")))
+            except Exception:
+                logging.exception("could not log the default sync root")
+        QTimer.singleShot(0, _say)
+        return True
+
+    def _restore_nextsync_root_ui():
+        """Push the saved (or just defaulted) sync root into the Classic
+        explorer: its tree, its path box and the "Set current folder…"
+        button. The Remote Explorer reads the setting when it is built."""
+        if configuration_dictionary.get(SETTING_NEXTSYNC_EXPLORERPATH, "") != "":
+            if not os.path.isdir(configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH]):
+                configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH] = os.path.dirname(configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH].rstrip("/\\")) + "/"
+
+
+            root_tree_at(host.nextsync_treeview, host.nextsync_model,
+                         host.nextsync_filesystem_model,
+                         configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH])
+            host.left_file_nextsync_explorer_selection_full_filename_path = configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH]
+            host.nextsync_file_explorer_path.setText(host.left_file_nextsync_explorer_selection_full_filename_path)
+
+        # Restored (or empty) sync root: sync the "Set current folder as
+        # new sync root folder" button visibility with it.
+        _nextsync_update_set_syncroot_button()
+
+    def _start_re_view_and_listener():
+        """Open the Remote Explorer view for this run and start its
+        '.sync5 -listen' server once the event loop is up - the
+        -start-remote-explorer-listener switch and the Settings autostart
+        checkbox. Its own helper (9.7.52) so a FIRST run, whose restore never
+        runs, can honour the switch too: it has a default sync root now."""
+        if host.nextsync_mode_tabs.currentIndex() != TRANSFER_SUBTAB_REMOTE:
+            # This run only (the CLI switch / the autostart
+            # checkbox), so neither the experience choice nor the
+            # saved sub-tab may be rewritten.
+            host._re_open_restoring = True
+            host._transfer_subtab_restoring = True
+            try:
+                host.nextsync_mode_tabs.setCurrentIndex(TRANSFER_SUBTAB_REMOTE)
+            finally:
+                host._re_open_restoring = False
+                host._transfer_subtab_restoring = False
+
+        def _autostart_re_listener():
+            if getattr(host, "_re_running", False):
+                return
+            # The sync root the checkbox was gated on can be gone by
+            # now (folder deleted/renamed since). The listen guard
+            # would refuse with only a log line — say it visibly
+            # too, the same advisory the Settings tick shows.
+            if not getattr(host, "_re_sync_root", ""):
+                host._show_toast(
+                    "Remote Explorer autostart not enabled",
+                    "Define a sync root folder first, on the "
+                    "NextSync tab's Remote Explorer view.",
+                    variant="yellow", duration_ms=5000)
+                return
+            host._nextsync_re_toggle_server()
+        QTimer.singleShot(0, _autostart_re_listener)
+
     def load_configuration_file():
 
         config_loaded_with_success = False
@@ -233,20 +333,11 @@ def build_config_io(
                 host.left_file_explorer_selection_full_filename_path = configuration_dictionary[SETTING_EXPLORERPATH]
                 local_sync_path_box()
 
-            if configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH] != "":
-                if not os.path.isdir(configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH]):
-                    configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH] = os.path.dirname(configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH].rstrip("/\\")) + "/"
-
-
-                root_tree_at(host.nextsync_treeview, host.nextsync_model,
-                             host.nextsync_filesystem_model,
-                             configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH])
-                host.left_file_nextsync_explorer_selection_full_filename_path = configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH]
-                host.nextsync_file_explorer_path.setText(host.left_file_nextsync_explorer_selection_full_filename_path)
-
-            # Restored (or empty) sync root: sync the "Set current folder as
-            # new sync root folder" button visibility with it.
-            _nextsync_update_set_syncroot_button()
+            # No sync root saved yet: default it BEFORE the restore, so the
+            # Classic explorer shows it and the Remote Explorer autostart
+            # further down can start on it (9.7.52).
+            _fill_default_nextsync_root()
+            _restore_nextsync_root_ui()
 
             # Select the "Sync mode" radio from the two legacy booleans.
             # "Sync once" wins if a legacy config somehow had both set; with
@@ -858,34 +949,7 @@ def build_config_io(
             # talks to all exist by then.
             if ((_zxnu_start_re_listener() or _re_auto_on)
                     and hasattr(host, "nextsync_mode_tabs")):
-                if host.nextsync_mode_tabs.currentIndex() != TRANSFER_SUBTAB_REMOTE:
-                    # This run only (the CLI switch / the autostart
-                    # checkbox), so neither the experience choice nor the
-                    # saved sub-tab may be rewritten.
-                    host._re_open_restoring = True
-                    host._transfer_subtab_restoring = True
-                    try:
-                        host.nextsync_mode_tabs.setCurrentIndex(TRANSFER_SUBTAB_REMOTE)
-                    finally:
-                        host._re_open_restoring = False
-                        host._transfer_subtab_restoring = False
-
-                def _autostart_re_listener():
-                    if getattr(host, "_re_running", False):
-                        return
-                    # The sync root the checkbox was gated on can be gone by
-                    # now (folder deleted/renamed since). The listen guard
-                    # would refuse with only a log line — say it visibly
-                    # too, the same advisory the Settings tick shows.
-                    if not getattr(host, "_re_sync_root", ""):
-                        host._show_toast(
-                            "Remote Explorer autostart not enabled",
-                            "Define a sync root folder first, on the "
-                            "NextSync tab's Remote Explorer view.",
-                            variant="yellow", duration_ms=5000)
-                        return
-                    host._nextsync_re_toggle_server()
-                QTimer.singleShot(0, _autostart_re_listener)
+                _start_re_view_and_listener()
 
             # ---- the last-look UX restore (9.5.14): size first, then the
             # remembered monitor, then the explorer column widths — the
@@ -1252,6 +1316,22 @@ def build_config_io(
             logging.error(f"Configuration file not found!")
         except Exception as e:
             logging.error(f"Failed to load configuration file. Exception: {e}")
+
+        # A FIRST run has no hdfg.cfg, so the restore above never ran (the
+        # open() raised; note `except IOError` catches FileNotFoundError ahead
+        # of its own branch). Default the sync root here too - a run whose
+        # restore already filled it, or the user's own saved root, is left
+        # alone (_fill_default_nextsync_root only fills an empty setting).
+        if not config_loaded_with_success:
+            try:
+                if _fill_default_nextsync_root():
+                    _restore_nextsync_root_ui()
+                # The switch asked for the server this run; with no cfg the
+                # autostart CHECKBOX cannot be set, so the switch alone.
+                if _zxnu_start_re_listener() and hasattr(host, "nextsync_mode_tabs"):
+                    _start_re_view_and_listener()
+            except Exception:
+                logging.exception("could not apply the default NextSync sync root")
 
         return config_loaded_with_success
 

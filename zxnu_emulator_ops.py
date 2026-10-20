@@ -201,6 +201,48 @@ def _mame_sfx_kill(proc):
             "kill(); the next download will fall back to a fresh file name.")
 
 
+def _read_mame_output(proc, signals):
+    """Drain a MAME process's output to EOF, then wait for it, then report.
+
+    Module level (9.7.52) so it can be tested with a fake process; it uses
+    nothing from launch_mame. Three rules, each paid for:
+
+    * BYTES, decoded per line as UTF-8 with replacement (MAME writes UTF-8 on
+      every platform). The Popen used text=True, i.e. the STRICT locale codec
+      - cp1252 on Windows, where 0x81/0x8D/0x8F/0x90/0x9D are undefined - so
+      one accented character raised out of the loop, and the finally below
+      reported MAME finished while it was still running: the ESP proxy
+      reference was released under it, and MAME then blocked for good on the
+      full pipe nobody read any more.
+    * A line that fails to decode or forward is skipped, never allowed to
+      end the loop: draining is not optional.
+    * wait() BEFORE finished is emitted, in the finally, so "finished" always
+      means the process has exited.
+    """
+    try:
+        stream = proc.stdout
+        if stream is not None:
+            for raw in iter(lambda: stream.readline(65536), b""):
+                try:
+                    line = decode_console_line(raw, encoding="utf-8")
+                    if line:
+                        signals.output.emit(line)
+                except Exception:
+                    pass
+    except Exception as exc:
+        try:
+            signals.output.emit(f"ERROR reading MAME output: {exc}")
+        except Exception:
+            pass
+    finally:
+        try:
+            proc.wait()
+        except Exception:
+            logging.exception("waiting for MAME")
+        signals.finished.emit(proc.returncode
+                              if proc.returncode is not None else -1)
+
+
 def build_emulator_ops(
     host,
     *,
@@ -1573,8 +1615,6 @@ def build_emulator_ops(
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     close_fds=True,
-                    text=True,
-                    bufsize=1,
                     cwd=mame_cwd,
                     **subprocess_no_window_kwargs(extra_flags=0x00000200, gui_app=True),
                 )
@@ -1585,8 +1625,6 @@ def build_emulator_ops(
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     close_fds=True,
-                    text=True,
-                    bufsize=1,
                     cwd=mame_cwd,
                     start_new_session=True,
                 )
@@ -1624,7 +1662,7 @@ def build_emulator_ops(
         def _on_mame_finished(return_code):
             add_main_log_window(ui_tr_now(
                 "MAME exited with code {code}.").format(code=return_code))
-            logging.info(f"MAME exited with code {return_code}.")
+            logging.info(f"MAME exited with code {describe_exit_code(return_code)}.")
             # This MAME has let go of its disk image. Drop the reference and
             # re-probe, so the launch affordances come back the moment the
             # last holder exits instead of staying greyed until the user
@@ -1696,22 +1734,10 @@ def build_emulator_ops(
             Qt.QueuedConnection)
         host._mame_signals = mame_signals     # the most recent one
 
-        def _read_mame_output(proc, signals):
-            try:
-                if proc.stdout is not None:
-                    for raw_line in proc.stdout:
-                        line = raw_line.rstrip("\r\n")
-                        if line:
-                            signals.output.emit(line)
-                proc.wait()
-            except Exception as exc:
-                signals.output.emit(f"ERROR reading MAME output: {exc}")
-            finally:
-                signals.finished.emit(proc.returncode if proc.returncode is not None else -1)
-
         threading.Thread(
             target=_read_mame_output,
             args=(mame_proc, mame_signals),
+            name="mame-output",
             daemon=True,
         ).start()
 

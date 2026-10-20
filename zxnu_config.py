@@ -24,7 +24,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.51"
+ZX_NEXT_UNITE_VERSION = "9.7.52"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -125,6 +125,18 @@ def _zxnu_compute_data_root():
 
 
 ZXNU_DATA_ROOT = _zxnu_compute_data_root()
+
+# The folder the app was STARTED from - the working directory at import, which
+# is as early as anything can read it. Nothing in the app calls os.chdir, but
+# it is captured once anyway so a later caller can never ask the wrong folder.
+# It is the first-run default NextSync sync root (9.7.52, see
+# default_nextsync_sync_root): Jari Komppa's original NextSync server synced
+# the folder it was started in, and the shipped syncignore defaults
+# (IGNOREFILE_DEFAULT_CONTENT) still carry that heritage.
+try:
+    ZXNU_START_DIR = os.getcwd()
+except OSError:                       # the folder it was started in is gone
+    ZXNU_START_DIR = ""
 
 ZX_NEXT_UNITE_CONFIG_FILE_NAME = os.path.join(ZXNU_DATA_ROOT, "hdfg.cfg")
 # Debounce window (ms) for the NextSync "prepare" file scan: rapid explorer
@@ -748,13 +760,18 @@ def describe_exit_code(returncode):
     return str(code)
 
 
-def decode_console_line(raw, windows=None):
+def decode_console_line(raw, windows=None, encoding=None):
     """One line of an emulator's captured output, as text, never raising.
 
     A console program on Windows writes in the OEM code page (437/850 here),
     not the ANSI one Python's text mode would assume - and a strict decoder
     raising on one stray byte is how a reader thread dies early and reports
     an exit that has not happened. Undecodable bytes become U+FFFD instead.
+
+    *encoding* names the program's own encoding when it has one: MAME writes
+    UTF-8 on every platform (9.7.52 - its reader used the strict locale codec,
+    cp1252 here, in which bytes such as 0x81 or 0x9D are undefined, so one
+    accented character in MAME's output could end the reader early).
     """
     if isinstance(raw, str):
         return raw.rstrip("\r\n")
@@ -762,7 +779,12 @@ def decode_console_line(raw, windows=None):
         windows = platform.system() == "Windows"
     data = bytes(raw or b"")
     text = None
-    if windows:
+    if encoding:
+        try:
+            text = data.decode(encoding, errors="replace")
+        except LookupError:               # an unknown codec name: fall through
+            text = None
+    if text is None and windows:
         try:
             text = data.decode("oem", errors="replace")
         except LookupError:               # the "oem" codec exists on Windows only
@@ -770,6 +792,193 @@ def decode_console_line(raw, windows=None):
     if text is None:
         text = data.decode("utf-8", errors="replace")
     return text.rstrip("\r\n")
+
+
+# ---- the first-run NextSync sync root (9.7.52) ----------------------------
+# With no sync root saved, the Remote Explorer's Start button stayed disabled
+# until the user browsed to a folder and pressed "Set current folder as new
+# sync root folder". The folder the app was started from is the default now,
+# so the server can start straight away. The ONE sync root serves both the
+# Remote Explorer and Classic sync, and a Classic sync sends everything under
+# it, recursively - so a folder that would make that a disaster (the whole
+# home folder or one above it, a drive root, a system folder) is never
+# proposed; the app's own data folder stands in for it. That folder - and the
+# start folder too in the common cases (a portable exe double-clicked, a
+# source checkout) - holds hdfg.cfg, the logs and downloads/, which Classic
+# sync never sends: see app_state_matcher, applied by getFileList.
+
+def nextsync_root_unsuitable(path, home=None, env=None):
+    """Why *path* must not be the DEFAULT sync root, or "" when it may be.
+
+    Reasons are short English diagnostics for the log. *home* and *env* are
+    for tests (default: the real home folder and ``os.environ``).
+    """
+    if not path:
+        return "no folder"
+    try:
+        real = os.path.realpath(os.path.abspath(path))
+    except (OSError, ValueError):
+        return "unresolvable"
+    if not os.path.isdir(real):
+        return "not a folder"
+    if os.path.dirname(real) == real:
+        return "a drive or filesystem root"
+    key = os.path.normcase(real)
+    try:
+        home_dir = os.path.realpath(home if home is not None
+                                    else os.path.expanduser("~"))
+    except (OSError, ValueError):
+        home_dir = ""
+    if home_dir:
+        home_key = os.path.normcase(home_dir)
+        if key == home_key:
+            return "the home folder itself"
+        # An ANCESTOR of home (C:\Users, /home) holds every user's home.
+        if home_key.startswith(key.rstrip("\\/") + os.sep):
+            return "a folder above the home folder"
+    env = os.environ if env is None else env
+    for var in ("SystemRoot", "windir", "ProgramFiles", "ProgramFiles(x86)",
+                "ProgramW6432"):
+        base = (env.get(var) or "").strip()
+        if not base:
+            continue
+        try:
+            base_key = os.path.normcase(os.path.realpath(base))
+        except (OSError, ValueError):
+            continue
+        if key == base_key or key.startswith(base_key.rstrip("\\/") + os.sep):
+            return "a system folder"
+    if os.name == "nt":
+        # os.access(W_OK) consults only the read-only ATTRIBUTE on Windows,
+        # which a folder ignores, so it answers True for System32 itself
+        # (measured): ask the file system instead - ONE create attempt of a
+        # file that deletes itself on close. Never tempfile: its Windows
+        # retry loop goes round while os.access says yes, i.e. for ever on a
+        # folder, and TMP_MAX is 2**31-1 before Python 3.13 (measured: a
+        # TemporaryFile in System32 was still looping after two minutes).
+        probe = os.path.join(real, f".zxnu-write-test-{os.getpid()}-"
+                                   f"{secrets.token_hex(4)}")
+        try:
+            fd = os.open(probe, os.O_CREAT | os.O_EXCL | os.O_WRONLY
+                         | getattr(os, "O_TEMPORARY", 0))
+        except OSError:
+            return "not writable"
+        os.close(fd)
+        if not getattr(os, "O_TEMPORARY", 0):
+            try:
+                os.remove(probe)
+            except OSError:
+                pass
+    elif not os.access(real, os.W_OK):
+        return "not writable"
+    return ""
+
+
+def default_nextsync_sync_root(start_dir=None, fallback=None, home=None, env=None):
+    """The sync root a run with none saved defaults to, or "" for none.
+
+    The folder the app was started from (*start_dir*, default
+    ``ZXNU_START_DIR``), else the app's data folder (*fallback*, default
+    ``ZXNU_DATA_ROOT``) when the first is unsuitable
+    (``nextsync_root_unsuitable``). Spelled the way every sync-root writer
+    stores it: forward slashes and a trailing "/".
+    """
+    for candidate in (ZXNU_START_DIR if start_dir is None else start_dir,
+                      ZXNU_DATA_ROOT if fallback is None else fallback):
+        if candidate and not nextsync_root_unsuitable(candidate, home=home, env=env):
+            path = os.path.abspath(candidate).replace("\\", "/")
+            return path if path.endswith("/") else path + "/"
+    return ""
+
+
+def app_state_matcher(sync_root, data_root=None):
+    """A predicate for the paths ``glob(sync_root + "**")`` yields that are
+    this app's OWN files, or None when its data folder is not under the root.
+
+    Classic sync sends everything under its root, and since 9.7.52 the
+    default root is the folder the app was started from - in the common
+    cases (a portable exe double-clicked, a source checkout) the data folder
+    itself. Its own files must never reach the Next: hdfg.cfg holds the
+    itch.io API key and the bridge's bearer token in plain text, and
+    downloads/ holds gigabytes of emulators. Matched: anything under
+    <data root>/downloads/, and files directly in the data root named
+    hdfg.cfg* or zx-next-unite* (the logs, the crash log, the executable and
+    the self-updater's downloads, the icon, the launcher script) - the same
+    family IGNOREFILE_DEFAULT_CONTENT has always listed.
+
+    The containment test resolves the two folders ONCE (junctions included);
+    the per-file test is string work on the glob's own spelling, because a
+    sync of 20,000 files must not stat each one twice.
+    """
+    data_root = ZXNU_DATA_ROOT if data_root is None else data_root
+    if not data_root:
+        return None
+    base_in = sync_root or "."
+    try:
+        sr = os.path.realpath(os.path.abspath(base_in))
+        dr = os.path.realpath(os.path.abspath(data_root))
+    except (OSError, ValueError):
+        return None
+    srk, drk = os.path.normcase(sr), os.path.normcase(dr)
+    if drk == srk:
+        rel = ""
+    elif drk.startswith(srk.rstrip("\\/") + os.sep):
+        rel = dr[len(sr.rstrip("\\/")) + 1:]
+    else:
+        return None
+    base = os.path.join(os.path.abspath(base_in), rel) if rel else os.path.abspath(base_in)
+    base_k = os.path.normcase(os.path.normpath(base))
+    downloads_k = os.path.join(base_k, os.path.normcase("downloads")) + os.sep
+
+    def _is_app_state(path):
+        k = os.path.normcase(os.path.abspath(path))
+        if k.startswith(downloads_k):
+            return True
+        if os.path.dirname(k) == base_k:
+            name = os.path.basename(k)
+            return (name.startswith(os.path.normcase("hdfg.cfg"))
+                    or name.startswith(os.path.normcase("zx-next-unite")))
+        return False
+
+    _is_app_state.base_key = base_k
+    return _is_app_state
+
+
+# File types never written into the data folder's top level by a Sync4
+# upload (.sync -send): a planted zipfile.py beside zx-next-unite.py shadows
+# the standard library on the next source run, and a planted DLL beside the
+# portable exe is loaded by it.
+UPLOAD_REFUSED_CODE_EXTENSIONS = frozenset({
+    ".py", ".pyw", ".pyc", ".pyd", ".dll", ".exe", ".com", ".bat", ".cmd",
+    ".ps1", ".vbs", ".msi", ".lnk", ".so", ".dylib", ".sh"})
+
+
+def app_upload_guard(sync_root, data_root=None):
+    """A predicate saying whether a Sync4 upload must NOT write a path, or
+    None when the data folder is not under the sync root (9.7.52).
+
+    The other half of app_state_matcher: Classic sync's default root is the
+    folder the app was started from, often the data folder itself, and the
+    Classic server accepts an upload from any machine on the network. So a
+    file the app reads (hdfg.cfg), runs (anything under downloads/, which
+    emulator and hdfmonkey detection walks) or would load as code (a program
+    or library file directly in the data folder) is refused, whatever the
+    conflict policy says. The user's own files anywhere else are untouched.
+    """
+    match = app_state_matcher(sync_root, data_root)
+    if match is None:
+        return None
+    base_k = match.base_key
+
+    def _refused(path):
+        if match(path):
+            return True
+        k = os.path.normcase(os.path.abspath(path))
+        return (os.path.dirname(k) == base_k
+                and os.path.splitext(k)[1] in UPLOAD_REFUSED_CODE_EXTENSIONS)
+
+    return _refused
+
 
 def open_path_with_system_shell(path):
     """Hand ``path`` to the operating system so whatever the OS associates

@@ -735,6 +735,8 @@ CATALOGS = {
             "La imagen de disco {path} está en uso por un emulador iniciado desde ZX-Next-Unite. Cierra el emulador antes de cambiar los archivos de la imagen.",
         "Could not open the configuration file {path}.":
             "No se pudo abrir el archivo de configuración {path}.",
+        "NextSync sync root set to {path}: none had been chosen yet. To use another folder, browse to it and press '{button}'.":
+            "Raíz de sincronización de NextSync establecida en {path}: aún no se había elegido ninguna. Para usar otra carpeta, navega hasta ella y pulsa '{button}'.",
         "Disk image in use":
             "Imagen de disco en uso",
         "MAME install ▸ SUCCESS — MAME detected at: {path}":
@@ -1223,6 +1225,8 @@ CATALOGS = {
             "Elige primero una carpeta raíz de sincronización: navega a ella en el explorador local izquierdo y pulsa 'Set current folder as new sync root folder'.",
         "Skipped (already exists): {path}":
             "Omitido (ya existe): {path}",
+        "Refused {path}: it is one of ZX-Next-Unite's own files (its settings, logs, programs or downloads).":
+            "Rechazado {path}: es uno de los archivos propios de ZX-Next-Unite (su configuración, registros, programas o descargas).",
         "Skipped {path}: cannot import a folder into itself.":
             "Omitido {path}: no se puede importar una carpeta dentro de sí misma.",
         "Stop the running sync before starting the remote server.":
@@ -2249,6 +2253,8 @@ CATALOGS = {
             "A imagem de disco {path} está a ser usada por um emulador iniciado a partir do ZX-Next-Unite. Feche o emulador antes de alterar os ficheiros da imagem.",
         "Could not open the configuration file {path}.":
             "Não foi possível abrir o ficheiro de configuração {path}.",
+        "NextSync sync root set to {path}: none had been chosen yet. To use another folder, browse to it and press '{button}'.":
+            "Raiz de sincronização do NextSync definida como {path}: ainda não tinha sido escolhida nenhuma. Para usar outra pasta, navegue até ela e prima '{button}'.",
         "Disk image in use":
             "Imagem de disco em uso",
         "MAME install ▸ SUCCESS — MAME detected at: {path}":
@@ -2737,6 +2743,8 @@ CATALOGS = {
             "Escolhe primeiro uma pasta raiz de sincronização: navega até ela no explorador local esquerdo e prime 'Set current folder as new sync root folder'.",
         "Skipped (already exists): {path}":
             "Ignorado (já existe): {path}",
+        "Refused {path}: it is one of ZX-Next-Unite's own files (its settings, logs, programs or downloads).":
+            "Recusado {path}: é um dos ficheiros do próprio ZX-Next-Unite (a sua configuração, registos, programas ou transferências).",
         "Skipped {path}: cannot import a folder into itself.":
             "Ignorado {path}: não é possível importar uma pasta para dentro de si própria.",
         "Stop the running sync before starting the remote server.":
@@ -3759,6 +3767,8 @@ CATALOGS = {
             "Obraz dysku {path} jest używany przez emulator uruchomiony z ZX-Next-Unite. Zamknij emulator przed zmianą plików na obrazie.",
         "Could not open the configuration file {path}.":
             "Nie można otworzyć pliku konfiguracyjnego {path}.",
+        "NextSync sync root set to {path}: none had been chosen yet. To use another folder, browse to it and press '{button}'.":
+            "Katalog główny synchronizacji NextSync ustawiono na {path}: żaden nie był jeszcze wybrany. Aby użyć innego folderu, przejdź do niego i naciśnij '{button}'.",
         "Disk image in use":
             "Obraz dysku w użyciu",
         "MAME install ▸ SUCCESS — MAME detected at: {path}":
@@ -4247,6 +4257,8 @@ CATALOGS = {
             "Najpierw wybierz folder główny synchronizacji: przejdź do niego w lewym eksploratorze i naciśnij 'Set current folder as new sync root folder'.",
         "Skipped (already exists): {path}":
             "Pominięto (już istnieje): {path}",
+        "Refused {path}: it is one of ZX-Next-Unite's own files (its settings, logs, programs or downloads).":
+            "Odrzucono {path}: to jeden z własnych plików ZX-Next-Unite (jego ustawienia, logi, programy lub pobrane pliki).",
         "Skipped {path}: cannot import a folder into itself.":
             "Pominięto {path}: nie można zaimportować folderu do niego samego.",
         "Stop the running sync before starting the remote server.":
@@ -5271,6 +5283,8 @@ CATALOGS = {
             "Образ диска {path} используется эмулятором, запущенным из ZX-Next-Unite. Закройте эмулятор, прежде чем изменять файлы в образе.",
         "Could not open the configuration file {path}.":
             "Не удалось открыть файл конфигурации {path}.",
+        "NextSync sync root set to {path}: none had been chosen yet. To use another folder, browse to it and press '{button}'.":
+            "Корень синхронизации NextSync установлен: {path} — он ещё не был выбран. Чтобы использовать другую папку, перейдите в неё и нажмите '{button}'.",
         "Disk image in use":
             "Образ диска используется",
         "MAME install ▸ SUCCESS — MAME detected at: {path}":
@@ -5759,6 +5773,8 @@ CATALOGS = {
             "Сначала выберите корневую папку синхронизации: перейдите к ней в левом проводнике и нажмите 'Set current folder as new sync root folder'.",
         "Skipped (already exists): {path}":
             "Пропущено (уже существует): {path}",
+        "Refused {path}: it is one of ZX-Next-Unite's own files (its settings, logs, programs or downloads).":
+            "Отклонено {path}: это один из собственных файлов ZX-Next-Unite (его настройки, журналы, программы или загрузки).",
         "Skipped {path}: cannot import a folder into itself.":
             "Пропущено {path}: нельзя импортировать папку саму в себя.",
         "Stop the running sync before starting the remote server.":
@@ -6779,6 +6795,8 @@ CATALOGS = {
             "Obraz disku {path} používá emulátor spuštěný ze ZX-Next-Unite. Před změnou souborů na obrazu emulátor zavřete.",
         "Could not open the configuration file {path}.":
             "Konfigurační soubor {path} se nepodařilo otevřít.",
+        "NextSync sync root set to {path}: none had been chosen yet. To use another folder, browse to it and press '{button}'.":
+            "Kořen synchronizace NextSync nastaven na {path}: zatím nebyl žádný zvolen. Chcete-li použít jinou složku, přejděte do ní a stiskněte '{button}'.",
         "Disk image in use":
             "Obraz disku se používá",
         "MAME install ▸ SUCCESS — MAME detected at: {path}":
@@ -7267,6 +7285,8 @@ CATALOGS = {
             "Nejprve zvolte kořenovou složku synchronizace: přejděte k ní v levém průzkumníku a stiskněte 'Set current folder as new sync root folder'.",
         "Skipped (already exists): {path}":
             "Přeskočeno (již existuje): {path}",
+        "Refused {path}: it is one of ZX-Next-Unite's own files (its settings, logs, programs or downloads).":
+            "Odmítnuto {path}: je to jeden z vlastních souborů ZX-Next-Unite (jeho nastavení, protokoly, programy nebo stažené soubory).",
         "Skipped {path}: cannot import a folder into itself.":
             "Přeskočeno {path}: složku nelze importovat do sebe sama.",
         "Stop the running sync before starting the remote server.":
@@ -8295,6 +8315,8 @@ CATALOGS = {
             "L'image disque {path} est utilisée par un émulateur lancé depuis ZX-Next-Unite. Fermez l'émulateur avant de modifier les fichiers de l'image.",
         "Could not open the configuration file {path}.":
             "Impossible d'ouvrir le fichier de configuration {path}.",
+        "NextSync sync root set to {path}: none had been chosen yet. To use another folder, browse to it and press '{button}'.":
+            "Racine de synchronisation NextSync définie sur {path} : aucune n'avait encore été choisie. Pour utiliser un autre dossier, accédez-y et appuyez sur « {button} ».",
         "Disk image in use":
             "Image disque utilisée",
         "MAME install ▸ SUCCESS — MAME detected at: {path}":
@@ -8784,6 +8806,8 @@ CATALOGS = {
             "Choisissez d'abord un dossier racine de synchronisation : accédez-y dans l'explorateur local de gauche et appuyez sur 'Set current folder as new sync root folder'.",
         "Skipped (already exists): {path}":
             "Ignoré (existe déjà) : {path}",
+        "Refused {path}: it is one of ZX-Next-Unite's own files (its settings, logs, programs or downloads).":
+            "Refusé {path} : c'est l'un des fichiers propres à ZX-Next-Unite (ses réglages, journaux, programmes ou téléchargements).",
         "Skipped {path}: cannot import a folder into itself.":
             "Ignoré {path} : impossible d'importer un dossier dans lui-même.",
         "Stop the running sync before starting the remote server.":

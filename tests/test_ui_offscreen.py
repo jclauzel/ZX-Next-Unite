@@ -115,7 +115,7 @@ CLASSIC_FILE_COLOR = "#a1b2c3"
 CLASSIC_FONT_PT = 15        # well clear of any platform's default item font
 
 PHASE = int(sys.argv[1]) if len(sys.argv) > 1 else None
-ALL_PHASES = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
+ALL_PHASES = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17)
 
 # Base cfg for the isolated app copy: update checks off (MAME/CSpect AND the
 # app's own GitHub release check) so no phase ever hits the network, and the
@@ -244,6 +244,17 @@ def ensure_scratch(fresh):
                        check=True, capture_output=True)
 
 
+# Every phase starts from its own small, EMPTY folder (9.7.52). A run with
+# no sync root saved now takes the folder it was started from as its
+# default, and the phases' base cfg saves none - so each phase got the
+# folder run_all was started from, the repo with its gigabytes of
+# downloads/ on a dev box, for every Classic prepare scan to walk. Phase 17
+# moves on to a start folder of its own.
+if PHASE is not None:
+    _PHASE_CWD = os.path.join(tempfile.gettempdir(), "zxnu-ui-cwd")
+    os.makedirs(_PHASE_CWD, exist_ok=True)
+    os.chdir(_PHASE_CWD)
+
 if PHASE == 1:
     HDFMONKEY = find_hdfmonkey()
     if not HDFMONKEY:
@@ -348,6 +359,22 @@ elif PHASE == 9:
     ensure_scratch(fresh=False)
     with open(CFG, "w", encoding="utf-8") as f:
         f.write(BASE_CFG + "ui_language=es\n")
+elif PHASE == 17:
+    # A run with NO sync root saved gets the folder it was started from
+    # (9.7.52), on the FIRST-RUN path in particular - where no hdfg.cfg means
+    # load_configuration_file's restore body never runs. A real config-less
+    # run would stop on the content-disclaimer modal, so the same path is
+    # reached with the base cfg plus a last line the parser rejects: every
+    # base key is read first, then the ValueError skips the whole restore,
+    # exactly as the missing file does. The phase starts from its own fresh
+    # folder, captured by zxnu_config at import as ZXNU_START_DIR.
+    ensure_scratch(fresh=False)
+    with open(CFG, "w", encoding="utf-8") as f:
+        f.write(BASE_CFG + "this line carries no equals sign\n")
+    START17 = os.path.join(tempfile.gettempdir(), "zxnu-ui-start17")
+    shutil.rmtree(START17, ignore_errors=True)
+    os.makedirs(START17)
+    os.chdir(START17)
 elif PHASE == 10:
     # First-run OS-language adoption: NO ui_language key at all, and the OS
     # locale forced to Spanish via the env override the detection honours
@@ -439,7 +466,15 @@ elif PHASE == 11:
     with open(CFG, "w") as f:
         f.write(BASE_CFG + "nextsync_remote_explorer=true\n"
                 + "nextsync_re_splitter_sizes=520,680\n"    # a saved local | Next split (9.7.2)
-                + "nextsync_re_log_splitter_sizes=430,250\n")  # explorers | log (9.7.21)
+                + "nextsync_re_log_splitter_sizes=430,250\n"  # explorers | log (9.7.21)
+                # Room for that 520:680 split to be honoured at all. At the
+                # default size the splitter is ~770 px and the Next side's
+                # floor alone (~766 px in offscreen metrics) is wider than
+                # its share, so the split check only ever measured the local
+                # pane's minimum - which passed by coincidence until 9.7.52's
+                # default sync root hid the wide "Set current folder…" offer
+                # and shrank that minimum (CI: [242, 528]).
+                + "window_size=1600x900\n")
 elif PHASE in (6, 7):
     # Phase 6: dotn_last_version older than the bundled dotN -> the ".sync5
     # needs updating on your Next" advisory popup must fire, and the Settings
@@ -2554,15 +2589,33 @@ def inspect_phase6():
     check("RE-autostart default off", not ac.isChecked())
     # Ticking it WITHOUT a sync root must refuse: the box reverts to off
     # (with a toast advising to set one) and nothing lands in the cfg.
-    ac.setChecked(True)
-    QCoreApplication.processEvents()
-    check("RE-autostart tick without a sync root reverts to off",
-          not ac.isChecked())
-    check("...and is not persisted",
-          not any(l.startswith("nextsync_re_autostart=true")
-                  for l in cfg_lines()),
-          str([l for l in cfg_lines()
-               if l.startswith("nextsync_re_autostart")]))
+    # Since 9.7.52 a run with none saved gets the start folder as its
+    # default sync root, so "none" is this check's own premise, set up here
+    # (both places the toggle reads) and put back afterwards.
+    _zc = sys.modules["zxnu_config"]
+    # configuration_dictionary is local to MainWindow.__init__; Wizzy keeps
+    # the very same dict (built with configuration_dictionary=...).
+    _cfgd = win._wizard._cfg
+    check("premise: the run started with a DEFAULT sync root (9.7.52)",
+          bool((_cfgd.get(_zc.SETTING_NEXTSYNC_EXPLORERPATH) or "").strip()),
+          repr(_cfgd.get(_zc.SETTING_NEXTSYNC_EXPLORERPATH)))
+    _saved_root_cfg = _cfgd.get(_zc.SETTING_NEXTSYNC_EXPLORERPATH, "")
+    _saved_root_re = getattr(win, "_re_sync_root", "")
+    _cfgd[_zc.SETTING_NEXTSYNC_EXPLORERPATH] = ""
+    win._re_sync_root = ""
+    try:
+        ac.setChecked(True)
+        QCoreApplication.processEvents()
+        check("RE-autostart tick without a sync root reverts to off",
+              not ac.isChecked())
+        check("...and is not persisted",
+              not any(l.startswith("nextsync_re_autostart=true")
+                      for l in cfg_lines()),
+              str([l for l in cfg_lines()
+                   if l.startswith("nextsync_re_autostart")]))
+    finally:
+        _cfgd[_zc.SETTING_NEXTSYNC_EXPLORERPATH] = _saved_root_cfg
+        win._re_sync_root = _saved_root_re
     # With a sync root on record the tick sticks and persists.
     win._re_sync_root = os.path.dirname(CFG)
     ac.setChecked(True)
@@ -3014,8 +3067,21 @@ def inspect_phase11():
               and _hs.widget(1).isAncestorOf(re_widget.btn_to_next))
         from PySide6.QtWidgets import QSizePolicy as _QSizePolicy
         wait_until(lambda: sum(_hs.sizes()) > 0 and _hs.handle(1).width() > 0, 10, "Remote Explorer split laid out")
-        _sz = _hs.sizes(); _ratio = (_sz[0] / float(sum(_sz))) if sum(_sz) else 0
-        check("Remote Explorer split restores its saved position on startup", abs(_ratio - 520 / 1200.0) < 0.08, str(_sz))
+        _sz = _hs.sizes(); _tot = sum(_sz)
+        # The saved 520:680 position, as far as the two sides' MINIMUM widths
+        # allow - QSplitter gives no side less than that. Without the clamp
+        # this was a property of the screen: since 9.7.52 a run with no sync
+        # root saved gets a default one, which hides the local pane's wide
+        # "Set current folder as new sync root folder" offer, the window
+        # comes up narrower on CI's xvfb screen, and the Next side's floor
+        # decided the split (CI measured [242, 528] for a 770 px splitter).
+        def _floor(w):
+            return max(w.minimumWidth(), w.minimumSizeHint().width())
+        _min0, _min1 = _floor(_hs.widget(0)), _floor(_hs.widget(1))
+        _exp = min(max(_tot * 520 / 1200.0, _min0), _tot - _min1) if _tot else 0
+        check("Remote Explorer split restores its saved position on startup",
+              _tot > 0 and abs(_sz[0] - _exp) <= 0.08 * _tot,
+              f"{_sz} expected left~{_exp:.0f} (floors {_min0}/{_min1})")
         check("Remote Explorer split handle is a thin bar, not a square", 1 <= _hs.handle(1).width() <= 12, str(_hs.handle(1).width()))
         # The status label's text grows on connect; it must not set the
         # Next pane's floor (that is what stopped the handle when connected).
@@ -4399,12 +4465,85 @@ def inspect_phase16():
     app.quit()
 
 
+def inspect_phase17():
+    """The default sync root reaches every consumer on the first-run path."""
+    app = QApplication.instance()
+    win = find_win()
+    check("MainWindow found", win is not None)
+    if win is None:
+        app.quit()
+        return
+    zc = sys.modules["zxnu_config"]
+
+    def _same(a, b):
+        def n(p):
+            return os.path.normcase(os.path.abspath(
+                (p or "").replace("/", os.sep))).rstrip("\\/")
+        return bool(a) and bool(b) and n(a) == n(b)
+
+    check("premise: the app was started from the phase's own folder",
+          _same(zc.ZXNU_START_DIR, START17), repr(zc.ZXNU_START_DIR))
+    cfgd = win._wizard._cfg          # MainWindow's configuration_dictionary
+    got = cfgd.get(zc.SETTING_NEXTSYNC_EXPLORERPATH) or ""
+    check("a run with no sync root saved gets the start folder",
+          _same(got, START17), repr(got))
+    check("...stored the way every sync-root writer stores it",
+          got.endswith("/") and "\\" not in got, repr(got))
+    check("the Classic sync-root box shows it",
+          win.nextsync_file_explorer_path.text() == got,
+          repr(win.nextsync_file_explorer_path.text()))
+    _log = [win.nextsync_log.item(i).text()
+            for i in range(win.nextsync_log.count())]
+    check("the NextSync console says what was chosen and how to change it",
+          any(got in ln and "Set current folder as new sync root folder" in ln
+              for ln in _log), repr(_log[:5]))
+    # The SD Card pane's "Start NextSync Remote Explorer" from a session
+    # that has not opened the Remote Explorer view yet - the first-run
+    # state. It used to test host._re_sync_root BEFORE opening the view,
+    # which is what fills it, and refused with "select a sync root first".
+    # The server toggle itself is replaced by a recorder: no listener
+    # binds port 2048 in a test.
+    toasts = []
+    real_toast = win._show_toast
+    win._show_toast = lambda title, message="", **kw: toasts.append(
+        (title, message, kw.get("variant")))
+    started = []
+    real_toggle = win._nextsync_re_toggle_server
+    win._nextsync_re_toggle_server = lambda: started.append(True)
+    try:
+        check("premise: the Remote Explorer view was never opened",
+              getattr(win, "_re_widget", None) is None)
+        win._local_start_re_server()
+        QCoreApplication.processEvents()
+        check("the SD Card pane's Start Remote Explorer starts the server",
+              started == [True], repr(started))
+        check("...without telling the user to select a sync root first",
+              not any("sync root" in t[1] for t in toasts), repr(toasts))
+    finally:
+        win._show_toast = real_toast
+        win._nextsync_re_toggle_server = real_toggle
+    wait_until(lambda: getattr(win, "_re_widget", None) is not None, 15,
+               "the Remote Explorer to be built")
+    rew = getattr(win, "_re_widget", None)
+    check("the Remote Explorer takes it as its sync root",
+          rew is not None and _same(rew.sync_root(), START17),
+          repr(rew.sync_root() if rew is not None else None))
+    check("its Start button is enabled straight away (the point of 9.7.52)",
+          win.nextsync_re_start_button.isEnabled(),
+          repr(win.nextsync_re_start_button.text()))
+    check("...and the default was persisted",
+          any(ln.startswith("nextsync_explorerpath=")
+              and _same(ln.split("=", 1)[1], START17) for ln in cfg_lines()),
+          str([ln for ln in cfg_lines() if ln.startswith("nextsync_explorerpath")]))
+    app.quit()
+
+
 INSPECTORS = {1: inspect_phase1, 2: inspect_phase2, 3: inspect_phase3,
               4: inspect_phase4, 5: inspect_phase5, 6: inspect_phase6,
               7: inspect_phase7, 8: inspect_phase8, 9: inspect_phase9,
               10: inspect_phase10, 11: inspect_phase11, 12: inspect_phase12,
               13: inspect_phase13, 14: inspect_phase14, 15: inspect_phase15,
-              16: inspect_phase16}
+              16: inspect_phase16, 17: inspect_phase17}
 
 _orig_exec = QApplication.exec
 def _run_inspector():
