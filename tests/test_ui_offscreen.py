@@ -244,6 +244,17 @@ def ensure_scratch(fresh):
                        check=True, capture_output=True)
 
 
+# Every phase starts from its own small, EMPTY folder (9.7.52). A run with
+# no sync root saved now takes the folder it was started from as its
+# default, and the phases' base cfg saves none - so each phase got the
+# folder run_all was started from, the repo with its gigabytes of
+# downloads/ on a dev box, for every Classic prepare scan to walk. Phase 17
+# moves on to a start folder of its own.
+if PHASE is not None:
+    _PHASE_CWD = os.path.join(tempfile.gettempdir(), "zxnu-ui-cwd")
+    os.makedirs(_PHASE_CWD, exist_ok=True)
+    os.chdir(_PHASE_CWD)
+
 if PHASE == 1:
     HDFMONKEY = find_hdfmonkey()
     if not HDFMONKEY:
@@ -455,7 +466,15 @@ elif PHASE == 11:
     with open(CFG, "w") as f:
         f.write(BASE_CFG + "nextsync_remote_explorer=true\n"
                 + "nextsync_re_splitter_sizes=520,680\n"    # a saved local | Next split (9.7.2)
-                + "nextsync_re_log_splitter_sizes=430,250\n")  # explorers | log (9.7.21)
+                + "nextsync_re_log_splitter_sizes=430,250\n"  # explorers | log (9.7.21)
+                # Room for that 520:680 split to be honoured at all. At the
+                # default size the splitter is ~770 px and the Next side's
+                # floor alone (~766 px in offscreen metrics) is wider than
+                # its share, so the split check only ever measured the local
+                # pane's minimum - which passed by coincidence until 9.7.52's
+                # default sync root hid the wide "Set current folder…" offer
+                # and shrank that minimum (CI: [242, 528]).
+                + "window_size=1600x900\n")
 elif PHASE in (6, 7):
     # Phase 6: dotn_last_version older than the bundled dotN -> the ".sync5
     # needs updating on your Next" advisory popup must fire, and the Settings
@@ -3048,8 +3067,21 @@ def inspect_phase11():
               and _hs.widget(1).isAncestorOf(re_widget.btn_to_next))
         from PySide6.QtWidgets import QSizePolicy as _QSizePolicy
         wait_until(lambda: sum(_hs.sizes()) > 0 and _hs.handle(1).width() > 0, 10, "Remote Explorer split laid out")
-        _sz = _hs.sizes(); _ratio = (_sz[0] / float(sum(_sz))) if sum(_sz) else 0
-        check("Remote Explorer split restores its saved position on startup", abs(_ratio - 520 / 1200.0) < 0.08, str(_sz))
+        _sz = _hs.sizes(); _tot = sum(_sz)
+        # The saved 520:680 position, as far as the two sides' MINIMUM widths
+        # allow - QSplitter gives no side less than that. Without the clamp
+        # this was a property of the screen: since 9.7.52 a run with no sync
+        # root saved gets a default one, which hides the local pane's wide
+        # "Set current folder as new sync root folder" offer, the window
+        # comes up narrower on CI's xvfb screen, and the Next side's floor
+        # decided the split (CI measured [242, 528] for a 770 px splitter).
+        def _floor(w):
+            return max(w.minimumWidth(), w.minimumSizeHint().width())
+        _min0, _min1 = _floor(_hs.widget(0)), _floor(_hs.widget(1))
+        _exp = min(max(_tot * 520 / 1200.0, _min0), _tot - _min1) if _tot else 0
+        check("Remote Explorer split restores its saved position on startup",
+              _tot > 0 and abs(_sz[0] - _exp) <= 0.08 * _tot,
+              f"{_sz} expected left~{_exp:.0f} (floors {_min0}/{_min1})")
         check("Remote Explorer split handle is a thin bar, not a square", 1 <= _hs.handle(1).width() <= 12, str(_hs.handle(1).width()))
         # The status label's text grows on connect; it must not set the
         # Next pane's floor (that is what stopped the handle when connected).
