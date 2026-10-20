@@ -60,7 +60,9 @@ emulator launch buttons below:
       .sync5 -send "c:/somedir/somefile.tap"
 
   A path with no drive letter needs no quotes: `.sync5 -send somefile.tap`
-  sends from the folder you are in. The Remote Explorer's listener does not
+  sends from the folder you are in. On a first run the sync root defaults to
+  the folder the app was started from, so the Remote Explorer server can
+  start straight away; choose another one any time. The Remote Explorer's listener does not
   serve `-send`, and `-send` cannot be combined with `-listen`.
 - ⭐ **Remote Explorer** — a two-pane file manager for your Next's **real
   filesystem over Wi-Fi**: browse, drag & drop, upload/download and manage files

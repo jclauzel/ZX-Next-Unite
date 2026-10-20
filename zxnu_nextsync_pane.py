@@ -2516,6 +2516,18 @@ def build_nextsync_pane(
         except Exception:
             pass
 
+    def _classic_log_showing():
+        """Is the shared log stack showing the CLASSIC log (either of its two
+        faces) rather than the Remote Explorer's container? The Retro toggle
+        must only swap the Classic log's face: switching the stack while the
+        Remote Explorer view is up replaced that whole view with the Classic
+        retro log (9.7.52: reachable on a first run started with
+        -start-remote-explorer-listener, where the first-run pygame default
+        flips the toggle after the view opened). The Classic switch picks the
+        right face itself when the user goes back there."""
+        re_c = getattr(host, "_re_container", None)
+        return re_c is None or host.nextsync_log_stack.currentWidget() is not re_c
+
     def _nextsync_on_pygame_toggled(checked):
         if checked:
             try:
@@ -2537,7 +2549,8 @@ def build_nextsync_pane(
                 return
             host._nextsync_pygame_on = True
             host.nextsync_pygame_button.setText(ui_tr_now("🖼 Switch to 'Classic' view mode"))
-            host.nextsync_log_stack.setCurrentWidget(widget)
+            if _classic_log_showing():
+                host.nextsync_log_stack.setCurrentWidget(widget)
             widget.start()
             _re_mini_sync_mode()       # the RE view's mini log follows
             _nextsync_pygame_persist(True)
@@ -2546,7 +2559,8 @@ def build_nextsync_pane(
             host.nextsync_pygame_button.setText(ui_tr_now("🎮 Retro"))
             if host._nextsync_retro_log is not None:
                 host._nextsync_retro_log.stop()
-            host.nextsync_log_stack.setCurrentWidget(host.nextsync_log)
+            if _classic_log_showing():
+                host.nextsync_log_stack.setCurrentWidget(host.nextsync_log)
             _re_mini_sync_mode()       # the RE view's mini log follows
             _nextsync_pygame_persist(False)
 

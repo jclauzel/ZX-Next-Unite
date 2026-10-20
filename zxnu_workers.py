@@ -23,6 +23,7 @@ import weakref
 import zlib
 from collections import deque, namedtuple
 from zxnu_config import (IGNOREFILE, MAX_PAYLOAD, PORT, SYNCPOINT,
+                         app_state_matcher, app_upload_guard,
                          TREE_FONT_MAX_PT, TREE_FONT_MIN_PT,
                          UP_DIRECTORY, VERSION3, VERSION4, ZXNR_NEX_FLAVORS,
                          QLNR_FLAVORS, QLNR_FLAVOR_JOBS,
@@ -6320,7 +6321,10 @@ class MameProcessSignals(QObject):
     main (UI) thread. A background reader thread emits ``output`` for every
     captured line and ``finished`` with the process exit code when MAME ends."""
     output   = Signal(str)   # one captured stdout/stderr line
-    finished = Signal(int)   # process return code
+    # object, not int (9.7.52, as CSpectProcessSignals in 9.7.51): a Windows
+    # crash code such as 3221225477 does not fit Qt's signed int, and
+    # shiboken wraps it to a negative number with only a warning.
+    finished = Signal(object)   # process return code, unsigned on Windows
 
 
 class CSpectProcessSignals(QObject):
@@ -7042,7 +7046,17 @@ def agecheck(path_to_content, f):
         return False
     return True
 
-def getFileList(path_to_content, always_sync=False):
+def getFileList(path_to_content, always_sync=False, data_root=None):
+    """The files a Classic sync of *path_to_content* sends, as [path, size].
+
+    Never the app's OWN files (9.7.52): when the data folder sits under the
+    sync root - the default root is the folder the app was started from,
+    which in the common cases IS the data folder - hdfg.cfg (the itch.io API
+    key and the bridge's bearer token, in plain text), the logs, the app's
+    binaries and downloads/ are skipped whatever syncignore.txt says or
+    whether it exists. See zxnu_config.app_state_matcher; *data_root* is for
+    tests (default ZXNU_DATA_ROOT)."""
+    _app_state = app_state_matcher(path_to_content, data_root)
     knownfiles = []
     if os.path.isfile(path_to_content + SYNCPOINT):
         with open(path_to_content + SYNCPOINT) as f:
@@ -7058,6 +7072,8 @@ def getFileList(path_to_content, always_sync=False):
             basename = os.path.basename(g)
             # Never send internal control files to the device
             if basename in (SYNCPOINT, IGNOREFILE):
+                continue
+            if _app_state is not None and _app_state(g):
                 continue
             ignored = False
             for i in ignorelist:
@@ -7297,6 +7313,9 @@ def run_classic_sync_server(sync_root, log, *, progress_callback=None,
                             log(f"{timestamp()} | " + ui_tr_now(
                                 "Saving incoming files under: {folder}").format(
                                     folder=upload_root))
+                            # The app's own files are never written, whatever
+                            # the conflict policy (9.7.52: see app_upload_guard).
+                            upload_refused = app_upload_guard(upload_root)
                             # How to treat incoming files/dirs that already exist
                             # locally. Read from the (persisted) setting; an
                             # "always in this sync" prompt choice overrides it
@@ -7351,8 +7370,10 @@ def run_classic_sync_server(sync_root, log, *, progress_callback=None,
                                         cur_file = None
                                     cur_bytes = 0
                                     cur_skip = False
+                                    refused = (upload_refused is not None
+                                               and upload_refused(cur_path))
                                     # Conflict handling when the target already exists.
-                                    if os.path.exists(cur_path):
+                                    if not refused and os.path.exists(cur_path):
                                         decision = conflict_policy
                                         if decision == 'prompt':
                                             choice = _ask(cur_name, cur_path)
@@ -7368,15 +7389,26 @@ def run_classic_sync_server(sync_root, log, *, progress_callback=None,
                                                 decision = 'ignore'
                                         if decision == 'ignore':
                                             cur_skip = True
+                                    if refused:
+                                        cur_skip = True
+                                        log(f"{timestamp()} | " + ui_tr_now(
+                                            "Refused {path}: it is one of "
+                                            "ZX-Next-Unite's own files (its "
+                                            "settings, logs, programs or "
+                                            "downloads)."
+                                        ).format(path=cur_path))
                                     if cur_skip:
                                         # Don't create/truncate the local file: the incoming
                                         # data blocks are still acked but discarded (cur_file
                                         # is None), and this file is not counted/recorded.
-                                        log(f"{timestamp()} | " + ui_tr_now(
-                                            "Skipped (already exists): {path}"
-                                        ).format(path=cur_path))
+                                        if not refused:
+                                            log(f"{timestamp()} | " + ui_tr_now(
+                                                "Skipped (already exists): {path}"
+                                            ).format(path=cur_path))
                                         if status_callback is not None:
-                                            status_callback.emit(f"Skipping (exists)\n{cur_name}")
+                                            status_callback.emit(
+                                                f"Refused (app file)\n{cur_name}" if refused
+                                                else f"Skipping (exists)\n{cur_name}")
                                         sendpacket(conn, b"Ok", pktno, log=_vlog)
                                     else:
                                         try:

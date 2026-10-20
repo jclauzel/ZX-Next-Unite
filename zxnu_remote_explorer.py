@@ -1730,10 +1730,13 @@ class RemoteExplorerWidget(QWidget):
         local_container = QWidget(self)
         local_container.setLayout(local_box)
 
-        # First run has no sync root: browse from home but leave the sync root
-        # unset, so the host keeps the Start button disabled until the user picks
-        # a folder. A saved path (SETTING_NEXTSYNC_EXPLORERPATH) is restored as
-        # the sync root and enables Start straight away.
+        # No sync root at all: browse from home but leave the sync root unset,
+        # so the host keeps the Start button disabled until the user picks a
+        # folder. Since 9.7.52 that is rare - a run with none saved gets the
+        # folder the app was started from as its default before this widget is
+        # built (zxnu_config_io._fill_default_nextsync_root). A saved path
+        # (SETTING_NEXTSYNC_EXPLORERPATH) is restored as the sync root and
+        # enables Start straight away.
         if local_start_dir and os.path.isdir(local_start_dir):
             self._set_local_dir(local_start_dir, commit=True)
         else:
