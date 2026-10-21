@@ -38,7 +38,13 @@ Phases:
      the ".sync5 dot updated" advisory popup when dotn_last_version in the
      cfg is older than the bundled dotN.                 (no hdfmonkey needed)
   7  dotN advisory first-run silent persist (no popup) + the update-check
-     toggle defaulting ON when the cfg has no key.       (no hdfmonkey needed)
+     toggle defaulting ON when the cfg has no key; and the three MAME
+     Settings rows (ROM, parameters, update check) built and restored
+     with NO MAME detected (9.7.53) - the scratch's downloads/ junction is
+     dropped for this phase, so a dev box builds the pane the way CI and a
+     fresh install do (a mame on PATH would still be found; the phase then
+     says so); plus an AST tripwire against the detection gate coming
+     back.                                               (no hdfmonkey needed)
   8  "Load an image" hint pulse: with an emulator (CSpect/MAME) detected and
      no image loaded, 'Select NextZXOS disk Image' + 'Download NextZXOS
      Image' breathe
@@ -491,7 +497,22 @@ elif PHASE in (6, 7):
                     + "delete_to_recycle_bin=false\n")
         else:
             f.write("mame_update_check=false\ncspect_update_check=false\n"
-                    "ui_language=en\ncontent_disclaimer_agreed=1\n")
+                    "ui_language=en\ncontent_disclaimer_agreed=1\n"
+                    # The MAME rows' restore with NO MAME detected (9.7.53):
+                    # a non-default ROM and a marked parameter string.
+                    "mame_rom_choice=specnext_ks3\n"
+                    "mame_command_line_parameters="
+                    "{MAME_EXECUTABLE_NAME} -window -phase7\n")
+    if PHASE == 7:
+        # No MAME for this phase (9.7.53): the junction to the repo's
+        # downloads/, where a dev box keeps its downloads/mame/mame.exe, is
+        # dropped, so the Settings pane is built as CI and a fresh install
+        # build it (a mame on PATH is still found - Windows prefers it - and
+        # the inspector prints a note rather than failing). The next phase's
+        # ensure_scratch puts the junction back.
+        _j = os.path.join(SCRATCH, "downloads")
+        if os.path.isdir(_j):
+            os.rmdir(_j)      # junction: removes the link only, not the target
 else:
     print(f"Unknown phase {PHASE}")
     sys.exit(2)
@@ -2685,6 +2706,78 @@ def inspect_phase7():
           str([l for l in cfg_lines() if l.startswith("dotn_last_version")]))
     check("no advisory popup on first run",
           not any(".sync5" in t for t in seen), str(seen))
+
+    # ---- the MAME Settings rows exist with NO MAME detected (9.7.53) -----
+    # The premise: this phase dropped the scratch's downloads/ junction, so
+    # the only MAME the app could have found is one on PATH (none in CI).
+    # The rows used to be gated on host._mame_usable() at build time, which
+    # left a run without MAME no MAME settings at all.
+    if win._mame_usable():
+        print("NOTE: a MAME is on PATH here - the no-MAME premise is not "
+              "exercised on this box (CI exercises it)")
+    rom = getattr(win, "settings_mame_rom_combo", None)
+    params = getattr(win, "settings_mame_params_edit", None)
+    upd = getattr(win, "settings_mame_update_check_checkbox", None)
+    check("MAME ROM combo built without MAME (9.7.53)", rom is not None)
+    check("MAME parameters box built without MAME (9.7.53)",
+          params is not None)
+    lay = win.settings_zxnu_update_check_checkbox.parentWidget().layout()
+    def spos(w):
+        i = lay.indexOf(w)
+        return None if i < 0 else lay.getItemPosition(i)[:2]
+    if rom is not None and params is not None:
+        check("ROM combo at its named row",
+              spos(rom) == (settings_row("mame_rom"), 1), str(spos(rom)))
+        check("parameters box at its named row",
+              spos(params) == (settings_row("mame_params"), 1),
+              str(spos(params)))
+        check("ROM combo restored from the cfg",
+              rom.currentText() == "specnext_ks3", rom.currentText())
+        check("parameters restored from the cfg",
+              params.text() == "{MAME_EXECUTABLE_NAME} -window -phase7",
+              params.text())
+        check("neither MAME row is hidden",
+              not rom.isHidden() and not params.isHidden())
+    if sys.modules["zxnu_config"].mame_auto_install_supported():
+        check("MAME update-check toggle built without MAME (64-bit Windows)",
+              upd is not None)
+        if upd is not None:
+            check("...at its named row",
+                  spos(upd) == (settings_row("mame_update_check"), 0),
+                  str(spos(upd)))
+            check("...restored OFF from mame_update_check=false",
+                  not upd.isChecked())
+    else:
+        check("no MAME update-check toggle where the app cannot install MAME",
+              upd is None)
+    # The source tripwire: none of the three may sit under an if that tests
+    # the detection again, in any if/elif/else shape - an AST walk over the
+    # assignment's enclosing ifs, not a text match. An early return or a
+    # conditional expression would slip past it; the widget checks above are
+    # the backstop for those, run with no MAME (CI always, a dev box with no
+    # mame on PATH).
+    import ast
+    with open(os.path.join(REPO, "zxnu_settings_pane.py"),
+              encoding="utf-8") as f:
+        _tree = ast.parse(f.read())
+    _rows = {"settings_mame_rom_combo", "settings_mame_params_edit",
+             "settings_mame_update_check_checkbox"}
+    _gated = []
+    def _mentions_usable(node):
+        return any((isinstance(n, ast.Attribute) and n.attr == "_mame_usable")
+                   or (isinstance(n, ast.Name) and n.id == "_mame_usable")
+                   for n in ast.walk(node))
+    def _scan(node, ifs):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.Assign):
+                for t in child.targets:
+                    if (isinstance(t, ast.Attribute) and t.attr in _rows
+                            and any(_mentions_usable(i.test) for i in ifs)):
+                        _gated.append(t.attr)
+            _scan(child, ifs + [child] if isinstance(child, ast.If) else ifs)
+    _scan(_tree, [])
+    check("no MAME Settings row is gated on _mame_usable() (source)",
+          not _gated, str(_gated))
     timer.stop()
     app.quit()   # well before the 3.4s-delayed release check could fire
 
