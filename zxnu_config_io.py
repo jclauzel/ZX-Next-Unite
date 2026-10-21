@@ -498,8 +498,10 @@ def build_config_io(
             host._http_port_widgets_set_enabled(_http_bridge_on)
 
             # MAME ROM/system choice (combo) and command-line parameters
-            # (editable text). Both only exist as widgets when MAME was
-            # detected at startup, so guard with hasattr.
+            # (editable text). Built whether or not MAME was detected since
+            # 9.7.53 (they were gated on the detection before); the hasattr
+            # stays, as the RS232 block below keeps its own, so a host built
+            # without this pane cannot break the whole restore.
             if hasattr(host, "settings_mame_rom_combo"):
                 _rom = configuration_dictionary.get(SETTING_MAME_ROM_CHOICE, "").strip()
                 if not _rom:
@@ -534,7 +536,8 @@ def build_config_io(
                 configuration_dictionary[SETTING_MAME_COMMAND_LINE_PARAMETERS] = _params
 
             # MAME "check for a newer version at startup" toggle (default on).
-            # Only exists as a widget when MAME was detected at startup.
+            # Built on 64-bit Windows only (where the in-app install exists),
+            # MAME detected or not (9.7.53).
             if hasattr(host, "settings_mame_update_check_checkbox"):
                 _mame_upd = configuration_dictionary.get(
                     SETTING_MAME_UPDATE_CHECK, "").strip().lower()

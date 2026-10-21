@@ -1560,80 +1560,92 @@ def build_settings_pane(
     grid_tab_Settings.addLayout(_http_bridge_vbox, settings_grid_row("http_bridge"), 0, 1, 2)
     host._http_port_widgets_set_enabled = _http_port_widgets_set_enabled
 
-    # ── MAME options (shown when MAME is launchable: a detected binary, or
-    # on Linux the Flatpak launch option added below) ──
-    if host._mame_usable():
-        def settings_mame_rom_changed():
-            configuration_dictionary[SETTING_MAME_ROM_CHOICE] = host.settings_mame_rom_combo.currentText().strip()
+    # ── MAME options ── built ALWAYS (9.7.53), like the CSpect rows and the
+    # RS232 ESP row below. They used to sit under `if host._mame_usable():`,
+    # i.e. they existed only when MAME had been DETECTED by the time this
+    # pane was built: a run that found no MAME (a fresh portable install, a
+    # PC without one) had no ROM choice, no launch parameters and no
+    # update-check toggle at all, and the SD Card tab's in-app "Install
+    # MAME" later in the same session could not add them - it reveals that
+    # tab's launch controls only - so the build it had just installed ran
+    # with settings the user could neither see nor change until a restart.
+    # The update-check toggle also decides whether the app asks GitHub at
+    # startup, which is worth deciding BEFORE a MAME is installed. All three
+    # are plain cfg keys that launch_mame and _check_mame_update_async read
+    # whenever MAME is there; without one they are dormant, exactly as the
+    # CSpect parameters are without CSpect. Pinned by offscreen phase 7.
+    def settings_mame_rom_changed():
+        configuration_dictionary[SETTING_MAME_ROM_CHOICE] = host.settings_mame_rom_combo.currentText().strip()
+        save_configuration_file()
+
+    mame_rom_lbl = QLabel("MAME ROM / system:")
+    mame_rom_lbl.setToolTip(
+        "The MAME system (ROM set) to launch, e.g. 'tbblue' or 'specnext_ks2'.\n"
+        "This is inserted right after the MAME executable and is no longer part\n"
+        "of the command-line parameters below."
+    )
+    grid_tab_Settings.addWidget(mame_rom_lbl, settings_grid_row("mame_rom"), 0)
+
+    host.settings_mame_rom_combo = QComboBox()
+    for _rom_name in MAME_ROM_CHOICE:
+        host.settings_mame_rom_combo.addItem(_rom_name)
+    host.settings_mame_rom_combo.setToolTip(mame_rom_lbl.toolTip())
+    host.settings_mame_rom_combo.currentIndexChanged.connect(
+        lambda _i: settings_mame_rom_changed())
+    grid_tab_Settings.addWidget(host.settings_mame_rom_combo, settings_grid_row("mame_rom"), 1)
+
+    def settings_mame_params_changed():
+        configuration_dictionary[SETTING_MAME_COMMAND_LINE_PARAMETERS] = host.settings_mame_params_edit.text()
+        save_configuration_file()
+
+    mame_params_lbl = QLabel("MAME default launch parameters:")
+    mame_params_lbl.setToolTip(
+        "Command-line parameters passed to MAME. The '{MAME_EXECUTABLE_NAME}'\n"
+        "placeholder resolves to the detected executable. The ROM/system above\n"
+        "and the '-hard1 <image>' arguments are added automatically at launch,\n"
+        "so the loaded image is always the last argument.\n"
+        "The aspect ratio, mouse and joystick options are set with the combo\n"
+        "boxes in the MAME group on the SD Card Utility tab; any -aspect,\n"
+        "-mouse/-mouse_device or -joystick/-joystickprovider options typed here\n"
+        "are ignored (the combos take precedence)."
+    )
+    grid_tab_Settings.addWidget(mame_params_lbl, settings_grid_row("mame_params"), 0)
+
+    host.settings_mame_params_edit = QLineEdit()
+    host.settings_mame_params_edit.setText(
+        configuration_dictionary.get(
+            SETTING_MAME_COMMAND_LINE_PARAMETERS, MAME_DEFAULT_COMMAND_LINE))
+    host.settings_mame_params_edit.setToolTip(mame_params_lbl.toolTip())
+    host.settings_mame_params_edit.editingFinished.connect(settings_mame_params_changed)
+    grid_tab_Settings.addWidget(host.settings_mame_params_edit, settings_grid_row("mame_params"), 1)
+
+    # The startup update check only exists where the app can actually
+    # fetch a build: 64-bit Windows, mame_auto_install_supported(). On
+    # Linux and macOS MAME may be detected and launchable but there is no
+    # official binary to update to, so the checkbox is omitted entirely
+    # rather than shown as a no-op (on Linux the Flatpak box below takes
+    # this row). _check_mame_update_async bails on the same condition.
+    if mame_auto_install_supported():
+        def settings_mame_update_check_changed():
+            on = host.settings_mame_update_check_checkbox.isChecked()
+            configuration_dictionary[SETTING_MAME_UPDATE_CHECK] = "true" if on else "false"
             save_configuration_file()
 
-        mame_rom_lbl = QLabel("MAME ROM / system:")
-        mame_rom_lbl.setToolTip(
-            "The MAME system (ROM set) to launch, e.g. 'tbblue' or 'specnext_ks2'.\n"
-            "This is inserted right after the MAME executable and is no longer part\n"
-            "of the command-line parameters below."
+        host.settings_mame_update_check_checkbox = QCheckBox(
+            "Check for a newer MAME version at startup")
+        _mame_upd_pref = configuration_dictionary.get(
+            SETTING_MAME_UPDATE_CHECK, "").strip().lower()
+        host.settings_mame_update_check_checkbox.setChecked(
+            _mame_upd_pref not in ("false", "0", "no"))  # default on
+        host.settings_mame_update_check_checkbox.setToolTip(
+            "When MAME is installed, check GitHub at startup for a newer official\n"
+            "MAME release and, if one exists, offer to download and install it\n"
+            "(overwriting the current downloads/mame files). On by default.\n"
+            "Saved to the configuration file."
         )
-        grid_tab_Settings.addWidget(mame_rom_lbl, settings_grid_row("mame_rom"), 0)
-
-        host.settings_mame_rom_combo = QComboBox()
-        for _rom_name in MAME_ROM_CHOICE:
-            host.settings_mame_rom_combo.addItem(_rom_name)
-        host.settings_mame_rom_combo.setToolTip(mame_rom_lbl.toolTip())
-        host.settings_mame_rom_combo.currentIndexChanged.connect(
-            lambda _i: settings_mame_rom_changed())
-        grid_tab_Settings.addWidget(host.settings_mame_rom_combo, settings_grid_row("mame_rom"), 1)
-
-        def settings_mame_params_changed():
-            configuration_dictionary[SETTING_MAME_COMMAND_LINE_PARAMETERS] = host.settings_mame_params_edit.text()
-            save_configuration_file()
-
-        mame_params_lbl = QLabel("MAME default launch parameters:")
-        mame_params_lbl.setToolTip(
-            "Command-line parameters passed to MAME. The '{MAME_EXECUTABLE_NAME}'\n"
-            "placeholder resolves to the detected executable. The ROM/system above\n"
-            "and the '-hard1 <image>' arguments are added automatically at launch,\n"
-            "so the loaded image is always the last argument.\n"
-            "The aspect ratio, mouse and joystick options are set with the combo\n"
-            "boxes in the MAME group on the SD Card Utility tab; any -aspect,\n"
-            "-mouse/-mouse_device or -joystick/-joystickprovider options typed here\n"
-            "are ignored (the combos take precedence)."
-        )
-        grid_tab_Settings.addWidget(mame_params_lbl, settings_grid_row("mame_params"), 0)
-
-        host.settings_mame_params_edit = QLineEdit()
-        host.settings_mame_params_edit.setText(
-            configuration_dictionary.get(
-                SETTING_MAME_COMMAND_LINE_PARAMETERS, MAME_DEFAULT_COMMAND_LINE))
-        host.settings_mame_params_edit.setToolTip(mame_params_lbl.toolTip())
-        host.settings_mame_params_edit.editingFinished.connect(settings_mame_params_changed)
-        grid_tab_Settings.addWidget(host.settings_mame_params_edit, settings_grid_row("mame_params"), 1)
-
-        # The startup update check only exists where the app can actually
-        # fetch a build (64-bit Windows / x86_64 Linux). On macOS MAME is
-        # detected and launchable but there is no official binary to update
-        # to, so the checkbox is omitted entirely rather than shown as a
-        # no-op. _check_mame_update_async bails on the same condition.
-        if mame_auto_install_supported():
-            def settings_mame_update_check_changed():
-                on = host.settings_mame_update_check_checkbox.isChecked()
-                configuration_dictionary[SETTING_MAME_UPDATE_CHECK] = "true" if on else "false"
-                save_configuration_file()
-
-            host.settings_mame_update_check_checkbox = QCheckBox(
-                "Check for a newer MAME version at startup")
-            _mame_upd_pref = configuration_dictionary.get(
-                SETTING_MAME_UPDATE_CHECK, "").strip().lower()
-            host.settings_mame_update_check_checkbox.setChecked(
-                _mame_upd_pref not in ("false", "0", "no"))  # default on
-            host.settings_mame_update_check_checkbox.setToolTip(
-                "When MAME is installed, check GitHub at startup for a newer official\n"
-                "MAME release and, if one exists, offer to download and install it\n"
-                "(overwriting the current downloads/mame files). On by default.\n"
-                "Saved to the configuration file."
-            )
-            host.settings_mame_update_check_checkbox.stateChanged.connect(
-                lambda _s: settings_mame_update_check_changed())
-            grid_tab_Settings.addWidget(host.settings_mame_update_check_checkbox, settings_grid_row("mame_update_check"), 0, 1, 2)
+        host.settings_mame_update_check_checkbox.stateChanged.connect(
+            lambda _s: settings_mame_update_check_changed())
+        grid_tab_Settings.addWidget(host.settings_mame_update_check_checkbox, settings_grid_row("mame_update_check"), 0, 1, 2)
 
     # ── Launch MAME with Flatpak (Linux) ──────────────────────────────
     # Shown on Linux regardless of whether a MAME binary was detected, so a
@@ -1807,9 +1819,9 @@ def build_settings_pane(
         _rs232_esp_vbox, settings_grid_row("mame_rs232_esp"), 0, 1, 2)
 
     # ── CSpect default launch parameters ───────────────────────────────
-    # Shown unconditionally (unlike the MAME block above, which is gated on
-    # MAME being detected) so the box is available even when CSpect is only
-    # found later via the async downloads scan. Edits persist to SETTING_CUSTOM;
+    # Shown unconditionally - as the MAME rows above are since 9.7.53 - so the
+    # box is available even when CSpect is only found later via the async
+    # downloads scan. Edits persist to SETTING_CUSTOM;
     # launch_cspect uses this as the base command line and appends the SD Card
     # group options (screen size, sound, VSync, joystick, mouse, frequency,
     # ESC) on top — mirroring the MAME default-launch-parameters handling.
