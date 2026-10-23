@@ -4141,7 +4141,8 @@ class MainWindow(QMainWindow):
             # translated when the walk meets them, so it adopts them as their
             # own source and cannot switch them: their owners re-write them.
             for _rewrite in ("_re_update_start_button",
-                             "_retranslate_bg_image_preview"):
+                             "_retranslate_bg_image_preview",
+                             "_rs232_esp_ip_retranslate"):
                 _fn = getattr(self, _rewrite, None)
                 if _fn is not None:
                     _fn()

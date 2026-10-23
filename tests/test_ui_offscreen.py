@@ -502,7 +502,10 @@ elif PHASE in (6, 7):
                     # a non-default ROM and a marked parameter string.
                     "mame_rom_choice=specnext_ks3\n"
                     "mame_command_line_parameters="
-                    "{MAME_EXECUTABLE_NAME} -window -phase7\n")
+                    "{MAME_EXECUTABLE_NAME} -window -phase7\n"
+                    # The RS232 ESP station address (9.7.54): one the
+                    # PC's list cannot carry, so the restore must ADD it.
+                    "mame_rs232_esp_ip=10.77.0.1\n")
     if PHASE == 7:
         # No MAME for this phase (9.7.53): the junction to the repo's
         # downloads/, where a dev box keeps its downloads/mame/mame.exe, is
@@ -2738,6 +2741,26 @@ def inspect_phase7():
               params.text())
         check("neither MAME row is hidden",
               not rom.isHidden() and not params.isHidden())
+    # ---- the RS232 ESP station-address picker (9.7.54) ----
+    ipc = getattr(win, "settings_rs232_esp_ip_combo", None)
+    check("RS232 ESP address combo built", ipc is not None)
+    if ipc is not None:
+        check("...its first row is Automatic, carrying '' (the setting's "
+              "'this PC's primary address')",
+              ipc.itemData(0) == "" and "Automatic" in ipc.itemText(0),
+              ipc.itemText(0))
+        check("...restored from the cfg to an address the list did NOT carry",
+              ipc.currentData() == "10.77.0.1"
+              and ipc.currentText() == "10.77.0.1",
+              (ipc.currentData(), ipc.currentText()))
+        check("...every other row is a dotted quad",
+              all(sys.modules["espemu"].is_ipv4(ipc.itemData(i))
+                  for i in range(1, ipc.count())),
+              [ipc.itemData(i) for i in range(ipc.count())])
+        check("...greyed with the master toggle",
+              ipc.isEnabled() == win.settings_rs232_esp_checkbox.isChecked())
+        check("...editable, never inserting a typed row on Return",
+              ipc.isEditable() and ipc.insertPolicy() == type(ipc).NoInsert)
     if sys.modules["zxnu_config"].mame_auto_install_supported():
         check("MAME update-check toggle built without MAME (64-bit Windows)",
               upd is not None)

@@ -24,7 +24,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.53"
+ZX_NEXT_UNITE_VERSION = "9.7.54"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -403,6 +403,7 @@ SETTING_MAME_ESC                     = "mame_esc"                  # combo index
 SETTING_MAME_RS232_ESP               = "mame_rs232_esp"            # bool: RS232 ESP emulation for MAME - start the espemu AT proxy and pass -rs232_esp/-bitb at launch (default off)
 SETTING_MAME_RS232_ESP_PORT          = "mame_rs232_esp_port"       # TCP port the espemu proxy listens on for MAME's -bitb socket (default 2222)
 SETTING_MAME_RS232_ESP_VERBOSE       = "mame_rs232_esp_verbose"    # bool: trace espemu commands/traffic into the SD Card log console AND the file log (9.7.35) (default off; rate-limited)
+SETTING_MAME_RS232_ESP_IP            = "mame_rs232_esp_ip"         # IPv4 address the RS232 ESP emulation reports to the emulated Next as its own (AT+CIFSR / AT+CIPSTA?); "" = this PC's primary address (9.7.54)
 SETTING_MAME_FLATPAK                 = "mame_flatpak"              # bool (Linux): launch MAME via `flatpak run org.mamedev.MAME` instead of a local binary (default off)
 SETTING_MAME_FLATPAK_ROMPATH         = "mame_flatpak_rompath"      # rom directory passed as `-rompath` when launching MAME via Flatpak (default ~/roms)
 SETTING_EMULATOR_COLORS              = "emulator_colors"            # JSON {"mame"|"cspect": "#rrggbb"} background tint for BOTH emulator strips and the SD Card tab's Launch buttons (empty = the theme's own look)
@@ -1398,6 +1399,7 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              ("A MAME build that carries the built-in ESP8266 card (esp8266_at, in the ZX Spectrum Next MAME fork since October 2026) is launched with that card instead of the RS232 ESP emulation: it follows the Next's UART speed, so '.sync5' and ZX Next Remote connect at every speed (slow, default and fast). Through the RS232 ESP emulation (older MAME builds, the null_modem card) transfers need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings."),
              (""),
              ("One RS232 ESP emulation serves every running MAME: launch a second MAME on another disk image and it joins the same emulation with its own separate session, so several emulated Nexts can be on the network at once. The emulation stops when the last MAME exits. When two of them ask for the same server port (a Next listening for incoming connections), the second one is moved to the next free port and the log says which port to connect to."),
+             ("The IP address the RS232 ESP emulation reports to the emulated Next - what ZX Next Remote's listener screen and the NextZXOS WiFi wizard show, and what someone on another PC types to reach it - is this PC's primary address. A PC with several addresses (VPN, virtual machines, WSL) can pick another one in Settings, under 'IP address shown to the emulated Next', or type one; a running emulation takes the change live."),
              (""),
              ("Setup & How to:"),
              ("---------------"),
@@ -1516,7 +1518,7 @@ SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_COLOR_GENERAL_TEXT, SET
 SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, SETTING_GALLERY_SLIDESHOW_SECS, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE,
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
-SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_CHECK, SETTING_MAME_INSTALLED_TAG, SETTING_MAME_ASPECT, SETTING_MAME_SOUND, SETTING_MAME_MOUSE, SETTING_MAME_JOYSTICK, SETTING_MAME_ESC, SETTING_MAME_FLATPAK, SETTING_MAME_FLATPAK_ROMPATH, SETTING_MAME_RS232_ESP, SETTING_MAME_RS232_ESP_PORT, SETTING_MAME_RS232_ESP_VERBOSE, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
+SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_CHECK, SETTING_MAME_INSTALLED_TAG, SETTING_MAME_ASPECT, SETTING_MAME_SOUND, SETTING_MAME_MOUSE, SETTING_MAME_JOYSTICK, SETTING_MAME_ESC, SETTING_MAME_FLATPAK, SETTING_MAME_FLATPAK_ROMPATH, SETTING_MAME_RS232_ESP, SETTING_MAME_RS232_ESP_PORT, SETTING_MAME_RS232_ESP_VERBOSE, SETTING_MAME_RS232_ESP_IP, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
 SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_NEXTSYNC_REMOTE_EXPLORER, SETTING_NEXTSYNC_RE_AUTOSTART, SETTING_NEXTSYNC_VERIFY_CRC, SETTING_NEXTSYNC_SESSIONS, SETTING_NEXTSYNC_DROP_SILENT_NEXT, SETTING_NEXTSYNC_REMOTE_CWD, SETTING_NEXTSYNC_RE_LOCAL_SORT, SETTING_NEXTSYNC_RE_NEXT_SORT, SETTING_NEXTSYNC_EXTRA_DRIVES, SETTING_NEXTSYNC_HTTP_BRIDGE, SETTING_NEXTSYNC_HTTP_PORT, SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT, SETTING_NEXTSYNC_HTTP_VERBOSE, SETTING_NEXTSYNC_HTTP_TOKEN_ENABLED, SETTING_NEXTSYNC_HTTP_TOKEN, SETTING_SDCARD_PYGAME_LOG, SETTING_SDCARD_SPLITTER, SETTING_GETIT_SPLITTER, SETTING_SDCARD_HSPLITTER, SETTING_NEXTSYNC_RE_SPLITTER, SETTING_NEXTSYNC_RE_LOG_SPLITTER, SETTING_HELP_PYGAME_LOG, SETTING_RETRO_LOG_FONT_SIZE, SETTING_GENERAL_FONT_SIZE, SETTING_RE_UPDATE_PROMPT, SETTING_SYNC5_IMG_AUTODEPLOY,
 SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK, SETTING_ZXNEXTREMOTE_UPDATE_CHECK, SETTING_ZXNU_UPDATE_CHECK, SETTING_DOTN_LAST_VERSION, SETTING_ZXNR_UPDATE_PATH, SETTING_DELETE_TO_RECYCLE_BIN, SETTING_QLNEXTREMOTE_UPDATE_CHECK, SETTING_QLNR_UPDATE_PATH,
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO, SETTING_UI_LANGUAGE,
@@ -2155,6 +2157,22 @@ def mame_typed_esp_card(tokens):
             # card; reading "-aspect" as one would strip that option too.
             card = "" if nxt.startswith("-") else nxt
     return card
+
+
+def esp_station_ip_setting(raw):
+    """The saved RS232 ESP station address (``SETTING_MAME_RS232_ESP_IP``),
+    normalised: a dotted quad, or ``""`` for automatic - this PC's primary
+    address, resolved by the emulation itself when each emulator connects.
+    Anything the emulation would refuse (a hand-edited hdfg.cfg, a host
+    name, an address with a port, 0.0.0.0, a broadcast or a multicast
+    address) reads as automatic rather than being handed to a Next as its
+    address. ONE rule, the emulation's own (``espemu.is_station_ipv4``),
+    so the saved value, the Settings box and the server can never
+    disagree about what is an address."""
+    import espemu    # stdlib-only leaf module; imported here, not at the top,
+    #                  so this module's import stays as light as it was
+    text = str(raw or "").strip()
+    return text if espemu.is_station_ipv4(text) else ""
 
 
 def choose_mame_esp_card(slot_options, typed=""):

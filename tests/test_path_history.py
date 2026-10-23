@@ -470,7 +470,8 @@ def test_pick_gesture():
     synthesised mouse and key events instead.
     """
     from PySide6.QtCore import QEvent, QPointF, Qt
-    from PySide6.QtGui import QKeyEvent, QMouseEvent
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtTest import QTest
     print("\n== FolderHistoryCombo: arming from the real gesture ==")
     app = QApplication.instance()
     picked = []
@@ -478,8 +479,18 @@ def test_pick_gesture():
     c.pathActivated.connect(picked.append)
     c.set_history_from_cfg("C:/one|C:/two|C:/three")
     c.show()
+    # Exposed and active before any gesture: on the native platform the
+    # popup of a window that is not yet on screen ignores the click.
+    QTest.qWaitForWindowExposed(c)
+    c.activateWindow()
+    app.processEvents()
 
-    def release_on_row(row, button=Qt.MouseButton.LeftButton):
+    def release_on_row(row, button=Qt.MouseButton.LeftButton, hasty=False):
+        """Click *row* the way a user does: move onto it, then press and
+        release. The popup IGNORES a release that comes too soon after it
+        opened with no mouse move (measured on Windows - its guard against
+        the click that opened it), so a realistic gesture waits and moves
+        first; ``hasty`` skips both."""
         c.showPopup()
         app.processEvents()
         view = c.view()
@@ -487,6 +498,11 @@ def test_pick_gesture():
         spot = QPointF(min(rect.center().x(), view.viewport().width() - 5),
                        rect.center().y())
         glob = view.viewport().mapToGlobal(spot.toPoint()).toPointF()
+        if not hasty:
+            QTest.qWait(QApplication.doubleClickInterval() + 50)
+            app.sendEvent(view.viewport(), QMouseEvent(
+                QEvent.Type.MouseMove, spot, glob, Qt.MouseButton.NoButton,
+                Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier))
         for etype in (QEvent.Type.MouseButtonPress,
                       QEvent.Type.MouseButtonRelease):
             app.sendEvent(view.viewport(), QMouseEvent(
@@ -494,38 +510,88 @@ def test_pick_gesture():
                 Qt.KeyboardModifier.NoModifier))
         app.processEvents()
 
-    # A LEFT release over a real row is the gesture that arms a pick.
-    c._pick_armed = False
+    # A LEFT click on a real row is a pick: it NAVIGATES.
+    c._popup_shown_at = 0.0
     release_on_row(1)
-    check("a left release over a row arms the pick", c._pick_armed is True
-          or picked == ["C:/two"], f"armed={c._pick_armed} picked={picked}")
+    check("a left click on a row picks it", picked == ["C:/two"],
+          f"picked={picked}")
+    QTest.qWait(10)
+    check("...and leaves no arm behind", c._pick_armed is False,
+          f"armed={c._pick_armed}")
+
+    # A release the popup ignores (too soon, no move) must not leave an arm
+    # for the next echo to consume.
+    c.hidePopup()
+    picked.clear()
+    release_on_row(2, hasty=True)
+    c.hidePopup()
+    QTest.qWait(10)
+    check("a release the popup may ignore leaves no arm behind",
+          c._pick_armed is False, f"armed={c._pick_armed}")
+    picked.clear()
 
     # A RIGHT release must NOT - it opens the forget menu instead, and the
     # filter swallows the whole gesture.
     c._pick_armed = False
     picked.clear()
     c._popup_shown_at = 0.0
-    release_on_row(2, Qt.MouseButton.RightButton)
+    # hasty: a press inside the popup's 250 ms settle window is refused, so
+    # no real (modal) forget-menu opens here - what is under test is only
+    # that a right release never arms a pick.
+    release_on_row(2, Qt.MouseButton.RightButton, hasty=True)
     check("a right release arms nothing", c._pick_armed is False,
           f"armed={c._pick_armed}")
 
-    # Return on the highlighted row is the keyboard equivalent.
-    c._pick_armed = False
+    # Return on the highlighted row is the keyboard equivalent - and it must
+    # PICK, not merely arm. QTest.keyClick goes through Qt's real key path,
+    # ShortcutOverride first, which is where the popup's container picks the
+    # row: the 9.7.23 filter armed on KeyPress, after the pick, so Return
+    # picked nothing and left the arm for the next echo (measured on both
+    # platforms, 9.7.54). The old check asserted the arm alone, which is how
+    # that shipped.
+    picked.clear()
+    c._popup_shown_at = 0.0
     c.showPopup()
     app.processEvents()
-    app.sendEvent(c.view(), QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Return,
-                                      Qt.KeyboardModifier.NoModifier))
-    check("Return on the highlighted row arms the pick", c._pick_armed is True,
+    c.view().setCurrentIndex(c.model().index(2, 0))
+    QTest.keyClick(c.view(), Qt.Key.Key_Return)
+    QTest.qWait(10)
+    check("Return on the highlighted row picks it", picked == ["C:/three"],
+          f"picked={picked}")
+    check("...and leaves no arm behind", c._pick_armed is False,
           f"armed={c._pick_armed}")
+    # The stale arm's consequence, directly: the echo that follows a Return
+    # pick (Qt emits activated on a focus-out whose text matches a row) must
+    # not navigate again.
+    picked.clear()
+    c.activated.emit(0)
+    check("an echo after a Return pick navigates nothing", picked == [],
+          f"picked={picked}")
     c.hidePopup()
 
     # Escape must not - dismissing the list is not choosing from it.
     c._pick_armed = False
+    picked.clear()
     c.showPopup()
     app.processEvents()
-    app.sendEvent(c.view(), QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape,
-                                      Qt.KeyboardModifier.NoModifier))
-    check("Escape arms nothing", c._pick_armed is False, f"armed={c._pick_armed}")
+    QTest.keyClick(c.view(), Qt.Key.Key_Escape)
+    QTest.qWait(10)
+    check("Escape arms nothing and picks nothing",
+          c._pick_armed is False and picked == [],
+          f"armed={c._pick_armed} picked={picked}")
+    c.hidePopup()
+
+    # Delete still forgets the highlighted row ONCE: Return moved to
+    # ShortcutOverride, Delete must stay on KeyPress (ShortcutOverride
+    # carries the same key and would remove two rows).
+    c.set_history_from_cfg("C:/one|C:/two|C:/three")
+    c.showPopup()
+    app.processEvents()
+    c.view().setCurrentIndex(c.model().index(1, 0))
+    QTest.keyClick(c.view(), Qt.Key.Key_Delete)
+    QTest.qWait(10)
+    check("Delete on a dropdown row forgets exactly that row",
+          c.history_list() == ["C:/one", "C:/three"], str(c.history_list()))
     c.hidePopup()
     c.deleteLater()
 

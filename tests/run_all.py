@@ -69,6 +69,9 @@ SUITES = [
     # DotDotFirstProxyModel, with the view's own layout as the oracle.
     ("test_tree_row_on_screen.py", 120, None),
     ("test_esp_emu.py",         120, None),
+    # The Settings station-address picker (9.7.54), driven with REAL key and
+    # mouse events - the signal-level echo is exactly what it must ignore.
+    ("test_esp_ip_combo.py",    120, None),
     ("test_classic_sync.py",    180, None),
     ("test_listen.py",          120, None),
     # 240 since 9.7.46: ~111 s before it, ~130 s with the QLNextRemote

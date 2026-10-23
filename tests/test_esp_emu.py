@@ -1084,6 +1084,456 @@ def test_server_cross_session_stall():
     server.stop()
 
 
+# ---------------------------------------------------------------------------
+# engine: the station address and the Wi-Fi fiction (9.7.54)
+# ---------------------------------------------------------------------------
+def test_engine_station_identity():
+    """What AT+CIFSR / AT+CIPSTA? report, where it comes from (the server's
+    value, a live rewrite, the guest's own AT+CIPSTA=), and the joined-AP
+    fiction the NextZXOS WiFi wizard needs (see test_wifi_wizard_dialogue)."""
+    print("\n== engine: the station address, CIPSTA / CWJAP / CWLAP shapes ==")
+    eng, _gw = make_engine()
+    check("a bare engine keeps the deterministic default address",
+          eng.reported_ip == espemu.STA_IP, eng.reported_ip)
+    eng = EspAtEngine(FakeGateway(), station_ip="10.9.8.7")
+    eng.take_output()
+    ask(eng, b"ATE0\r\n")                 # exact-shape checks below: no echo
+    r = ask(eng, b"AT+CIFSR\r\n")
+    check("CIFSR reports the address the engine was built with",
+          b'+CIFSR:STAIP,"10.9.8.7"' in r and b"OK" in r, r)
+    r = ask(eng, b"AT+CIPSTA?\r\n")
+    check("CIPSTA? answers the AT 1.x three-line shape, ip first",
+          r == (b'\r\n+CIPSTA:ip:"10.9.8.7"\r\n+CIPSTA:gateway:"10.9.8.1"\r\n'
+                b'+CIPSTA:netmask:"255.255.255.0"\r\n\r\nOK\r\n'), r)
+    r = ask(eng, b"AT+CIPSTA_CUR?\r\n")
+    check("the _CUR spelling answers under its own name",
+          b'+CIPSTA_CUR:ip:"10.9.8.7"' in r and b"OK" in r, r)
+    eng.station_ip = "10.9.8.8"            # the server's live rewrite
+    check("a live rewrite is reported at the next query",
+          b'STAIP,"10.9.8.8"' in ask(eng, b"AT+CIFSR\r\n"))
+    check("a garbage construction value falls back to the default",
+          EspAtEngine(FakeGateway(), station_ip="ten.nine").reported_ip
+          == espemu.STA_IP)
+    # The guest's own static address (the wizard's "Set Manual IP").
+    check("CIPSTA= with a dotted quad is OK",
+          ask(eng, b'AT+CIPSTA="192.168.7.7"\r\n') == b"\r\nOK\r\n")
+    check("...and overrides what CIFSR reports",
+          b'STAIP,"192.168.7.7"' in ask(eng, b"AT+CIFSR\r\n"))
+    check("...and what CIPSTA? reports",
+          b'+CIPSTA:ip:"192.168.7.7"' in ask(eng, b"AT+CIPSTA?\r\n"))
+    eng.station_ip = "10.9.8.9"
+    check("the guest's override outranks a live rewrite",
+          b'STAIP,"192.168.7.7"' in ask(eng, b"AT+CIFSR\r\n"))
+    check("CIPSTA= with a gateway and netmask too is OK",
+          ask(eng, b'AT+CIPSTA_CUR="10.1.1.1","10.1.1.254","255.255.0.0"\r\n')
+          == b"\r\nOK\r\n")
+    check("CIPSTA= with a non-address is ERROR and changes nothing",
+          ask(eng, b'AT+CIPSTA="router.local"\r\n') == b"\r\nERROR\r\n"
+          and b'STAIP,"10.1.1.1"' in ask(eng, b"AT+CIFSR\r\n"))
+    check("CWDHCP (DHCP back on) hands the configured address back",
+          ask(eng, b"AT+CWDHCP=1,1\r\n") == b"\r\nOK\r\n"
+          and b'STAIP,"10.9.8.9"' in ask(eng, b"AT+CIFSR\r\n"))
+    ask(eng, b'AT+CIPSTA="192.168.7.7"\r\n')
+    ask(eng, b"AT+RST\r\n")
+    check("RST hands it back too",
+          b'STAIP,"10.9.8.9"' in ask(eng, b"ATE0\r\nAT+CIFSR\r\n"))
+    check("CIPSTAMAC? answers the station MAC",
+          b'+CIPSTAMAC:"' + espemu.STA_MAC.encode() + b'"'
+          in ask(eng, b"AT+CIPSTAMAC?\r\n"))
+    check("CIPSTATUS is still politely agreed to",
+          ask(eng, b"AT+CIPSTATUS\r\n") == b"\r\nOK\r\n")
+    check("CIPSTART still reaches its own handler, not CIPSTA's",
+          b"CONNECT" in ask(eng, b'AT+CIPSTART="TCP","10.0.0.9",2048\r\n'))
+    # The Wi-Fi fiction.
+    r = ask(eng, b"AT+CWJAP?\r\n")
+    check("CWJAP? names the joined access point, AT 1.x shape",
+          r == (f'\r\n+CWJAP:"{espemu.STA_SSID}","{espemu.AP_MAC}",1,-40'
+                f'\r\n\r\nOK\r\n').encode(), r)
+    check("CWJAP_CUR? answers under its own name",
+          b'+CWJAP_CUR:"' in ask(eng, b"AT+CWJAP_CUR?\r\n"))
+    r = ask(eng, b'AT+CWJAP="Home Wi-Fi","secret"\r\n')
+    check("a join is accepted with the firmware's chatter",
+          r == b"\r\nWIFI CONNECTED\r\nWIFI GOT IP\r\n\r\nOK\r\n", r)
+    check("...and remembered as the joined name",
+          b'+CWJAP:"Home Wi-Fi"' in ask(eng, b"AT+CWJAP?\r\n"))
+    check("a join with an empty SSID is ERROR",
+          ask(eng, b'AT+CWJAP="",""\r\n') == b"\r\nERROR\r\n")
+    check("a bare CWJAP is ERROR",
+          ask(eng, b"AT+CWJAP\r\n") == b"\r\nERROR\r\n")
+    check("the test form CWJAP=? is OK and joins nothing",
+          ask(eng, b"AT+CWJAP=?\r\n") == b"\r\nOK\r\n"
+          and b'+CWJAP:"Home Wi-Fi"' in ask(eng, b"AT+CWJAP?\r\n"))
+    ask(eng, b"AT+RST\r\n")
+    ask(eng, b"ATE0\r\n")
+    check("RST forgets the joined name",
+          b'+CWJAP:"' + espemu.STA_SSID.encode() in ask(eng, b"AT+CWJAP?\r\n"))
+    r = ask(eng, b"AT+CWLAP\r\n")
+    check("CWLAP lists the fiction's one access point",
+          r == (f'\r\n+CWLAP:(0,"{espemu.STA_SSID}",-40,"{espemu.AP_MAC}",1,0)'
+                f'\r\n\r\nOK\r\n').encode(), r)
+    check("CWMODE? says station",
+          ask(eng, b"AT+CWMODE?\r\n") == b"\r\n+CWMODE:1\r\n\r\nOK\r\n")
+    check("CWMODE=? lists 1-3",
+          ask(eng, b"AT+CWMODE=?\r\n") == b"\r\n+CWMODE:(1-3)\r\n\r\nOK\r\n")
+    check("CWMODE=1 is OK, CWMODE=9 is ERROR",
+          ask(eng, b"AT+CWMODE=1\r\n") == b"\r\nOK\r\n"
+          and ask(eng, b"AT+CWMODE=9\r\n") == b"\r\nERROR\r\n")
+    check("CWDHCP? reports DHCP on",
+          ask(eng, b"AT+CWDHCP_CUR?\r\n") == b"\r\n+CWDHCP_CUR:3\r\n\r\nOK\r\n")
+    for cmd in (b"AT+CIPDNS?\r\n", b"AT+CIPDNS_CUR?\r\n",
+                b"AT+CIPDNS=1,8.8.8.8,1.1.1.1\r\n", b"AT+CIPDNS_DEF=0\r\n",
+                b"AT+CIUPDATE\r\n"):
+        check(f"{cmd.strip().decode()} is refused like a real AT 1.x module",
+              ask(eng, cmd) == b"\r\nERROR\r\n")
+    check("an unknown AT command is still politely agreed to",
+          ask(eng, b"AT+CIPSTO=0\r\n") == b"\r\nOK\r\n")
+
+    # Review round (9.7.54): every one of these was a reproduced defect.
+    ask(eng, b'AT+CIPSTA="10.0.0.200"\r\n')
+    check("CWDHCP=0,1 (the wizard's 'Set Manual DNS' first step) KEEPS a "
+          "manual IP",
+          ask(eng, b"AT+CWDHCP=0,1\r\n") == b"\r\nOK\r\n"
+          and b'STAIP,"10.0.0.200"' in ask(eng, b"AT+CIFSR\r\n"))
+    check("CWDHCP=1,0 (station DHCP off, AT 1.x) keeps it too",
+          ask(eng, b"AT+CWDHCP_CUR=1,0\r\n") == b"\r\nOK\r\n"
+          and b'STAIP,"10.0.0.200"' in ask(eng, b"AT+CIFSR\r\n"))
+    check("CWDHCP with one or no number is ERROR and keeps it",
+          ask(eng, b"AT+CWDHCP=1\r\n") == b"\r\nERROR\r\n"
+          and ask(eng, b"AT+CWDHCP=x,1\r\n") == b"\r\nERROR\r\n"
+          and b'STAIP,"10.0.0.200"' in ask(eng, b"AT+CIFSR\r\n"))
+    check("CWDHCPS (the softAP's DHCP range) is another command: polite OK, "
+          "the manual IP kept",
+          ask(eng, b'AT+CWDHCPS_CUR=1,3,"1.2.3.4","1.2.3.5"\r\n') == b"\r\nOK\r\n"
+          and b'STAIP,"10.0.0.200"' in ask(eng, b"AT+CIFSR\r\n"))
+    check("CWDHCP=17,1 (the wizard's 'Set automatic IP/DNS') hands it back",
+          ask(eng, b"AT+CWDHCP=17,1\r\n") == b"\r\nOK\r\n"
+          and b'STAIP,"10.9.8.9"' in ask(eng, b"AT+CIFSR\r\n"))
+    check("CWLAPOPT (the scan options) is another command: polite OK",
+          ask(eng, b"AT+CWLAPOPT=1,31\r\n") == b"\r\nOK\r\n")
+    check("the filtered CWLAP lists the AP when it is the one asked for",
+          b"+CWLAP:" in ask(eng, f'AT+CWLAP="{espemu.STA_SSID}"\r\n'.encode()))
+    check("...and nothing (just OK) for another name",
+          ask(eng, b'AT+CWLAP="nope"\r\n') == b"\r\nOK\r\n")
+    check("CIPSTA=\"0.0.0.0\" is ERROR (the consumers read it as unjoined)",
+          ask(eng, b'AT+CIPSTA="0.0.0.0"\r\n') == b"\r\nERROR\r\n")
+    check("CIPSTA= with a broadcast or a multicast address is ERROR",
+          ask(eng, b'AT+CIPSTA="255.255.255.255"\r\n') == b"\r\nERROR\r\n"
+          and ask(eng, b'AT+CIPSTA="224.0.0.1"\r\n') == b"\r\nERROR\r\n")
+    check("CIPSTA= with an UNQUOTED address is ERROR, as on the firmware",
+          ask(eng, b"AT+CIPSTA=10.0.0.7\r\n") == b"\r\nERROR\r\n")
+    check("an SSID with a comma inside its quotes is kept whole",
+          ask(eng, b'AT+CWJAP="My,Net","pw"\r\n').endswith(b"OK\r\n")
+          and b'+CWJAP:"My,Net"' in ask(eng, b"AT+CWJAP?\r\n"))
+    check("an escaped quote round-trips, re-escaped in the reply",
+          ask(eng, b'AT+CWJAP="a\\"b","pw"\r\n').endswith(b"OK\r\n")
+          and b'+CWJAP:"a\\"b"' in ask(eng, b"AT+CWJAP?\r\n"))
+    check("an UNQUOTED SSID is ERROR",
+          ask(eng, b"AT+CWJAP=Home,pw\r\n") == b"\r\nERROR\r\n")
+    check("the test form CWJAP=? joins nothing",
+          ask(eng, b"AT+CWJAP=?\r\n") == b"\r\nOK\r\n"
+          and b'+CWJAP:"a\\"b"' in ask(eng, b"AT+CWJAP?\r\n"))
+    r = ask(eng, b"AT+GMR\r\n")
+    check("GMR answers the AT 1.x three-line shape, the emulator's name first",
+          r.startswith(b"\r\nAT version:espemu-") and b"\r\nSDK version:" in r
+          and b"\r\ncompile time:" in r and r.endswith(b"\r\nOK\r\n"), r)
+
+
+def test_wifi_wizard_dialogue():
+    """NextZXOS's WiFi wizard (apps/wifi/setup/WIFI2.BAS on the distribution
+    card: "WIFI wizard v2p3" by Tony Hoyle and Tim Gilberts) replayed against
+    the engine with the wizard's OWN string routines modelled exactly as the
+    BASIC does them: readln() drops every byte <= 32 and ends a line on CR;
+    cmd() collects lines until OK/ERROR; pos() answers LEN(s$) when the
+    needle is absent; between() slices a$(start+1 TO end-1), and a NEGATIVE
+    slice bound is "B Integer out of range". That last rule is the field
+    failure: a bare OK to AT+CWJAP? gave between() an empty string, pos()
+    answered 0 twice, and the wizard died at line 180 before showing its
+    menu. The engine now keeps the module joined to an access point."""
+    print("\n== engine: the NextZXOS WiFi wizard's dialogue ==")
+    eng = EspAtEngine(FakeGateway(), station_ip="10.0.0.31")
+    eng.take_output()
+
+    class BasicError(Exception):
+        pass
+
+    def cmd(n):                            # WIFI2.BAS lines 1220-1340
+        raw = ask(eng, ("AT" + n + "\r\n").encode())
+        lines, cur = [], ""
+        for b in raw:                      # readln(), lines 1580-1660
+            if b > 32:
+                cur += chr(b)
+            elif b == 13 and cur:
+                lines.append(cur)
+                cur = ""
+        r = []
+        for ln in lines:
+            if ln == "AT" + n:             # line 1270: the echo, if any
+                continue
+            if ln in ("OK", "ERROR"):
+                break
+            r.append(ln)
+        return "\r".join(r)
+
+    def pos(s, start, c):                  # lines 1840-1880, 1-based
+        for n in range(start, len(s) - len(c) + 1):
+            if s[n - 1:n - 1 + len(c)] == c:
+                return n
+        return len(s)
+
+    def slice_(a, x, y):                   # a$(x TO y)
+        if x < 0 or y < 0:
+            raise BasicError("B Integer out of range")
+        return a[x - 1:y] if y >= x else ""
+
+    def between(a, s, e):                  # lines 1890-1930
+        start = pos(a, 1, s) if s else 0
+        end = pos(a, start + 1, e) if e else len(a) + 1
+        return slice_(a, start + 1, end - 1)
+
+    def splitdns(a):                       # lines 1940-1990
+        s1 = pos(a, 1, ":")
+        e1 = pos(a, s1, "\r")
+        s2 = pos(a, e1, ":")
+        e2 = pos(a, s2, "\r")
+        return slice_(a, s1 + 1, e1 - 1) + ", " + slice_(a, s2 + 1, e2 - 1)
+
+    try:                                   # lines 100-190
+        cmd("E0")
+        cmd("+CWMODE=1")
+        v = cmd("+GMR")
+        fw1 = between(v, ":", "\r")
+        fw2 = between(v, "\r", "\r")
+        s = cmd("+CWJAP?")
+        i = cmd("+CIPSTA?")
+        d = cmd("+CIPDNS?")
+        i = between(i, '"', '"')
+        s = between(s, '"', '"')
+        if d != "":
+            d = splitdns(d)
+    except BasicError as ex:
+        check("the wizard's query sequence runs without a BASIC error",
+              False, str(ex))
+        return
+    check("the wizard's query sequence runs without a BASIC error", True)
+    check("'IP Address:' shows the station address", i == "10.0.0.31", i)
+    check("'Firmware:' shows the emulator, both lines whole",
+          fw1.startswith("espemu-") and fw2 == "SDKversion:RS232-ESP-emulation",
+          (fw1, fw2))
+    check("'Connected to:' shows the access point", s == espemu.STA_SSID, s)
+    check("'DNS:' stays blank (CIPDNS? is refused, as on a real module)",
+          d == "", d)
+    try:
+        between("", '"', '"')
+        reproduced = False
+    except BasicError:
+        reproduced = True
+    check("an EMPTY CWJAP? reply is exactly the wizard's 'B Integer out of "
+          "range' (the pre-9.7.54 failure, on the wizard's own model)",
+          reproduced)
+    check("the v1 wizard's +CIPDNS_CUR? is refused the same way",
+          cmd("+CIPDNS_CUR?") == "")
+    # Menu 5, "Scan Networks", then the join (lines 790-930, 470-620).
+    a = cmd("+CWLAP")
+    names = []
+    while a:
+        p = pos(a, 1, "\r")
+        ln = between(a[:p - 1], '"', '"')
+        if ln:
+            names.append(ln)
+        a = a[p:]
+    check("'Scan Networks' finds the fiction's access point",
+          names == [espemu.STA_SSID], names)
+    cmd('+CWJAP="' + names[0] + '",""')
+    check("...and joining it keeps the name",
+          between(cmd("+CWJAP?"), '"', '"') == espemu.STA_SSID)
+    # Menu 2, "Set Manual IP", then 9, "Refresh" (lines 630-670).
+    cmd("+CWDHCP=0,1")
+    cmd('+CIPSTA="10.0.0.200"')
+    check("'Set Manual IP' is reflected by 'Refresh'",
+          between(cmd("+CIPSTA?"), '"', '"') == "10.0.0.200")
+    cmd("+CWDHCP=0,1")                     # menu 3, lines 680-740
+    cmd("+CIPDNS=1,8.8.8.8,1.1.1.1")
+    check("...and survives 'Set Manual DNS' (which sends CWDHCP=0,1 first)",
+          between(cmd("+CIPSTA?"), '"', '"') == "10.0.0.200")
+    cmd('+CWJAP="Cafe, upstairs","pw"')    # menu 1, a comma in the name
+    check("'Set Manual SSID' with a comma shows the whole name (spaces "
+          "dropped by the wizard's own readln)",
+          between(cmd("+CWJAP?"), '"', '"') == "Cafe,upstairs")
+    cmd("+CWDHCP=17,1")                    # menu 4, lines 750-780
+    cmd("+CIPDNS=0")
+    check("'Set automatic IP/DNS' hands the address back",
+          between(cmd("+CIPSTA?"), '"', '"') == "10.0.0.31")
+
+
+def test_host_addresses():
+    """is_ipv4 / primary_ipv4 / host_ipv4_addresses: what the Settings
+    picker and the automatic address are built on. Never raising and
+    bounded is the contract; the values depend on the box."""
+    print("\n== host addresses: is_ipv4 / primary_ipv4 / host_ipv4_addresses ==")
+    for good in ("10.0.0.5", "192.168.4.2", "0.0.0.0", "255.255.255.255",
+                 "1.2.3.4", " 10.0.0.5 "):
+        check(f"{good!r} is an IPv4 address", espemu.is_ipv4(good))
+    for bad in ("", None, "10.0.0", "10.0.0.5.6", "10.0.0.256", "10.0.0.05",
+                "ten.0.0.5", "10.0.0.5:2048", "::1", "１.2.3.4", "1.2.3.²",
+                "10.0.0.-1", "10..0.5"):
+        check(f"{bad!a} is not", not espemu.is_ipv4(bad))   # !a: cp1252 consoles
+    for good in ("10.0.0.5", "127.0.0.1", "169.254.1.1", "223.255.255.254",
+                 "1.0.0.1"):
+        check(f"{good!a} can be a station address", espemu.is_station_ipv4(good))
+    for bad in ("0.0.0.0", "0.1.2.3", "255.255.255.255", "224.0.0.1",
+                "239.255.255.250", "240.0.0.1", "", "lan", "10.0.0.05"):
+        check(f"{bad!a} cannot", not espemu.is_station_ipv4(bad))
+    p = espemu.primary_ipv4()
+    check("primary_ipv4 is None or a real, non-loopback dotted quad",
+          p is None or (espemu.is_ipv4(p) and not p.startswith("127.")), p)
+    check("an unresolvable probe host answers None, never raises",
+          espemu.primary_ipv4("no.such.host.invalid") is None)
+    addrs = espemu.host_ipv4_addresses()
+    check("host_ipv4_addresses answers a list of dotted quads",
+          isinstance(addrs, list) and all(espemu.is_ipv4(a) for a in addrs),
+          addrs)
+    check("...without loopback, 0.0.0.0 or duplicates",
+          len(set(addrs)) == len(addrs)
+          and not any(a.startswith(("127.", "0.")) for a in addrs), addrs)
+    check("...the primary first when there is one",
+          p is None or (bool(addrs) and addrs[0] == p), (p, addrs[:2]))
+    check("...bounded: a near-zero timeout still answers a list",
+          isinstance(espemu.host_ipv4_addresses(timeout=0.01), list))
+
+
+def test_server_station_ip():
+    """The server's half: a configured address, the automatic one, a LIVE
+    change reaching sessions already connected, refusal of garbage, and
+    the standalone CLI's --ip."""
+    print("\n== server: the station address, configured, automatic and live ==")
+    import contextlib
+    import io
+    for bad in ("10.0.0", "lan", "10.0.0.5:1", "0.0.0.0", "255.255.255.255",
+                "224.0.0.1"):
+        try:
+            EspAtServer(port=0, station_ip=bad)
+            check(f"EspAtServer refuses station_ip={bad!r}", False)
+        except ValueError:
+            check(f"EspAtServer refuses station_ip={bad!r}", True)
+    logs = []
+    server = EspAtServer(port=0, log=logs.append, station_ip="10.9.8.7")
+    server.start()
+    port = server._listen.getsockname()[1]
+    check("the configured address is what resolve answers",
+          server.station_ip == "10.9.8.7"
+          and server.resolve_station_ip() == "10.9.8.7")
+    mame = FakeMame(port)
+    mame.collect(b"ready")
+    mame.say(b"ATE0\r\n")
+    mame.collect(b"OK")
+    mame.say(b"AT+CIFSR\r\n")
+    check("a session reports the configured address",
+          b'STAIP,"10.9.8.7"' in mame.collect(b"OK"))
+    server.set_station_ip("10.9.8.8")
+    mame.say(b"AT+CIFSR\r\n")
+    check("set_station_ip moves a LIVE session at its next query",
+          b'STAIP,"10.9.8.8"' in mame.collect(b"OK"))
+    check("...and says so in the log",
+          any("now reports the IP address 10.9.8.8" in ln for ln in logs),
+          logs[-1:])
+    mame2 = FakeMame(port)
+    mame2.collect(b"ready")
+    mame2.say(b"ATE0\r\nAT+CIFSR\r\n")
+    check("a session built after the change gets the new address",
+          b'STAIP,"10.9.8.8"' in mame2.collect(b"OK"))
+    try:
+        server.set_station_ip("nope")
+        check("set_station_ip refuses garbage", False)
+    except ValueError:
+        check("set_station_ip refuses garbage", True)
+    check("...and keeps the previous address", server.station_ip == "10.9.8.8")
+    before = len(logs)
+    check("set_station_ip returns the resolved address",
+          server.set_station_ip("10.9.8.6", quiet=True) == "10.9.8.6")
+    check("...and quiet=True logs nothing (the app announces it itself)",
+          len(logs) == before, logs[before:])
+    server.set_station_ip("")
+    auto = server.resolve_station_ip()
+    check("'' is automatic: this host's primary address, else loopback",
+          auto == (espemu.primary_ipv4() or espemu.LOOPBACK_IP), auto)
+    mame.say(b"AT+CIFSR\r\n")
+    check("the live session follows to the automatic address",
+          f'STAIP,"{auto}"'.encode() in mame.collect(b"OK"))
+    check("...logged as this PC's primary address (or as loopback)",
+          any(("primary address" in ln or "loopback" in ln) for ln in logs),
+          logs[-1:])
+    mame.close()
+    mame2.close()
+    server.stop()
+    srv2 = EspAtServer(port=0, station_ip="")
+    srv2.start()
+    m = FakeMame(srv2._listen.getsockname()[1])
+    m.collect(b"ready")
+    m.say(b"ATE0\r\nAT+CIPSTA?\r\n")
+    check("an automatic server's session reports the resolved address",
+          f'+CIPSTA:ip:"{srv2.resolve_station_ip()}"'.encode()
+          in m.collect(b"OK"))
+    m.close()
+    srv2.stop()
+    args = espemu.build_arg_parser().parse_args(["--ip", "10.1.2.3", "--port", "2300"])
+    check("the CLI takes --ip", args.ip == "10.1.2.3" and args.port == 2300)
+    check("the CLI's default is automatic",
+          espemu.build_arg_parser().parse_args([]).ip == "")
+    for bad in ("lan", "0.0.0.0"):
+        with contextlib.redirect_stderr(io.StringIO()):
+            try:
+                espemu.build_arg_parser().parse_args(["--ip", bad])
+                check(f"the CLI refuses --ip {bad}", False)
+            except SystemExit:
+                check(f"the CLI refuses --ip {bad}", True)
+
+
+def test_server_station_ip_race():
+    """A session being built while set_station_ip runs is caught up (review
+    round, 9.7.54). The engine resolves its address in _EspSession's
+    constructor, BEFORE the session joins the server's list; the live
+    rewrite walks that list. A rewrite landing in between missed the
+    session, which kept the old address for its whole life. Reproduced
+    deterministically: the automatic resolve is held on a gate while the
+    rewrite runs."""
+    print("\n== server: a station-address change racing a connecting emulator ==")
+    gate = threading.Event()
+    calls = []
+    orig = espemu.primary_ipv4
+
+    def slow_primary(*_a, **_k):
+        calls.append(1)
+        if len(calls) == 1:
+            gate.wait(5)
+        return "10.0.0.31"
+
+    espemu.primary_ipv4 = slow_primary
+    server = EspAtServer(port=0, station_ip="")
+    mame = None
+    try:
+        server.start()
+        mame = FakeMame(server._listen.getsockname()[1])
+        deadline = time.monotonic() + 3
+        while not calls and time.monotonic() < deadline:
+            time.sleep(0.01)
+        check("the connecting session is held in its address resolve",
+              len(calls) == 1 and server.session_count == 0,
+              (len(calls), server.session_count))
+        server.set_station_ip("10.9.9.9", quiet=True)
+        gate.set()
+        mame.collect(b"ready")
+        mame.say(b"ATE0\r\nAT+CIFSR\r\n")
+        got = mame.collect(b"STAMAC")
+        check("the session joins with the address set while it was built",
+              b'STAIP,"10.9.9.9"' in got, got)
+    finally:
+        gate.set()
+        espemu.primary_ipv4 = orig
+        if mame is not None:
+            mame.close()
+        server.stop()
+
+
 def test_app_launch_wiring():
     """Source-level tripwires on the MAME launch flow.
 
@@ -1134,6 +1584,22 @@ def test_app_launch_wiring():
           "_launch_state" in src)
     check("every launch's signals object is kept alive independently",
           "_mame_signals_live" in src)
+    # The station address (9.7.54): read from its setting, handed to a new
+    # worker, applied LIVE to a shared one, and announced at every launch.
+    check("the station address is read from its setting",
+          "SETTING_MAME_RS232_ESP_IP" in src and "esp_station_ip_setting(" in src)
+    check("a new worker is built with the station address",
+          "station_ip=station_ip)" in src)
+    check("a station-address change applies live to a shared worker",
+          "server.set_station_ip(station_ip, quiet=True)" in src)
+    check("the Settings live apply is quiet too, and announced once",
+          "server.set_station_ip(_esp_emulation_ip(), quiet=True)" in src)
+    check("Settings can move a running worker's address",
+          "host._esp_emulation_apply_ip = _esp_emulation_apply_ip" in src)
+    check("the address is announced on a new worker, a shared one and a "
+          "live Settings change - one line each",
+          src.count("_esp_announce_station_ip(server)")
+          - src.count("def _esp_announce_station_ip(server)") == 3)
 
 
 def main():
@@ -1160,6 +1626,11 @@ def main():
     test_server_session_threads()
     test_server_bad_command_isolation()
     test_server_cross_session_stall()
+    test_engine_station_identity()
+    test_wifi_wizard_dialogue()
+    test_host_addresses()
+    test_server_station_ip()
+    test_server_station_ip_race()
     test_app_launch_wiring()
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")
     return 0 if ok else 1

@@ -320,6 +320,50 @@ def build_emulator_ops(
             SETTING_MAME_RS232_ESP_VERBOSE, "")).strip().lower() in (
                 "true", "1", "yes", "on")
 
+    def _esp_emulation_ip():
+        """The station address Settings chose (9.7.54): a dotted quad, or
+        "" for this PC's primary address, which the emulation resolves
+        itself as each emulator connects. Hand-edited garbage reads as
+        automatic, never as an address handed to a Next."""
+        return esp_station_ip_setting(configuration_dictionary.get(
+            SETTING_MAME_RS232_ESP_IP, ""))
+
+    def _esp_announce_station_ip(server):
+        """One console line per launch saying which address the emulated
+        Next will show as its own - the first thing a user who reads it
+        off the Next's screen (or types it on another PC) needs."""
+        ip = server.resolve_station_ip()
+        if server.station_ip:
+            line = ui_tr_now(
+                "RS232 ESP emulation: the emulated Next reports the IP "
+                "address chosen in Settings, {ip}, as its own.").format(ip=ip)
+        else:
+            line = ui_tr_now(
+                "RS232 ESP emulation: the emulated Next reports {ip} as its "
+                "own address - this PC's primary address, or 127.0.0.1 when "
+                "it has no network (Settings → 'IP address shown to the "
+                "emulated Next' picks another).").format(ip=ip)
+        add_main_log_window(line)
+        logging.info("RS232 ESP station address: %s (%s)", ip,
+                     "chosen in Settings" if server.station_ip else "automatic")
+
+    def _esp_emulation_apply_ip():
+        """Settings moved the station address: a RUNNING worker takes it
+        live, sessions included (the Next sees it at its next AT+CIFSR /
+        AT+CIPSTA?) - stopping the shared worker to apply it would cut a
+        running MAME's wire. Nothing running: the next launch reads the
+        setting itself."""
+        server = host._esp_emu
+        if server is None or not server.running:
+            return
+        try:
+            server.set_station_ip(_esp_emulation_ip(), quiet=True)
+        except ValueError:
+            logging.exception("RS232 ESP emulation: station address refused")
+            return
+        _esp_announce_station_ip(server)
+    host._esp_emulation_apply_ip = _esp_emulation_apply_ip
+
     def _start_esp_emulation():
         """The espemu worker to wire this MAME launch to, or None.
 
@@ -338,6 +382,7 @@ def build_emulator_ops(
         """
         want_port = _esp_emulation_port()
         verbose = _esp_emulation_verbose()
+        station_ip = _esp_emulation_ip()
         server = host._esp_emu
         if server is not None and server.running:
             if server.port != want_port and host._esp_emu_users == 0:
@@ -361,6 +406,13 @@ def build_emulator_ops(
             # rather than restarting a shared worker.
             if server.verbose != verbose:
                 server.set_verbose(verbose)
+            if server.station_ip != station_ip:
+                # Same live rule as verbose (9.7.54): the address can
+                # change between launches while an earlier MAME holds
+                # the worker, and every session follows at once. Quiet:
+                # the translated announcement below says it, once.
+                server.set_station_ip(station_ip, quiet=True)
+            _esp_announce_station_ip(server)
             return server
         signals = EspEmuSignals()
         signals.line.connect(
@@ -381,7 +433,8 @@ def build_emulator_ops(
             logging.info("%s", line)
 
         server = espemu.EspAtServer(
-            port=want_port, log=_esp_log, verbose=verbose)
+            port=want_port, log=_esp_log, verbose=verbose,
+            station_ip=station_ip)
         try:
             server.start()
         except OSError as ex:
@@ -393,6 +446,7 @@ def build_emulator_ops(
         host._esp_emu = server
         host._esp_emu_signals = signals      # keep the QObject alive
         host._esp_emu_users = 0
+        _esp_announce_station_ip(server)
         return server
 
     # Which ESP card this MAME offers (9.7.48): the "-listslots" answer,
