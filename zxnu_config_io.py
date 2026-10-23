@@ -575,6 +575,13 @@ def build_config_io(
                 host.settings_rs232_esp_verbose_checkbox.setChecked(
                     _rs232_verbose)
                 host.settings_rs232_esp_verbose_checkbox.blockSignals(False)
+                # The station address (9.7.54): the pane built its list
+                # before this file was read, so the saved pick is selected
+                # here - added as a row when the PC no longer has it.
+                if hasattr(host, "_rs232_esp_ip_show"):
+                    host._rs232_esp_ip_show(esp_station_ip_setting(
+                        configuration_dictionary.get(
+                            SETTING_MAME_RS232_ESP_IP, "")))
                 host._rs232_esp_widgets_set_enabled(_rs232_on)
 
             # ZX Next Unite "check for updates at startup on Github" toggle

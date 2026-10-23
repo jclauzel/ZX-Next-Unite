@@ -432,12 +432,18 @@ CATALOGS = {
             "RS232 ESP: los parámetros de MAME piden la tarjeta '{card}', que esta versión de MAME no ofrece; la tarjeta se elige automáticamente.",
         "RS232 ESP: the MAME parameters name the '{card}' card, which this toggle does not wire (only esp8266_at and null_modem are); the card is picked automatically instead.":
             "RS232 ESP: los parámetros de MAME nombran la tarjeta '{card}', que esta opción no conecta (solo esp8266_at y null_modem); la tarjeta se elige automáticamente.",
+        "RS232 ESP emulation: the emulated Next reports the IP address chosen in Settings, {ip}, as its own.":
+            "Emulación RS232 ESP: el Next emulado presenta como suya la dirección IP elegida en Ajustes, {ip}.",
+        "RS232 ESP emulation: the emulated Next reports {ip} as its own address - this PC's primary address, or 127.0.0.1 when it has no network (Settings → 'IP address shown to the emulated Next' picks another).":
+            "Emulación RS232 ESP: el Next emulado presenta {ip} como su dirección: la dirección principal de este PC, o 127.0.0.1 cuando no hay red (Ajustes → 'Dirección IP mostrada al Next emulado' permite elegir otra).",
         "RS232 ESP emulation inspired by jesperl - by Janko Stamenović":
             "Emulación RS232 ESP inspirada en jesperl - por Janko Stamenović",
         "The optional RS232 ESP Emulation for MAME (Settings) is a clean full reimplementation in Python of an idea from jesperl by Janko Stamenović - an ESP-AT emulator bridging MAME's emulated Wi-Fi module to the real network. Many thanks for the inspirational idea - see https://sourceforge.net/projects/jesperl/.":
             "La Emulación RS232 ESP opcional para MAME (Ajustes) es una reimplementación completa y limpia en Python de una idea de jesperl, de Janko Stamenović: un emulador ESP-AT que conecta el módulo Wi-Fi emulado de MAME con la red real. Muchas gracias por la idea inspiradora - ver https://sourceforge.net/projects/jesperl/.",
         "One RS232 ESP emulation serves every running MAME: launch a second MAME on another disk image and it joins the same emulation with its own separate session, so several emulated Nexts can be on the network at once. The emulation stops when the last MAME exits. When two of them ask for the same server port (a Next listening for incoming connections), the second one is moved to the next free port and the log says which port to connect to.":
             "Una sola emulación RS232 ESP sirve a todos los MAME en marcha: lanza un segundo MAME con otra imagen de disco y se unirá a la misma emulación con su propia sesión independiente, de modo que varios Next emulados pueden estar en la red a la vez. La emulación se detiene cuando sale el último MAME. Cuando dos de ellos piden el mismo puerto de servidor (un Next a la escucha de conexiones entrantes), el segundo se traslada al siguiente puerto libre y el registro indica a qué puerto conectarse.",
+        "The IP address the RS232 ESP emulation reports to the emulated Next - what ZX Next Remote's listener screen and the NextZXOS WiFi wizard show, and what someone on another PC types to reach it - is this PC's primary address. A PC with several addresses (VPN, virtual machines, WSL) can pick another one in Settings, under 'IP address shown to the emulated Next', or type one; a running emulation takes the change live.":
+            "La dirección IP que la emulación RS232 ESP presenta al Next emulado - la que muestran la pantalla del listener de ZX Next Remote y el asistente WiFi de NextZXOS, y la que alguien escribe en otro PC para alcanzarlo - es la dirección principal de este PC. Un PC con varias direcciones (VPN, máquinas virtuales, WSL) puede elegir otra en Ajustes, bajo 'IP address shown to the emulated Next', o escribir una; una emulación en marcha aplica el cambio al instante.",
         "A MAME build that carries the built-in ESP8266 card (esp8266_at, in the ZX Spectrum Next MAME fork since October 2026) is launched with that card instead of the RS232 ESP emulation: it follows the Next's UART speed, so '.sync5' and ZX Next Remote connect at every speed (slow, default and fast). Through the RS232 ESP emulation (older MAME builds, the null_modem card) transfers need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings.":
             "Una versión de MAME que lleva la tarjeta ESP8266 integrada (esp8266_at, en el fork MAME del ZX Spectrum Next desde octubre de 2026) se lanza con esa tarjeta en lugar de la emulación RS232 ESP: sigue la velocidad UART del Next, así que '.sync5' y ZX Next Remote conectan a cualquier velocidad (slow, default y fast). A través de la emulación RS232 ESP (versiones de MAME más antiguas, la tarjeta null_modem) las transferencias necesitan el lado Next en su ritmo LENTO: usa '.sync5 -s' para el dot, o pon la velocidad UART en Slow en los ajustes de ZX Next Remote.",
         "Start {emulator}": "Iniciar {emulator}",
@@ -1336,6 +1342,14 @@ CATALOGS = {
             "Emulación RS232 ESP (Mame)",
         "RS232 ESP Emulation verbose mode":
             "Modo detallado de la emulación RS232 ESP",
+        "IP address shown to the emulated Next:":
+            "Dirección IP mostrada al Next emulado:",
+        "Automatic ({ip})":
+            "Automática ({ip})",
+        "⚠  RS232 ESP address not changed":
+            "⚠  Dirección RS232 ESP sin cambiar",
+        "'{text}' is not an address the emulated Next can report - type an IPv4 address such as 10.0.0.5 (four numbers 0-255 separated by dots; not 0.0.0.0, a broadcast or a multicast address).":
+            "'{text}' no es una dirección que el Next emulado pueda presentar: escribe una dirección IPv4 como 10.0.0.5 (cuatro números de 0 a 255 separados por puntos; ni 0.0.0.0, ni una dirección de difusión o multidifusión).",
         "⏹ Stop Remote Explorer NextSync server":
             "⏹ Detener servidor NextSync del Explorador remoto",
         "Please set a sync root folder on the left local file explorer":
@@ -1950,12 +1964,18 @@ CATALOGS = {
             "RS232 ESP: os parâmetros do MAME pedem a placa '{card}', que esta versão do MAME não oferece; a placa é escolhida automaticamente.",
         "RS232 ESP: the MAME parameters name the '{card}' card, which this toggle does not wire (only esp8266_at and null_modem are); the card is picked automatically instead.":
             "RS232 ESP: os parâmetros do MAME nomeiam a placa '{card}', que esta opção não liga (apenas esp8266_at e null_modem); a placa é escolhida automaticamente.",
+        "RS232 ESP emulation: the emulated Next reports the IP address chosen in Settings, {ip}, as its own.":
+            "Emulação RS232 ESP: o Next emulado apresenta como seu o endereço IP escolhido nas Definições, {ip}.",
+        "RS232 ESP emulation: the emulated Next reports {ip} as its own address - this PC's primary address, or 127.0.0.1 when it has no network (Settings → 'IP address shown to the emulated Next' picks another).":
+            "Emulação RS232 ESP: o Next emulado apresenta {ip} como o seu endereço: o endereço principal deste PC, ou 127.0.0.1 quando não há rede (Definições → 'Endereço IP mostrado ao Next emulado' permite escolher outro).",
         "RS232 ESP emulation inspired by jesperl - by Janko Stamenović":
             "Emulação RS232 ESP inspirada em jesperl - por Janko Stamenović",
         "The optional RS232 ESP Emulation for MAME (Settings) is a clean full reimplementation in Python of an idea from jesperl by Janko Stamenović - an ESP-AT emulator bridging MAME's emulated Wi-Fi module to the real network. Many thanks for the inspirational idea - see https://sourceforge.net/projects/jesperl/.":
             "A Emulação RS232 ESP opcional para o MAME (Definições) é uma reimplementação completa e limpa em Python de uma ideia do jesperl, de Janko Stamenović: um emulador ESP-AT que liga o módulo Wi-Fi emulado do MAME à rede real. Muito obrigado pela ideia inspiradora - ver https://sourceforge.net/projects/jesperl/.",
         "One RS232 ESP emulation serves every running MAME: launch a second MAME on another disk image and it joins the same emulation with its own separate session, so several emulated Nexts can be on the network at once. The emulation stops when the last MAME exits. When two of them ask for the same server port (a Next listening for incoming connections), the second one is moved to the next free port and the log says which port to connect to.":
             "Uma única emulação RS232 ESP serve todos os MAME em execução: inicie um segundo MAME com outra imagem de disco e ele junta-se à mesma emulação com a sua própria sessão separada, de modo que vários Next emulados podem estar na rede ao mesmo tempo. A emulação para quando o último MAME sai. Quando dois deles pedem a mesma porta de servidor (um Next à escuta de ligações de entrada), o segundo é movido para a porta livre seguinte e o registo indica a que porta ligar.",
+        "The IP address the RS232 ESP emulation reports to the emulated Next - what ZX Next Remote's listener screen and the NextZXOS WiFi wizard show, and what someone on another PC types to reach it - is this PC's primary address. A PC with several addresses (VPN, virtual machines, WSL) can pick another one in Settings, under 'IP address shown to the emulated Next', or type one; a running emulation takes the change live.":
+            "O endereço IP que a emulação RS232 ESP apresenta ao Next emulado - o que o ecrã do listener do ZX Next Remote e o assistente WiFi do NextZXOS mostram, e o que alguém escreve noutro PC para o alcançar - é o endereço principal deste PC. Um PC com vários endereços (VPN, máquinas virtuais, WSL) pode escolher outro nas Definições, em 'IP address shown to the emulated Next', ou escrever um; uma emulação em curso aplica a alteração de imediato.",
         "A MAME build that carries the built-in ESP8266 card (esp8266_at, in the ZX Spectrum Next MAME fork since October 2026) is launched with that card instead of the RS232 ESP emulation: it follows the Next's UART speed, so '.sync5' and ZX Next Remote connect at every speed (slow, default and fast). Through the RS232 ESP emulation (older MAME builds, the null_modem card) transfers need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings.":
             "Uma versão do MAME que traz a placa ESP8266 integrada (esp8266_at, no fork MAME do ZX Spectrum Next desde outubro de 2026) é lançada com essa placa em vez da emulação RS232 ESP: segue a velocidade UART do Next, por isso o '.sync5' e o ZX Next Remote ligam-se a qualquer velocidade (slow, default e fast). Através da emulação RS232 ESP (versões mais antigas do MAME, a placa null_modem) as transferências precisam do lado Next no ritmo LENTO: usa '.sync5 -s' no dot, ou define a velocidade UART como Slow nas definições do ZX Next Remote.",
         "Start {emulator}": "Iniciar {emulator}",
@@ -2854,6 +2874,14 @@ CATALOGS = {
             "Emulação RS232 ESP (Mame)",
         "RS232 ESP Emulation verbose mode":
             "Modo detalhado da emulação RS232 ESP",
+        "IP address shown to the emulated Next:":
+            "Endereço IP mostrado ao Next emulado:",
+        "Automatic ({ip})":
+            "Automático ({ip})",
+        "⚠  RS232 ESP address not changed":
+            "⚠  Endereço RS232 ESP não alterado",
+        "'{text}' is not an address the emulated Next can report - type an IPv4 address such as 10.0.0.5 (four numbers 0-255 separated by dots; not 0.0.0.0, a broadcast or a multicast address).":
+            "'{text}' não é um endereço que o Next emulado possa apresentar: escreve um endereço IPv4 como 10.0.0.5 (quatro números de 0 a 255 separados por pontos; nem 0.0.0.0, nem um endereço de difusão ou multicast).",
         "⏹ Stop Remote Explorer NextSync server":
             "⏹ Parar servidor NextSync do Explorador remoto",
         "Please set a sync root folder on the left local file explorer":
@@ -3466,12 +3494,18 @@ CATALOGS = {
             "RS232 ESP: parametry MAME proszą o kartę '{card}', której ta wersja MAME nie oferuje; karta jest wybierana automatycznie.",
         "RS232 ESP: the MAME parameters name the '{card}' card, which this toggle does not wire (only esp8266_at and null_modem are); the card is picked automatically instead.":
             "RS232 ESP: parametry MAME wskazują kartę '{card}', której ta opcja nie podłącza (tylko esp8266_at i null_modem); karta jest wybierana automatycznie.",
+        "RS232 ESP emulation: the emulated Next reports the IP address chosen in Settings, {ip}, as its own.":
+            "Emulacja RS232 ESP: emulowany Next podaje jako swój adres IP wybrany w Ustawieniach, {ip}.",
+        "RS232 ESP emulation: the emulated Next reports {ip} as its own address - this PC's primary address, or 127.0.0.1 when it has no network (Settings → 'IP address shown to the emulated Next' picks another).":
+            "Emulacja RS232 ESP: emulowany Next podaje {ip} jako swój adres: główny adres tego PC, albo 127.0.0.1 bez sieci (Ustawienia → 'Adres IP pokazywany emulowanemu Nextowi' pozwala wybrać inny).",
         "RS232 ESP emulation inspired by jesperl - by Janko Stamenović":
             "Emulacja RS232 ESP zainspirowana projektem jesperl - autorstwa Janko Stamenovića",
         "The optional RS232 ESP Emulation for MAME (Settings) is a clean full reimplementation in Python of an idea from jesperl by Janko Stamenović - an ESP-AT emulator bridging MAME's emulated Wi-Fi module to the real network. Many thanks for the inspirational idea - see https://sourceforge.net/projects/jesperl/.":
             "Opcjonalna emulacja RS232 ESP dla MAME (Ustawienia) to czysta, pełna reimplementacja w Pythonie pomysłu z projektu jesperl Janko Stamenovića - emulatora ESP-AT łączącego emulowany moduł Wi-Fi MAME z prawdziwą siecią. Wielkie dzięki za inspirujący pomysł - zobacz https://sourceforge.net/projects/jesperl/.",
         "One RS232 ESP emulation serves every running MAME: launch a second MAME on another disk image and it joins the same emulation with its own separate session, so several emulated Nexts can be on the network at once. The emulation stops when the last MAME exits. When two of them ask for the same server port (a Next listening for incoming connections), the second one is moved to the next free port and the log says which port to connect to.":
             "Jedna emulacja RS232 ESP obsługuje wszystkie uruchomione MAME: uruchom drugi MAME z inną obrazową kopią dysku, a dołączy on do tej samej emulacji z własną, oddzielną sesją, dzięki czemu kilka emulowanych Nextów może być jednocześnie w sieci. Emulacja zatrzymuje się, gdy zamknięty zostanie ostatni MAME. Gdy dwa z nich poproszą o ten sam port serwera (Next nasłuchujący połączeń przychodzących), drugi zostanie przeniesiony na następny wolny port, a dziennik poda, do którego portu się podłączyć.",
+        "The IP address the RS232 ESP emulation reports to the emulated Next - what ZX Next Remote's listener screen and the NextZXOS WiFi wizard show, and what someone on another PC types to reach it - is this PC's primary address. A PC with several addresses (VPN, virtual machines, WSL) can pick another one in Settings, under 'IP address shown to the emulated Next', or type one; a running emulation takes the change live.":
+            "Adres IP, który emulacja RS232 ESP podaje emulowanemu Nextowi - ten, który pokazują ekran listenera ZX Next Remote i kreator WiFi NextZXOS, i który ktoś wpisuje na innym PC, aby go osiągnąć - to główny adres tego PC. PC z kilkoma adresami (VPN, maszyny wirtualne, WSL) może wybrać inny w Ustawieniach, pod 'IP address shown to the emulated Next', albo wpisać własny; działająca emulacja przyjmuje zmianę na żywo.",
         "A MAME build that carries the built-in ESP8266 card (esp8266_at, in the ZX Spectrum Next MAME fork since October 2026) is launched with that card instead of the RS232 ESP emulation: it follows the Next's UART speed, so '.sync5' and ZX Next Remote connect at every speed (slow, default and fast). Through the RS232 ESP emulation (older MAME builds, the null_modem card) transfers need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings.":
             "Wersja MAME z wbudowaną kartą ESP8266 (esp8266_at, w forku MAME dla ZX Spectrum Next od października 2026) jest uruchamiana z tą kartą zamiast emulacji RS232 ESP: podąża ona za prędkością UART Nexta, więc '.sync5' i ZX Next Remote łączą się z każdą prędkością (slow, default i fast). Przez emulację RS232 ESP (starsze wersje MAME, karta null_modem) transfery wymagają WOLNEGO tempa po stronie Next: użyj '.sync5 -s' dla dota albo ustaw prędkość UART na Slow w ustawieniach ZX Next Remote.",
         "Start {emulator}": "Uruchom {emulator}",
@@ -4368,6 +4402,14 @@ CATALOGS = {
             "Emulacja RS232 ESP (Mame)",
         "RS232 ESP Emulation verbose mode":
             "Tryb szczegółowy emulacji RS232 ESP",
+        "IP address shown to the emulated Next:":
+            "Adres IP pokazywany emulowanemu Nextowi:",
+        "Automatic ({ip})":
+            "Automatycznie ({ip})",
+        "⚠  RS232 ESP address not changed":
+            "⚠  Adres RS232 ESP nie został zmieniony",
+        "'{text}' is not an address the emulated Next can report - type an IPv4 address such as 10.0.0.5 (four numbers 0-255 separated by dots; not 0.0.0.0, a broadcast or a multicast address).":
+            "'{text}' nie jest adresem, który emulowany Next może podać: wpisz adres IPv4, na przykład 10.0.0.5 (cztery liczby od 0 do 255 oddzielone kropkami; nie 0.0.0.0, adres rozgłoszeniowy ani multicast).",
         "⏹ Stop Remote Explorer NextSync server":
             "⏹ Zatrzymaj serwer NextSync zdalnego eksploratora",
         "Please set a sync root folder on the left local file explorer":
@@ -4982,12 +5024,18 @@ CATALOGS = {
             "RS232 ESP: параметры MAME запрашивают карту '{card}', которой нет в этой сборке MAME; карта выбирается автоматически.",
         "RS232 ESP: the MAME parameters name the '{card}' card, which this toggle does not wire (only esp8266_at and null_modem are); the card is picked automatically instead.":
             "RS232 ESP: параметры MAME называют карту '{card}', которую этот переключатель не подключает (только esp8266_at и null_modem); карта выбирается автоматически.",
+        "RS232 ESP emulation: the emulated Next reports the IP address chosen in Settings, {ip}, as its own.":
+            "Эмуляция RS232 ESP: эмулируемый Next сообщает как свой IP-адрес, выбранный в Настройках, {ip}.",
+        "RS232 ESP emulation: the emulated Next reports {ip} as its own address - this PC's primary address, or 127.0.0.1 when it has no network (Settings → 'IP address shown to the emulated Next' picks another).":
+            "Эмуляция RS232 ESP: эмулируемый Next сообщает {ip} как свой адрес: основной адрес этого ПК, или 127.0.0.1 без сети (Настройки → 'IP-адрес, показываемый эмулируемому Next' позволяет выбрать другой).",
         "RS232 ESP emulation inspired by jesperl - by Janko Stamenović":
             "Эмуляция RS232 ESP вдохновлена проектом jesperl - автор Janko Stamenović",
         "The optional RS232 ESP Emulation for MAME (Settings) is a clean full reimplementation in Python of an idea from jesperl by Janko Stamenović - an ESP-AT emulator bridging MAME's emulated Wi-Fi module to the real network. Many thanks for the inspirational idea - see https://sourceforge.net/projects/jesperl/.":
             "Необязательная эмуляция RS232 ESP для MAME (Настройки) - это чистая полная реализация на Python идеи из проекта jesperl Janko Stamenović - эмулятора ESP-AT, соединяющего эмулируемый Wi-Fi модуль MAME с реальной сетью. Большое спасибо за вдохновляющую идею - см. https://sourceforge.net/projects/jesperl/.",
         "One RS232 ESP emulation serves every running MAME: launch a second MAME on another disk image and it joins the same emulation with its own separate session, so several emulated Nexts can be on the network at once. The emulation stops when the last MAME exits. When two of them ask for the same server port (a Next listening for incoming connections), the second one is moved to the next free port and the log says which port to connect to.":
             "Одна эмуляция RS232 ESP обслуживает все запущенные MAME: запустите второй MAME с другим образом диска, и он подключится к той же эмуляции со своим отдельным сеансом, так что несколько эмулируемых Next могут быть в сети одновременно. Эмуляция останавливается, когда закрывается последний MAME. Если два из них запросят один и тот же серверный порт (Next, ожидающий входящих подключений), второй будет перенесён на следующий свободный порт, и в журнале будет указано, к какому порту подключаться.",
+        "The IP address the RS232 ESP emulation reports to the emulated Next - what ZX Next Remote's listener screen and the NextZXOS WiFi wizard show, and what someone on another PC types to reach it - is this PC's primary address. A PC with several addresses (VPN, virtual machines, WSL) can pick another one in Settings, under 'IP address shown to the emulated Next', or type one; a running emulation takes the change live.":
+            "IP-адрес, который эмуляция RS232 ESP сообщает эмулируемому Next — тот, что показывают экран слушателя ZX Next Remote и мастер WiFi NextZXOS и который кто-то вводит на другом ПК, чтобы до него добраться, — это основной адрес этого ПК. ПК с несколькими адресами (VPN, виртуальные машины, WSL) может выбрать другой в Настройках, в 'IP address shown to the emulated Next', или ввести свой; работающая эмуляция применяет изменение сразу.",
         "A MAME build that carries the built-in ESP8266 card (esp8266_at, in the ZX Spectrum Next MAME fork since October 2026) is launched with that card instead of the RS232 ESP emulation: it follows the Next's UART speed, so '.sync5' and ZX Next Remote connect at every speed (slow, default and fast). Through the RS232 ESP emulation (older MAME builds, the null_modem card) transfers need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings.":
             "Сборка MAME со встроенной картой ESP8266 (esp8266_at, в форке MAME для ZX Spectrum Next с октября 2026) запускается с этой картой вместо эмуляции RS232 ESP: она следует за скоростью UART Next, поэтому '.sync5' и ZX Next Remote подключаются на любой скорости (slow, default и fast). Через эмуляцию RS232 ESP (старые сборки MAME, карта null_modem) передачи требуют МЕДЛЕННОго темпа на стороне Next: используйте '.sync5 -s' для дот-команды или установите скорость UART в Slow в настройках ZX Next Remote.",
         "Start {emulator}": "Запустить {emulator}",
@@ -5884,6 +5932,14 @@ CATALOGS = {
             "Эмуляция RS232 ESP (Mame)",
         "RS232 ESP Emulation verbose mode":
             "Подробный режим эмуляции RS232 ESP",
+        "IP address shown to the emulated Next:":
+            "IP-адрес, показываемый эмулируемому Next:",
+        "Automatic ({ip})":
+            "Автоматически ({ip})",
+        "⚠  RS232 ESP address not changed":
+            "⚠  Адрес RS232 ESP не изменён",
+        "'{text}' is not an address the emulated Next can report - type an IPv4 address such as 10.0.0.5 (four numbers 0-255 separated by dots; not 0.0.0.0, a broadcast or a multicast address).":
+            "'{text}' — не адрес, который может сообщить эмулируемый Next: введите IPv4-адрес, например 10.0.0.5 (четыре числа от 0 до 255 через точку; не 0.0.0.0, не широковещательный и не групповой адрес).",
         "⏹ Stop Remote Explorer NextSync server":
             "⏹ Остановить сервер NextSync удалённого проводника",
         "Please set a sync root folder on the left local file explorer":
@@ -6497,12 +6553,18 @@ CATALOGS = {
             "RS232 ESP: parametry MAME žádají kartu '{card}', kterou toto sestavení MAME nenabízí; karta se vybere automaticky.",
         "RS232 ESP: the MAME parameters name the '{card}' card, which this toggle does not wire (only esp8266_at and null_modem are); the card is picked automatically instead.":
             "RS232 ESP: parametry MAME jmenují kartu '{card}', kterou tento přepínač nezapojuje (jen esp8266_at a null_modem); karta se vybere automaticky.",
+        "RS232 ESP emulation: the emulated Next reports the IP address chosen in Settings, {ip}, as its own.":
+            "Emulace RS232 ESP: emulovaný Next hlásí jako svou IP adresu zvolenou v Nastavení, {ip}.",
+        "RS232 ESP emulation: the emulated Next reports {ip} as its own address - this PC's primary address, or 127.0.0.1 when it has no network (Settings → 'IP address shown to the emulated Next' picks another).":
+            "Emulace RS232 ESP: emulovaný Next hlásí {ip} jako svou adresu: hlavní adresu tohoto PC, nebo 127.0.0.1 bez sítě (Nastavení → 'IP adresa ukazovaná emulovanému Nextu' umožňuje zvolit jinou).",
         "RS232 ESP emulation inspired by jesperl - by Janko Stamenović":
             "Emulace RS232 ESP inspirovaná projektem jesperl - od Janko Stamenoviće",
         "The optional RS232 ESP Emulation for MAME (Settings) is a clean full reimplementation in Python of an idea from jesperl by Janko Stamenović - an ESP-AT emulator bridging MAME's emulated Wi-Fi module to the real network. Many thanks for the inspirational idea - see https://sourceforge.net/projects/jesperl/.":
             "Volitelná emulace RS232 ESP pro MAME (Nastavení) je čistá úplná reimplementace nápadu z projektu jesperl Janko Stamenoviće v Pythonu - emulátoru ESP-AT propojujícího emulovaný Wi-Fi modul MAME se skutečnou sítí. Velké díky za inspirativní nápad - viz https://sourceforge.net/projects/jesperl/.",
         "One RS232 ESP emulation serves every running MAME: launch a second MAME on another disk image and it joins the same emulation with its own separate session, so several emulated Nexts can be on the network at once. The emulation stops when the last MAME exits. When two of them ask for the same server port (a Next listening for incoming connections), the second one is moved to the next free port and the log says which port to connect to.":
             "Jedna emulace RS232 ESP obsluhuje všechny běžící MAME: spusťte druhý MAME s jiným obrazem disku a připojí se ke stejné emulaci s vlastní samostatnou relací, takže několik emulovaných Nextů může být v síti současně. Emulace se zastaví, když skončí poslední MAME. Když si dva z nich vyžádají stejný serverový port (Next naslouchající příchozím spojením), druhý se přesune na další volný port a protokol uvede, ke kterému portu se připojit.",
+        "The IP address the RS232 ESP emulation reports to the emulated Next - what ZX Next Remote's listener screen and the NextZXOS WiFi wizard show, and what someone on another PC types to reach it - is this PC's primary address. A PC with several addresses (VPN, virtual machines, WSL) can pick another one in Settings, under 'IP address shown to the emulated Next', or type one; a running emulation takes the change live.":
+            "IP adresa, kterou emulace RS232 ESP hlásí emulovanému Nextu - ta, kterou ukazují obrazovka listeneru ZX Next Remote a průvodce WiFi v NextZXOS a kterou někdo zadává na jiném PC, aby se k němu dostal - je hlavní adresa tohoto PC. PC s více adresami (VPN, virtuální stroje, WSL) může v Nastavení pod 'IP address shown to the emulated Next' zvolit jinou nebo ji zadat; běžící emulace změnu převezme za chodu.",
         "A MAME build that carries the built-in ESP8266 card (esp8266_at, in the ZX Spectrum Next MAME fork since October 2026) is launched with that card instead of the RS232 ESP emulation: it follows the Next's UART speed, so '.sync5' and ZX Next Remote connect at every speed (slow, default and fast). Through the RS232 ESP emulation (older MAME builds, the null_modem card) transfers need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings.":
             "Sestavení MAME s vestavěnou kartou ESP8266 (esp8266_at, ve forku MAME pro ZX Spectrum Next od října 2026) se spouští s touto kartou místo emulace RS232 ESP: sleduje rychlost UART Nextu, takže '.sync5' i ZX Next Remote se připojí při každé rychlosti (slow, default i fast). Přes emulaci RS232 ESP (starší sestavení MAME, karta null_modem) přenosy vyžadují POMALÉ tempo na straně Next: použijte '.sync5 -s' pro dot, nebo nastavte rychlost UART na Slow v nastavení ZX Next Remote.",
         "Start {emulator}": "Spustit {emulator}",
@@ -7396,6 +7458,14 @@ CATALOGS = {
             "Emulace RS232 ESP (Mame)",
         "RS232 ESP Emulation verbose mode":
             "Podrobný režim emulace RS232 ESP",
+        "IP address shown to the emulated Next:":
+            "IP adresa ukazovaná emulovanému Nextu:",
+        "Automatic ({ip})":
+            "Automaticky ({ip})",
+        "⚠  RS232 ESP address not changed":
+            "⚠  Adresa RS232 ESP nebyla změněna",
+        "'{text}' is not an address the emulated Next can report - type an IPv4 address such as 10.0.0.5 (four numbers 0-255 separated by dots; not 0.0.0.0, a broadcast or a multicast address).":
+            "'{text}' není adresa, kterou může emulovaný Next hlásit: zadejte adresu IPv4, například 10.0.0.5 (čtyři čísla od 0 do 255 oddělená tečkami; ne 0.0.0.0, adresu všesměrového vysílání ani multicast).",
         "⏹ Stop Remote Explorer NextSync server":
             "⏹ Zastavit server NextSync vzdáleného průzkumníka",
         "Please set a sync root folder on the left local file explorer":
@@ -8011,12 +8081,18 @@ CATALOGS = {
             "RS232 ESP : les paramètres MAME demandent la carte '{card}', que cette version de MAME ne propose pas ; la carte est choisie automatiquement.",
         "RS232 ESP: the MAME parameters name the '{card}' card, which this toggle does not wire (only esp8266_at and null_modem are); the card is picked automatically instead.":
             "RS232 ESP : les paramètres MAME nomment la carte '{card}', que cette option ne câble pas (seules esp8266_at et null_modem le sont) ; la carte est choisie automatiquement.",
+        "RS232 ESP emulation: the emulated Next reports the IP address chosen in Settings, {ip}, as its own.":
+            "Émulation RS232 ESP : le Next émulé présente comme sienne l'adresse IP choisie dans les Réglages, {ip}.",
+        "RS232 ESP emulation: the emulated Next reports {ip} as its own address - this PC's primary address, or 127.0.0.1 when it has no network (Settings → 'IP address shown to the emulated Next' picks another).":
+            "Émulation RS232 ESP : le Next émulé présente {ip} comme son adresse : l'adresse principale de ce PC, ou 127.0.0.1 sans réseau (Réglages → 'Adresse IP présentée au Next émulé' permet d'en choisir une autre).",
         "RS232 ESP emulation inspired by jesperl - by Janko Stamenović":
             "Émulation RS232 ESP inspirée de jesperl - par Janko Stamenović",
         "The optional RS232 ESP Emulation for MAME (Settings) is a clean full reimplementation in Python of an idea from jesperl by Janko Stamenović - an ESP-AT emulator bridging MAME's emulated Wi-Fi module to the real network. Many thanks for the inspirational idea - see https://sourceforge.net/projects/jesperl/.":
             "L'émulation RS232 ESP optionnelle pour MAME (Réglages) est une réimplémentation complète et propre en Python d'une idée de jesperl, de Janko Stamenović : un émulateur ESP-AT reliant le module Wi-Fi émulé de MAME au réseau réel. Un grand merci pour l'idée inspirante - voir https://sourceforge.net/projects/jesperl/.",
         "One RS232 ESP emulation serves every running MAME: launch a second MAME on another disk image and it joins the same emulation with its own separate session, so several emulated Nexts can be on the network at once. The emulation stops when the last MAME exits. When two of them ask for the same server port (a Next listening for incoming connections), the second one is moved to the next free port and the log says which port to connect to.":
             "Une seule émulation RS232 ESP sert tous les MAME en cours : lancez un deuxième MAME avec une autre image disque et il rejoint la même émulation avec sa propre session séparée, de sorte que plusieurs Next émulés peuvent être sur le réseau en même temps. L'émulation s'arrête à la sortie du dernier MAME. Quand deux d'entre eux demandent le même port serveur (un Next à l'écoute de connexions entrantes), le second est déplacé sur le port libre suivant et le journal indique à quel port se connecter.",
+        "The IP address the RS232 ESP emulation reports to the emulated Next - what ZX Next Remote's listener screen and the NextZXOS WiFi wizard show, and what someone on another PC types to reach it - is this PC's primary address. A PC with several addresses (VPN, virtual machines, WSL) can pick another one in Settings, under 'IP address shown to the emulated Next', or type one; a running emulation takes the change live.":
+            "L'adresse IP que l'émulation RS232 ESP présente au Next émulé - celle qu'affichent l'écran du listener de ZX Next Remote et l'assistant WiFi de NextZXOS, et que l'on saisit sur un autre PC pour l'atteindre - est l'adresse principale de ce PC. Un PC qui a plusieurs adresses (VPN, machines virtuelles, WSL) peut en choisir une autre dans les Réglages, sous 'IP address shown to the emulated Next', ou en saisir une ; une émulation en cours applique le changement à chaud.",
         "A MAME build that carries the built-in ESP8266 card (esp8266_at, in the ZX Spectrum Next MAME fork since October 2026) is launched with that card instead of the RS232 ESP emulation: it follows the Next's UART speed, so '.sync5' and ZX Next Remote connect at every speed (slow, default and fast). Through the RS232 ESP emulation (older MAME builds, the null_modem card) transfers need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings.":
             "Une version de MAME dotée de la carte ESP8266 intégrée (esp8266_at, dans le fork MAME du ZX Spectrum Next depuis octobre 2026) est lancée avec cette carte au lieu de l'émulation RS232 ESP : elle suit la vitesse UART du Next, donc '.sync5' et ZX Next Remote se connectent à toutes les vitesses (slow, default et fast). Via l'émulation RS232 ESP (versions plus anciennes de MAME, carte null_modem) les transferts exigent le rythme LENT côté Next : utilisez '.sync5 -s' pour le dot, ou réglez la vitesse UART sur Slow dans les réglages de ZX Next Remote.",
         "Start {emulator}": "Démarrer {emulator}",
@@ -8917,6 +8993,14 @@ CATALOGS = {
             "Émulation RS232 ESP (Mame)",
         "RS232 ESP Emulation verbose mode":
             "Mode verbeux de l'émulation RS232 ESP",
+        "IP address shown to the emulated Next:":
+            "Adresse IP présentée au Next émulé :",
+        "Automatic ({ip})":
+            "Automatique ({ip})",
+        "⚠  RS232 ESP address not changed":
+            "⚠  Adresse RS232 ESP inchangée",
+        "'{text}' is not an address the emulated Next can report - type an IPv4 address such as 10.0.0.5 (four numbers 0-255 separated by dots; not 0.0.0.0, a broadcast or a multicast address).":
+            "'{text}' n'est pas une adresse que le Next émulé peut présenter : saisissez une adresse IPv4 comme 10.0.0.5 (quatre nombres de 0 à 255 séparés par des points ; ni 0.0.0.0, ni une adresse de diffusion ou de multidiffusion).",
         "⏹ Stop Remote Explorer NextSync server":
             "⏹ Arrêter le serveur NextSync de l'explorateur distant",
         "Please set a sync root folder on the left local file explorer":

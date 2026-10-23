@@ -53,6 +53,45 @@ The one genuinely shared resource left is the PC's port space, so when two
 guests ask CIPSERVER for the same port the later one is remapped upwards
 and the new port is logged.
 
+THE STATION ADDRESS (9.7.54). Nothing routes through the IP address the
+module reports (``AT+CIFSR`` / ``AT+CIPSTA?``) - the real routing is this
+host's own stack - but it is what the Next-side software SHOWS (ZX Next
+Remote's listener screen, the NextZXOS WiFi wizard's "IP Address:" line)
+and what someone on ANOTHER PC types to reach the emulated Next, whose
+CIPSERVER listener binds every interface of this host. So the server
+reports one of THIS HOST'S addresses: the one it was given
+(``station_ip=``, the app's Settings pick), else the host's primary
+outbound address (:func:`primary_ipv4`, the interface the default route
+uses - the same trick MAME's own ``esp8266_at`` card plays for its "All
+interfaces" mode), else loopback. Before 9.7.54 every emulated Next claimed
+the made-up ``192.168.4.2``. A guest's own ``AT+CIPSTA="..."`` overrides it
+for that session (as the wizard's "Set Manual IP" does on hardware) until
+``AT+RST`` or a station-DHCP ``AT+CWDHCP`` hands the address back, and
+:meth:`EspAtServer.set_station_ip` moves a RUNNING server, live sessions
+included, so a Settings change needs no relaunch. Only an address a host
+interface could carry is ever reported (:func:`is_station_ipv4`): ZX Next
+Remote and QL Next Remote read ``0.0.0.0`` as "the module has not joined
+yet" and would wait for ever, so it - like a broadcast or a multicast
+address - is refused at every door (the server, the Settings box, the
+saved setting, a guest's own ``AT+CIPSTA=``).
+
+The Wi-Fi side is a FICTION with a consistent story: the module is always
+joined to an access point named ``STA_SSID`` (``AT+CWJAP?`` names it,
+``AT+CWLAP`` lists it, a ``AT+CWJAP="x","y"`` join is accepted and
+remembered), because the NextZXOS WiFi wizard slices the SSID out of the
+``AT+CWJAP?`` reply with a fixed-shape string routine and dies with
+"B Integer out of range" on the EMPTY reply a bare OK gave it. The DNS
+commands - ``AT+CIPDNS`` and its ``_CUR`` / ``_DEF`` forms - answer ERROR
+(there is no DNS here to report: a ``CIPSTART`` host name is resolved by
+this PC's own resolver; the bare ``CIPDNS`` is the AT 2.x spelling an AT
+1.x module does not know, and MAME's ``esp8266_at`` card refuses all
+three), so the wizard's DNS line stays blank instead of showing an invented
+one; so does ``CIUPDATE``, an OTA firmware update no emulation can fake.
+``AT+GMR`` answers the AT 1.x three-line shape the wizard slices its
+"Firmware:" lines out of. Of the shipped consumers only ZX Next Remote and
+QL Next Remote read the address (``AT+CIFSR``); the ``.sync5`` dot never
+asks for it.
+
 The command inventory and the exact reply shapes were derived from the
 publicly documented Espressif AT instruction set and from the AT dialogue of
 the Next-side clients this project already ships or drives (the ``.sync``/
@@ -99,7 +138,7 @@ other MAME (see ``MAME_ESP_*`` in zxnu_config).
 
 Standalone use (the app drives it in-process; this is for testing outside)::
 
-    python espemu.py --port 2222 --verbose
+    python espemu.py --port 2222 --verbose [--ip 10.0.0.5]
 
 Clean-room note: the IDEA of proxying MAME's ESP socket to the real network
 comes from Janko Stamenović's jesperl project
@@ -110,19 +149,59 @@ own Next-side clients, and is covered by ZX-Next-Unite's MIT license.
 """
 
 import os
+import re
 import selectors
 import socket
+import subprocess
 import threading
 import time
 
-ESPEMU_VERSION = "1.2"
+ESPEMU_VERSION = "1.3"
 
-# The station identity handed to AT+CIFSR / AT+CIPSTA?. The Next software
-# only ever LOGS these (nothing routes through them — the real routing is
-# this host's own IP stack), so fixed values are fine and keep every reply
-# deterministic for the tests.
+# The station identity handed to AT+CIFSR / AT+CIPSTA?. Nothing ROUTES
+# through the address (the real routing is this host's own IP stack), but
+# the Next software SHOWS it and a user on another machine may TYPE it, so
+# a server reports one of this host's real addresses (see the module
+# docstring, "THE STATION ADDRESS"). ``STA_IP`` is only the BARE engine's
+# default - an engine built without a server, i.e. the tests - so that
+# layer's replies stay deterministic; it is the pre-9.7.54 made-up address.
 STA_IP = "192.168.4.2"
 STA_MAC = "5e:cf:7f:00:00:01"
+# The access point the emulated module is always joined to - what
+# AT+CWJAP? names and AT+CWLAP lists, with the BSSID beside it. There is no
+# Wi-Fi here, so the SSID says what the "network" is; a JOINED module is
+# what the consumers expect (the NextZXOS WiFi wizard crashes on an empty
+# CWJAP? reply, see the module docstring).
+STA_SSID = "ZX-Next-Unite"
+AP_MAC = "5e:cf:7f:00:00:02"
+STA_NETMASK = "255.255.255.0"
+LOOPBACK_IP = "127.0.0.1"
+# Where the outbound-interface probe points: TEST-NET-1 (RFC 5737), never
+# routed on the public Internet. The UDP "connect" sends NOTHING - it only
+# asks the routing table which interface would carry a packet there -
+# which is MAME's esp8266_at card's own way of learning the host address.
+PRIMARY_PROBE_HOST = "192.0.2.1"
+# How long the host-address enumeration may block (a hostname lookup
+# against a broken resolver can stall for many seconds, and this runs on
+# the app's UI thread when the Settings list opens).
+HOST_ADDRESS_TIMEOUT_S = 1.5
+
+# AT+CIPSTA / AT+CIPSTA_CUR / AT+CIPSTA_DEF, query (?) or set (=) - and
+# NOT AT+CIPSTAMAC (its own) nor AT+CIPSTATUS / AT+CIPSTART (routed before
+# or left to the polite default). Matched on the upper-cased command.
+_CIPSTA_RE = re.compile(r"^AT\+(CIPSTA(?:_CUR|_DEF)?)(\?|=)")
+_CIPSTAMAC_RE = re.compile(r"^AT\+(CIPSTAMAC(?:_CUR|_DEF)?)\?$")
+# The Wi-Fi fiction's commands, matched by their EXACT names (with the AT
+# 1.x _CUR/_DEF spellings): a bare prefix also caught AT+CWLAPOPT (the scan
+# options) and AT+CWDHCPS (the softAP's DHCP range), which are other
+# commands and take the polite default.
+_CWJAP_RE = re.compile(r"^AT\+CWJAP(?:_CUR|_DEF)?(?:\?|=|$)")
+_CWMODE_RE = re.compile(r"^AT\+CWMODE(?:_CUR|_DEF)?(?:\?|=|$)")
+_CWDHCP_RE = re.compile(r"^AT\+CWDHCP(?:_CUR|_DEF)?(?:\?|=|$)")
+_CIPDNS_RE = re.compile(r"^AT\+CIPDNS(?:_CUR|_DEF)?(?:\?|=|$)")
+# The first parameter of a set command when it is a QUOTED string, with
+# the firmware's backslash escapes (\" \, \\) inside it.
+_QUOTED_ARG_RE = re.compile(r'\s*"((?:[^"\\]|\\.)*)"')
 
 # Longest accepted command line; a real module rejects runaway lines too,
 # and the guard stops a binary stream mistaken for commands from growing an
@@ -170,6 +249,114 @@ CIPSERVER_PORT_SEARCH = 10
 CRLF = b"\r\n"
 
 
+def is_ipv4(text):
+    """True for a dotted quad - four decimal octets 0-255, no leading
+    zeros (inet_aton would read ``010`` as octal) - and for nothing else:
+    not a host name, not IPv6, not a quad with a port."""
+    parts = str(text or "").strip().split(".")
+    if len(parts) != 4:
+        return False
+    for p in parts:
+        if not (p.isascii() and p.isdigit()) or len(p) > 3:
+            return False
+        if len(p) > 1 and p[0] == "0":
+            return False
+        if int(p) > 255:
+            return False
+    return True
+
+
+def is_station_ipv4(text):
+    """True for a dotted quad a host interface could carry - what a Next
+    may be told is its own address. :func:`is_ipv4` plus three refusals:
+    ``0.x.x.x`` (``0.0.0.0`` is what an UNJOINED module reports: ZX Next
+    Remote and QL Next Remote wait for any other value before they listen,
+    so it would hold them for ever), the multicast range 224-239 and the
+    reserved 240-255 (the broadcast ``255.255.255.255`` among them).
+    Loopback (127.x) is allowed on purpose: it is the automatic address of
+    a PC with no network, and right for a client on this same PC."""
+    if not is_ipv4(text):
+        return False
+    first = int(str(text).strip().split(".")[0])
+    return 0 < first < 224
+
+
+def _at_quoted_arg(text):
+    r"""The first parameter of an AT set command when it is a QUOTED string,
+    with the firmware's backslash escapes (``\"``, ``\,``, ``\\``) undone;
+    None when it is not quoted. A comma inside the quotes belongs to the
+    value - splitting on commas first cut an SSID such as ``My,Net``
+    short."""
+    m = _QUOTED_ARG_RE.match(text or "")
+    if not m:
+        return None
+    return re.sub(r"\\(.)", r"\1", m.group(1))
+
+
+def primary_ipv4(probe_host=PRIMARY_PROBE_HOST):
+    """This host's primary outbound IPv4 address - the interface its
+    default route uses - or None when it has no route at all (no network,
+    or loopback only). No packet leaves: a UDP socket's connect() only
+    consults the routing table, and getsockname() answers with the address
+    of the interface it picked. Never raises."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect((probe_host, 9))
+            ip = s.getsockname()[0]
+    except (OSError, ValueError):
+        return None
+    if not is_station_ipv4(ip) or ip.startswith("127."):
+        return None
+    return ip
+
+
+def host_ipv4_addresses(timeout=HOST_ADDRESS_TIMEOUT_S):
+    """Every IPv4 address this host carries, the primary outbound one
+    first, loopback and 0.0.0.0 left out, no duplicates. Never raises and
+    is bounded in time: the hostname lookup runs in a daemon thread that
+    is abandoned past ``timeout`` (a misconfigured resolver can stall the
+    C resolver for many seconds), and the POSIX interface listing is a
+    subprocess with the same timeout. Three sources, because no single one
+    sees every adapter everywhere: the routing table's pick, the host
+    name's addresses (on Windows that is every adapter, virtual ones
+    included - the case this exists for), and on POSIX ``ip -4 -o addr``
+    or, where there is no ``ip`` (macOS), ``ifconfig``."""
+    found = []
+
+    def add(ip):
+        ip = str(ip or "").strip()
+        if is_station_ipv4(ip) and not ip.startswith("127.") and ip not in found:
+            found.append(ip)
+
+    add(primary_ipv4())
+    looked_up = []
+
+    def _lookup():
+        try:
+            infos = socket.getaddrinfo(socket.gethostname(), None,
+                                       socket.AF_INET, socket.SOCK_STREAM)
+        except (OSError, UnicodeError):
+            return
+        looked_up.extend(info[4][0] for info in infos)
+
+    t = threading.Thread(target=_lookup, daemon=True, name="espemu-hostaddrs")
+    t.start()
+    t.join(timeout)
+    for ip in list(looked_up):
+        add(ip)
+    if os.name != "nt":
+        for argv in (["ip", "-4", "-o", "addr", "show"], ["ifconfig"]):
+            try:
+                out = subprocess.run(argv, capture_output=True, timeout=timeout,
+                                     encoding="utf-8", errors="replace").stdout
+            except (OSError, subprocess.SubprocessError, ValueError):
+                continue
+            for m in re.finditer(r"\binet\s+(\d{1,3}(?:\.\d{1,3}){3})", out or ""):
+                add(m.group(1))
+            break
+    return found
+
+
 class _TraceGate:
     """Rate limiter for the verbose trace: per-key, at most one line per
     ``interval`` seconds, with a count of what was suppressed folded into
@@ -214,7 +401,7 @@ class EspAtEngine:
     drains the serial-bound reply bytes with :meth:`take_output`.
     """
 
-    def __init__(self, gateway, log=None, verbose=False):
+    def __init__(self, gateway, log=None, verbose=False, station_ip=None):
         self._gw = gateway
         self._log = log or (lambda s: None)
         self._verbose = bool(verbose)
@@ -227,7 +414,21 @@ class EspAtEngine:
         self._links = set()              # link ids currently open
         # An armed CIPSEND: (link id, bytes still expected, payload so far).
         self._pending = None
+        # The address CIFSR / CIPSTA? report. A plain attribute on purpose:
+        # the server writes it from another thread when Settings move the
+        # address (one str assignment, atomic enough), and a guest's own
+        # AT+CIPSTA= overrides it for this session until RST / CWDHCP.
+        self.station_ip = (station_ip if is_station_ipv4(station_ip)
+                           else STA_IP)
+        self._sta_override = None
+        self._ssid = STA_SSID            # the AP the module says it joined
         self.emit(b"\r\nready\r\n")      # the boot banner; drained as noise
+
+    @property
+    def reported_ip(self):
+        """The address the module reports right now: a guest's AT+CIPSTA=
+        override while one is set, else the configured station address."""
+        return self._sta_override or self.station_ip
 
     # ---- serial side -----------------------------------------------------
     def feed_serial(self, data):
@@ -374,14 +575,31 @@ class EspAtEngine:
             return self._at_cipmode
         if up == "AT+CIFSR":
             return self._at_cifsr
-        if up == "AT+CIPSTA?":
+        if _CIPSTA_RE.match(up):             # CIPSTA / _CUR / _DEF, ? or =
             return self._at_cipsta
+        if _CIPSTAMAC_RE.match(up):
+            return self._at_cipstamac
+        if _CWJAP_RE.match(up):
+            return self._at_cwjap
+        if up == "AT+CWLAP" or up.startswith("AT+CWLAP="):
+            return self._at_cwlap
+        if _CWMODE_RE.match(up):
+            return self._at_cwmode
+        if _CWDHCP_RE.match(up):
+            return self._at_cwdhcp
+        if _CIPDNS_RE.match(up) or up.startswith("AT+CIUPDATE"):
+            # Not implemented, and SAID so (see the module docstring):
+            # there is no DNS here to report, and an OTA firmware update
+            # is not something an emulation can pretend to do. The
+            # NextZXOS WiFi wizard reads the ERROR as "no DNS to show".
+            return self._at_error
         if up.startswith("AT+UART"):
             return self._at_uart
         if up.startswith("AT"):
-            # Anything else in the AT family (CWJAP, CWLAP, CIPDNS,
-            # CWMODE, ...): agree politely. The consumers only ever wait
-            # for the OK; inventing per-command fictions adds nothing.
+            # Anything else in the AT family (CIPSTO, CIPDINFO, CWSAP,
+            # the _CUR/_DEF spellings of commands above...): agree
+            # politely. The consumers only ever wait for the OK;
+            # inventing per-command fictions adds nothing.
             return self._at_ok
         return self._at_error
 
@@ -407,24 +625,153 @@ class EspAtEngine:
         self._pending = None
         self._mux = False
         self._echo = True
+        self._sta_override = None
+        self._ssid = STA_SSID
         self._gw.net_server(False, 0)
         self.emit(b"\r\nOK\r\n\r\nready\r\n")
         self._trace("reset to defaults")
 
     def _at_gmr(self, _cmd):
-        self.emit(f"\r\nespemu {ESPEMU_VERSION} "
-                  f"(zx-next-unite RS232 ESP emulation)\r\n\r\nOK\r\n"
-                  .encode("ascii"))
+        # The AT 1.x three-line shape: the NextZXOS WiFi wizard slices its
+        # "Firmware:" lines out of it - from the first ':' to the first CR,
+        # then from that CR to the NEXT one, which is why a third line has
+        # to follow (its pos() never matches the last character). The
+        # version leads with the emulator's NAME, never a bare number, so
+        # nothing takes this for an Espressif build whose features it lacks.
+        self.emit(f"\r\nAT version:espemu-{ESPEMU_VERSION}(zx-next-unite)\r\n"
+                  f"SDK version:RS232-ESP-emulation\r\n"
+                  f"compile time:zx-next-unite\r\n\r\nOK\r\n".encode("ascii"))
 
     def _at_cifsr(self, _cmd):
         # STAIP line strictly BEFORE the OK: the reply is parsed after the
         # OK is matched, from everything collected so far.
-        self.emit(f"\r\n+CIFSR:STAIP,\"{STA_IP}\"\r\n"
+        self.emit(f"\r\n+CIFSR:STAIP,\"{self.reported_ip}\"\r\n"
                   f"+CIFSR:STAMAC,\"{STA_MAC}\"\r\n\r\nOK\r\n"
                   .encode("ascii"))
 
-    def _at_cipsta(self, _cmd):
-        self.emit(f"\r\n+CIPSTA:\"{STA_IP}\"\r\n\r\nOK\r\n".encode("ascii"))
+    def _at_cipsta(self, cmd):
+        # AT+CIPSTA? (and the _CUR / _DEF spellings) answer the AT 1.x
+        # three-line shape - ip, gateway, netmask, each prefixed with the
+        # command's own name - the one a real Next's module and MAME's
+        # esp8266_at card give; the ip is the first quoted value either
+        # way, which is all the WiFi wizard reads. The SET form takes a
+        # quoted address (gateway and netmask optional, ignored) and makes
+        # it THIS session's reported address, exactly what the wizard's
+        # "Set Manual IP" does on hardware; anything else - unquoted, not
+        # a dotted quad, or an address no interface carries (0.0.0.0, a
+        # broadcast, a multicast) - is ERROR, like the firmware's.
+        m = _CIPSTA_RE.match(cmd.strip().upper())
+        name = m.group(1)
+        if m.group(2) == "?":
+            ip = self.reported_ip
+            gateway = ip.rsplit(".", 1)[0] + ".1"
+            self.emit(f"\r\n+{name}:ip:\"{ip}\"\r\n"
+                      f"+{name}:gateway:\"{gateway}\"\r\n"
+                      f"+{name}:netmask:\"{STA_NETMASK}\"\r\n\r\nOK\r\n"
+                      .encode("ascii"))
+            return
+        want = _at_quoted_arg(cmd.split("=", 1)[1])
+        if not is_station_ipv4(want):
+            self.emit(b"\r\nERROR\r\n")
+            return
+        want = want.strip()
+        self._sta_override = want
+        self.emit(b"\r\nOK\r\n")
+        self._trace(f"station address set by the guest to {want} "
+                    f"(this session only; AT+RST or a station DHCP "
+                    f"AT+CWDHCP hand it back)")
+
+    def _at_cipstamac(self, cmd):
+        name = _CIPSTAMAC_RE.match(cmd.strip().upper()).group(1)
+        self.emit(f"\r\n+{name}:\"{STA_MAC}\"\r\n\r\nOK\r\n".encode("ascii"))
+
+    def _at_cwjap(self, cmd):
+        # The module is ALWAYS joined: the query names the access point in
+        # the AT 1.x shape (ssid, bssid, channel, rssi), and a join is
+        # accepted with the firmware's own chatter and remembered as the
+        # name the module now reports. An empty reply here is what crashed
+        # the NextZXOS WiFi wizard (see the module docstring). The SSID is
+        # read with the AT quoting grammar - the first QUOTED parameter,
+        # backslash escapes undone - so a name with a comma in it is not
+        # cut short; an unquoted one is ERROR, as on the firmware. The test
+        # form (=?) only says OK.
+        up = cmd.strip().upper()
+        if up.endswith("=?"):
+            self.emit(b"\r\nOK\r\n")
+            return
+        if "=" in up:
+            ssid = _at_quoted_arg(cmd.split("=", 1)[1])
+            if not ssid or len(ssid) > 32:
+                self.emit(b"\r\nERROR\r\n")
+                return
+            self._ssid = ssid
+            self.emit(b"\r\nWIFI CONNECTED\r\nWIFI GOT IP\r\n\r\nOK\r\n")
+            self._trace(f"join accepted: the module now says it is on '{ssid}'")
+            return
+        if not up.endswith("?"):
+            self.emit(b"\r\nERROR\r\n")
+            return
+        name = up[3:-1]                  # CWJAP / CWJAP_CUR / CWJAP_DEF
+        # Re-escaped the way it came in, so the quoted field stays whole.
+        shown = self._ssid.replace("\\", "\\\\").replace('"', '\\"')
+        self.emit(f"\r\n+{name}:\"{shown}\",\"{AP_MAC}\",1,-40"
+                  f"\r\n\r\nOK\r\n".encode("ascii"))
+
+    def _at_cwlap(self, cmd):
+        # One network in range, open, strong: the fiction's own AP. The
+        # filtered form (AT+CWLAP="<ssid>",...) lists it only when it is
+        # the one asked for.
+        if "=" in cmd:
+            want = _at_quoted_arg(cmd.split("=", 1)[1])
+            if want is not None and want != STA_SSID:
+                self.emit(b"\r\nOK\r\n")
+                return
+        self.emit(f"\r\n+CWLAP:(0,\"{STA_SSID}\",-40,\"{AP_MAC}\",1,0)"
+                  f"\r\n\r\nOK\r\n".encode("ascii"))
+
+    def _at_cwmode(self, cmd):
+        # Station mode, and only station mode: the query says 1, the test
+        # form lists the firmware's three, a set of 1-3 is agreed to.
+        up = cmd.strip().upper()
+        if up.endswith("=?"):
+            self.emit(f"\r\n+{up[3:-2]}:(1-3)\r\n\r\nOK\r\n".encode("ascii"))
+        elif up.endswith("?"):
+            self.emit(f"\r\n+{up[3:-1]}:1\r\n\r\nOK\r\n".encode("ascii"))
+        elif "=" in up and up.split("=", 1)[1].strip() in ("1", "2", "3"):
+            self.emit(b"\r\nOK\r\n")
+        else:
+            self.emit(b"\r\nERROR\r\n")
+
+    def _at_cwdhcp(self, cmd):
+        # DHCP turned back ON for the station = the guest's static address
+        # is given back: the wizard's "Set automatic IP/DNS" sends
+        # AT+CWDHCP=17,1 (WIFI.BAS: =1,1). Its "Set Manual IP" and "Set
+        # Manual DNS" both send =0,1 first, and that must NOT: under the
+        # AT 1.x reading (<mode>,<en>) it enables the softAP's DHCP, under
+        # the 2.x one (<operate>,<mode>) it DISABLES the station's - either
+        # way the station keeps its address, so on hardware a manual IP
+        # set from one menu survives the other. Hence: the address comes
+        # back only when BOTH numbers are non-zero. Anything but two
+        # integers is ERROR. The query reports DHCP on for both
+        # interfaces, as the firmware does.
+        up = cmd.strip().upper()
+        if up.endswith("?"):
+            self.emit(f"\r\n+{up[3:-1]}:3\r\n\r\nOK\r\n".encode("ascii"))
+            return
+        try:
+            args = [int(a) for a in up.split("=", 1)[1].split(",")]
+        except (IndexError, ValueError):
+            self.emit(b"\r\nERROR\r\n")
+            return
+        if len(args) != 2:
+            self.emit(b"\r\nERROR\r\n")
+            return
+        if args[0] and args[1]:
+            if self._sta_override is not None:
+                self._trace("station address handed back to the configured "
+                            "one (DHCP re-enabled by the guest)")
+            self._sta_override = None
+        self.emit(b"\r\nOK\r\n")
 
     def _at_uart(self, cmd):
         # Baud is meaningless on a socket, but the SET form must succeed —
@@ -610,8 +957,19 @@ class _EspSession:
         self._thread = None
         self._stopping = False
         self._close_lock = threading.Lock()
+        # The address is resolved per SESSION (on connect): "automatic"
+        # follows the host's routing table as it is when this emulator
+        # joins, and set_station_ip() rewrites it live afterwards.
+        # station_cfg is the CONFIGURED value this session resolved from:
+        # the server re-checks it under its session lock when the session
+        # joins the list, so a set_station_ip() landing while this session
+        # was being built (it is not in the list for the live rewrite yet)
+        # is never missed - measured: without the check that session kept
+        # the old address for its whole life.
+        self.station_cfg = server.station_ip
         self.engine = EspAtEngine(self, log=self.log,
-                                  verbose=server._verbose)
+                                  verbose=server._verbose,
+                                  station_ip=server._resolve(self.station_cfg))
 
     def log(self, text):
         """A session-scoped log line.
@@ -1034,11 +1392,17 @@ class EspAtServer:
 
     _POLL_S = 0.2       # loop heartbeat when nothing is happening
 
-    def __init__(self, port=2222, host="127.0.0.1", log=None, verbose=False):
+    def __init__(self, port=2222, host="127.0.0.1", log=None, verbose=False,
+                 station_ip=""):
         self.port = int(port)
         self.host = host
         self._log = log or (lambda s: None)
         self._verbose = bool(verbose)
+        # The address every session reports as the Next's own: a dotted
+        # quad, or "" for "this host's primary address, resolved when each
+        # emulator connects" (see the module docstring). Garbage is refused
+        # here rather than reported to a Next as its address.
+        self._station_ip = self._check_station_ip(station_ip)
         self._sel = None
         self._listen = None            # the bitbanger listener (for MAME)
         self._sessions = []            # live _EspSession objects
@@ -1068,6 +1432,68 @@ class EspAtServer:
     def verbose(self):
         """Whether tracing is on (read-only; use set_verbose to change it)."""
         return self._verbose
+
+    @staticmethod
+    def _check_station_ip(value):
+        value = str(value or "").strip()
+        if value and not is_station_ipv4(value):
+            raise ValueError(f"the station IP must be an address a host "
+                             f"interface could carry (a dotted quad, not "
+                             f"0.x.x.x, a broadcast or a multicast "
+                             f"address) or empty (automatic), not {value!r}")
+        return value
+
+    @property
+    def station_ip(self):
+        """The CONFIGURED station address: a dotted quad, or "" when the
+        host's primary address is used (``resolve_station_ip`` tells which
+        one that is right now)."""
+        return self._station_ip
+
+    def resolve_station_ip(self):
+        """The address a session built now would report: the configured
+        one, else this host's primary outbound address, else loopback -
+        never empty, so a Next always gets a dotted quad."""
+        return self._resolve(self._station_ip)
+
+    @staticmethod
+    def _resolve(configured):
+        """``resolve_station_ip`` for a given CONFIGURED value ("" =
+        automatic) - the one rule, shared by the sessions and the live
+        rewrite."""
+        return configured or primary_ipv4() or LOOPBACK_IP
+
+    def set_station_ip(self, value, quiet=False):
+        """Move the station address on a RUNNING server, live sessions
+        included: the Settings pick can change while a MAME holds the
+        shared worker, and stopping it to apply the change would cut that
+        emulator's wire. Each live engine gets the newly resolved address
+        as one attribute write; the Next sees it at its next AT+CIFSR /
+        AT+CIPSTA? (ZX Next Remote polls that until an address appears,
+        the WiFi wizard's "Refresh" re-reads it). A guest's own
+        AT+CIPSTA= override, where one is set, still wins for that
+        session. Raises ValueError for anything but an address a host
+        interface could carry, or "". Returns the resolved address.
+
+        The write and the rewrite happen under the session lock, the same
+        lock a joining session is checked under (see
+        ``_EspSession.station_cfg``), so no session can be missed.
+        ``quiet`` skips this module's own log line, for a caller that
+        announces the change itself (the app does, translated)."""
+        value = self._check_station_ip(value)
+        with self._sessions_lock:
+            self._station_ip = value
+            resolved = self._resolve(value)
+            for session in self._sessions:
+                session.engine.station_ip = resolved
+        if not quiet:
+            how = ("" if value
+                   else " (this PC's primary address)"
+                   if resolved != LOOPBACK_IP
+                   else " (this PC has no network route: loopback)")
+            self._log(f"RS232 ESP emulation: the emulated Next now reports "
+                      f"the IP address {resolved}{how}")
+        return resolved
 
     def set_verbose(self, verbose):
         """Turn tracing on/off on a RUNNING server.
@@ -1266,6 +1692,12 @@ class EspAtServer:
         with self._sessions_lock:
             self._sessions.append(session)
             live = len(self._sessions)
+            if session.station_cfg != self._station_ip:
+                # set_station_ip ran while this session was being built
+                # (see _EspSession.station_cfg): catch it up, under the
+                # same lock that rewrite holds, so no session can slip
+                # between the two.
+                session.engine.station_ip = self._resolve(self._station_ip)
         if live > 1:
             # From here on every session-scoped line carries its label so
             # two emulators' logs can be told apart. The latch STAYS set:
@@ -1291,8 +1723,19 @@ class EspAtServer:
             self._sel.close()
 
 
-def main(argv=None):
-    """Standalone console entry point: ``python espemu.py [--port N] [-v]``."""
+def _station_ip_arg(text):
+    import argparse
+    if text and not is_station_ipv4(text):
+        raise argparse.ArgumentTypeError(
+            f"{text!r} is not an address the emulated Next can report: an "
+            f"IPv4 address (four numbers 0-255 separated by dots), not "
+            f"0.x.x.x, a broadcast or a multicast address")
+    return text
+
+
+def build_arg_parser():
+    """The standalone CLI's options (its own function so a test can parse
+    without serving)."""
     import argparse
     parser = argparse.ArgumentParser(
         description="ESP-AT emulator for MAME's -rs232_esp bitbanger socket "
@@ -1301,9 +1744,23 @@ def main(argv=None):
                         help="TCP port to listen on (default 2222)")
     parser.add_argument("--verbose", "-v", action="store_true",
                         help="trace commands and traffic")
-    args = parser.parse_args(argv)
-    server = EspAtServer(port=args.port, log=print, verbose=args.verbose)
+    parser.add_argument("--ip", type=_station_ip_arg, default="",
+                        metavar="A.B.C.D",
+                        help="the IPv4 address the emulated Next reports as "
+                             "its own (default: this PC's primary address)")
+    return parser
+
+
+def main(argv=None):
+    """Standalone console entry point:
+    ``python espemu.py [--port N] [-v] [--ip A.B.C.D]``."""
+    args = build_arg_parser().parse_args(argv)
+    server = EspAtServer(port=args.port, log=print, verbose=args.verbose,
+                         station_ip=args.ip)
     server.start()
+    print(f"The emulated Next reports the IP address "
+          f"{server.resolve_station_ip()}"
+          + ("" if args.ip else " (this PC's primary address; --ip picks another)"))
     print("Press Ctrl+C to stop.")
     try:
         while True:

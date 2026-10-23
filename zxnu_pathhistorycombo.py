@@ -83,7 +83,11 @@ class PathHistoryCombo(QComboBox):
       trees — ``view.keyPressEvent = my_handler`` — is silently dead code
       here. An event filter is the only mechanism that reaches it, and this
       combo, being Python-made, is a valid filter target. ShortcutOverride
-      arrives first carrying the same key(), so only KeyPress is acted on.
+      arrives first carrying the same key(), so Delete is acted on KeyPress
+      only (or a row would be forgotten twice) - and Return is the OPPOSITE:
+      the container picks the highlighted row on that ShortcutOverride and
+      emits ``activated`` right there, so the pick is marked on it (see
+      ``take_pick_arm``).
     * That same container's mouse handler does NOT check which button was
       released: any release over a row calls hidePopup() and selects it. So
       a right-click on a dropdown entry LOADED that image instead of
@@ -166,12 +170,16 @@ class PathHistoryCombo(QComboBox):
     # ---- the dropdown's event filter --------------------------------------
 
     def _arm_popup_view(self):
-        """(Re)install the dropdown hooks. self.view() is only guaranteed to
-        be the same object until something calls setView/setEditable, so the
-        arming is idempotent and keyed on the view identity. Both the view
-        (keys) and its viewport (mouse) are filtered."""
+        """(Re)install the dropdown hooks, on the view (keys) and its
+        viewport (mouse). Called every time the popup opens, and that is
+        deliberate: ``installEventFilter`` MOVES an installed filter to the
+        front, so this one always runs ahead of the container's own, which
+        turns a gesture into ``activated`` from inside its filter (see
+        ``take_pick_arm``). self.view() is only guaranteed to be the same
+        object until something calls setView/setEditable, so the identity
+        is remembered for eventFilter."""
         view = self.view()
-        if view is None or self._armed_view is view:
+        if view is None:
             return
         self._armed_view = view
         view.installEventFilter(self)
@@ -181,18 +189,21 @@ class PathHistoryCombo(QComboBox):
         view = self._armed_view
         if view is not None and obj in (view, view.viewport()):
             etype = event.type()
-            # Delete forgets the highlighted row in place. KeyPress only:
-            # ShortcutOverride arrives first with the same key() and would
-            # fire the removal twice.
-            if etype == QEvent.Type.KeyPress:
-                if event.key() == Qt.Key.Key_Delete:
+            if etype in (QEvent.Type.ShortcutOverride, QEvent.Type.KeyPress):
+                key = event.key()
+                if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                    # ShortcutOverride FIRST: the container picks the row
+                    # while handling it (see take_pick_arm).
+                    self._arm_pick()
+                elif etype == QEvent.Type.KeyPress and key == Qt.Key.Key_Delete:
+                    # Delete forgets the highlighted row in place. KeyPress
+                    # only: ShortcutOverride carries the same key() and
+                    # would fire the removal twice.
                     row = view.currentIndex().row()
                     if 0 <= row < self.count():
                         self.removeIndexRequested.emit(row)
                         self.refresh_open_popup(row)
                     return True
-                if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-                    self._pick_armed = True     # see _pick_armed
             # The container selects (and so LOADS) a row on ANY button
             # release, right one included. Swallow the whole right-button
             # gesture and open the menu from the press instead.
@@ -206,8 +217,27 @@ class PathHistoryCombo(QComboBox):
                 if (etype == QEvent.Type.MouseButtonRelease
                         and event.button() == Qt.MouseButton.LeftButton
                         and view.indexAt(event.position().toPoint()).isValid()):
-                    self._pick_armed = True     # see _pick_armed
+                    self._arm_pick()
         return super().eventFilter(obj, event)
+
+    def _arm_pick(self):
+        """Mark the gesture now being handled as a pick, for the
+        ``activated`` the container emits WHILE handling this very event,
+        and drop the mark on the next event-loop turn whatever happened. A
+        real pick consumes it synchronously; the container also IGNORES
+        some gestures (a release too soon after the popup opened with no
+        mouse move - measured on Windows), and Return arrives twice
+        (ShortcutOverride, then KeyPress after the pick is already done), so
+        without the drop a mark nobody consumed would turn the NEXT echo -
+        an Escape dismissal, a focus-out - into a pick."""
+        self._pick_armed = True
+        QTimer.singleShot(0, self._drop_pick_arm)
+
+    def _drop_pick_arm(self):
+        try:
+            self._pick_armed = False
+        except RuntimeError:
+            pass                            # the widget went away first
 
     def take_pick_arm(self):
         """True when the `activated` now arriving really is the user picking a
@@ -225,7 +255,15 @@ class PathHistoryCombo(QComboBox):
         So a pick is recognised from the gesture instead, in the popup's own
         event filter above: a LEFT release over a real row, or Return/Enter on
         the highlighted one. Escape arms nothing (dismissing must not
-        navigate) and neither does a focus change."""
+        navigate) and neither does a focus change.
+
+        Return is marked on its ShortcutOverride (9.7.54): the container picks
+        the highlighted row while handling that event, BEFORE the KeyPress, so
+        a KeyPress-only mark arrived after the pick it was for. Measured on
+        both platforms: Return on a highlighted row picked nothing, and the
+        mark stayed set for the next echo, which then navigated - the very
+        jump-back this method exists to stop. ``_arm_pick`` drops any mark
+        left unconsumed on the next event-loop turn."""
         armed, self._pick_armed = self._pick_armed, False
         return armed
 

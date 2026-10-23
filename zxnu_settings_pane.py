@@ -18,12 +18,13 @@ import logging
 import os
 import sys
 
-from PySide6.QtCore import (Qt, QTimer)
+from PySide6.QtCore import (Qt, QTimer, QEvent)
 from PySide6.QtGui import (QColor, QFont, QPixmap)
 from PySide6.QtWidgets import (QApplication, QWidget, QLabel, QPushButton, QCheckBox,
     QComboBox, QLineEdit, QGridLayout, QHBoxLayout, QVBoxLayout, QFrame,
     QScrollArea, QSlider, QSpinBox, QColorDialog)
 
+import espemu
 import zxnu_itchio
 from zxnu_http_bridge import flask_available
 from zxnu_i18n import (DEFAULT_UI_LANGUAGE, UI_LANGUAGES, normalize_ui_language,
@@ -107,6 +108,270 @@ SETTINGS_TAB_ROWS = (
 # import must fail instead.
 assert len(set(SETTINGS_TAB_ROWS)) == len(SETTINGS_TAB_ROWS), \
     "duplicate name in SETTINGS_TAB_ROWS"
+
+
+class HostIpCombo(QComboBox):
+    """The RS232 ESP station-address picker (9.7.54): an editable combo
+    over this PC's IPv4 addresses - "Automatic (<primary>)" carrying "",
+    every address :func:`espemu.host_ipv4_addresses` finds, 127.0.0.1
+    last, and the saved value added as a row when the list does not carry
+    it - re-enumerated each time the dropdown OPENS (a VPN or a virtual
+    adapter comes and goes between launches).
+
+    It owns its whole behaviour, so it can be driven with REAL key and
+    mouse events headlessly (tests/test_esp_ip_combo.py); the pane hands
+    in three callables: ``saved()`` (the stored value), ``persist(value)``
+    (store it and apply it live) and ``refused(text)`` (tell the user).
+
+    The editable-QComboBox rules ``zxnu_pathhistorycombo`` paid for apply
+    here too, every one of them:
+
+    * a COMMIT is the user typing (``textEdited``, never fired by a program
+      write) and then pressing Return or leaving the box for another widget
+      - read from the line edit's ``returnPressed`` and this combo's own
+      ``focusOutEvent``, NOT from ``editingFinished``: that one also fires
+      from inside ``showPopup()``, and Qt 6 emits it once per edit, so after
+      the dropdown had been opened a later focus-out emitted NOTHING and an
+      address typed before a look at the list was never saved (measured).
+      The focus-out is the COMBO's: QComboBox forwards focus events to its
+      line edit by a direct call, which no event filter on the line edit
+      ever sees. A focus-out to a popup (the dropdown, a context menu) or
+      to another application is not a commit;
+    * a PICK is recognised from the gesture, in the popup's event filter (a
+      left release over a row, or Return on the highlighted one) -
+      ``activated`` also fires on an Escape dismissal and on a focus-out
+      whose text matches a row; the right and middle buttons are swallowed
+      in the popup, whose container selects a row on ANY release. Return
+      is marked on ShortcutOverride, not KeyPress: the container picks the
+      row on the ShortcutOverride that precedes the key press and emits
+      ``activated`` right there, so a KeyPress mark came after the pick it
+      was for and stayed armed for the next echo (measured). For the same
+      reason the filter is moved to the FRONT of the view's filters every
+      time the popup opens, and an arm nothing consumed is dropped on the
+      next event-loop turn (the container ignores some releases);
+    * NoInsert (Return would append the typed text as a row), no completer
+      (the inline one rewrites a half-typed ``10.0`` into the first
+      matching row), a swallowed wheel (a notch is reported as a pick);
+    * the display write after a commit is deferred one event-loop turn:
+      Return emits ``editingFinished`` BEFORE QComboBox's own Return
+      handling, which matches whatever text it then finds against a row.
+
+    One rule of its own: opening the dropdown re-reads the rows, and that
+    must keep an address the user is half-way through typing (measured on
+    the first cut: it reset the box to the saved row, losing the input).
+    """
+
+    def __init__(self, *, saved, persist, refused, addresses=None,
+                 primary=None, parent=None):
+        super().__init__(parent)
+        self._saved = saved
+        self._persist = persist
+        self._refused = refused
+        self._addresses = addresses or espemu.host_ipv4_addresses
+        self._primary_fn = primary or espemu.primary_ipv4
+        self._primary = espemu.LOOPBACK_IP
+        self._user_edited = False
+        self._opening_popup = False
+        self._pick_armed = False
+        self.setEditable(True)
+        self.setInsertPolicy(QComboBox.NoInsert)
+        self.setCompleter(None)
+        self.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.setMinimumContentsLength(18)
+        self._edit = self.lineEdit()
+        self._edit.textEdited.connect(self._note_user_edit)
+        self._edit.returnPressed.connect(self._maybe_commit)
+        self.activated.connect(self._on_activated)
+        self.refresh()
+
+    # ---- the rows -------------------------------------------------------
+    def auto_label(self):
+        return ui_tr_now("Automatic ({ip})").format(ip=self._primary)
+
+    def refresh(self):
+        """Re-read this PC's addresses into the rows (bounded, see
+        espemu.host_ipv4_addresses) and select the saved value - keeping
+        text the user is in the middle of typing."""
+        typed = self.lineEdit().text() if self._user_edited else None
+        self._primary = self._primary_fn() or espemu.LOOPBACK_IP
+        try:
+            addrs = [ip for ip in self._addresses()
+                     if ip != espemu.LOOPBACK_IP]
+        except Exception:                               # noqa: BLE001
+            logging.exception("RS232 ESP: listing this PC's addresses failed")
+            addrs = []
+        self.blockSignals(True)
+        try:
+            self.clear()
+            self.addItem(self.auto_label(), "")
+            for ip in addrs:
+                self.addItem(ip, ip)
+            self.addItem(espemu.LOOPBACK_IP, espemu.LOOPBACK_IP)
+        finally:
+            self.blockSignals(False)
+        self.show_value(self._saved())
+        if typed is not None:
+            self.lineEdit().setText(typed)
+            self._user_edited = True
+
+    def show_value(self, value):
+        """Select the row carrying *value* ("" is the Automatic row),
+        adding one for an address the list does not carry (typed, or saved
+        on a PC that no longer has it). Display only - the config restore
+        calls it too - so nothing is committed and any typing is dropped."""
+        value = str(value or "")
+        self.blockSignals(True)
+        try:
+            idx = self.findData(value)
+            if idx < 0:
+                self.addItem(value, value)
+                idx = self.count() - 1
+            self.setCurrentIndex(idx)
+            # setCurrentIndex leaves the line edit alone when the index does
+            # not change, so a refused typed text would stay on screen.
+            self.lineEdit().setText(self.itemText(idx))
+        finally:
+            self.blockSignals(False)
+        self._user_edited = False
+
+    def retranslate(self):
+        """A language switch: the Automatic row's text is written at runtime
+        through ui_tr_now, which the widget walk adopts as its own source and
+        cannot switch - its owner rewrites it (called from _i18n_apply, like
+        the Remote Explorer's Start button)."""
+        if self.count() and self.itemData(0) == "":
+            shown = self.currentIndex() == 0 and not self._user_edited
+            self.setItemText(0, self.auto_label())
+            if shown:
+                self.lineEdit().setText(self.itemText(0))
+
+    # ---- the dropdown ---------------------------------------------------
+    def showPopup(self):
+        self._pick_armed = False
+        # Qt emits the line edit's FocusOut (PopupFocusReason) from INSIDE
+        # this call; _maybe_commit reads the flag as well, belt and braces.
+        self._opening_popup = True
+        try:
+            try:
+                self.refresh()
+            except Exception:                           # noqa: BLE001
+                logging.exception("RS232 ESP: address list refresh failed")
+            super().showPopup()
+        finally:
+            self._opening_popup = False
+        self._arm_popup_view()
+
+    def hidePopup(self):
+        super().hidePopup()
+        # A real pick emits `activated` right after this, in the same call
+        # stack, and consumes the arm; anything still armed on the next
+        # event-loop turn was never a pick.
+        QTimer.singleShot(0, self._drop_arm)
+
+    def _drop_arm(self):
+        self._pick_armed = False
+
+    def _arm_popup_view(self):
+        """Put this combo's filter at the FRONT of the view's (and its
+        viewport's) filters - installEventFilter moves an installed filter
+        to the front - so the gesture is marked before the container's own
+        filter turns it into an `activated`. Called every time the popup
+        opens: see the class docstring."""
+        view = self.view()
+        if view is None:
+            return
+        view.installEventFilter(self)
+        view.viewport().installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        view = self.view()
+        if obj is view or (view is not None and obj is view.viewport()):
+            etype = event.type()
+            if etype in (QEvent.Type.ShortcutOverride, QEvent.Type.KeyPress):
+                if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                    self._arm_pick()
+            elif etype in (QEvent.Type.MouseButtonPress,
+                           QEvent.Type.MouseButtonRelease,
+                           QEvent.Type.MouseButtonDblClick):
+                if event.button() != Qt.MouseButton.LeftButton:
+                    return True             # see the class docstring
+                if (etype == QEvent.Type.MouseButtonRelease
+                        and view.indexAt(event.position().toPoint()).isValid()):
+                    self._arm_pick()
+        return super().eventFilter(obj, event)
+
+    def _arm_pick(self):
+        """Mark the gesture as a pick for the `activated` the container emits
+        while handling this very event, and drop the mark on the next
+        event-loop turn whatever happened: the container also IGNORES some
+        releases (one too soon after the popup opened, with no mouse move -
+        measured on Windows), and a mark it never consumed would turn the
+        next echo into a pick."""
+        self._pick_armed = True
+        QTimer.singleShot(0, self._drop_arm)
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        if event.reason() not in (Qt.FocusReason.PopupFocusReason,
+                                  Qt.FocusReason.ActiveWindowFocusReason):
+            self._maybe_commit()
+
+    def wheelEvent(self, event):
+        event.ignore()
+
+    # ---- commits --------------------------------------------------------
+    def _note_user_edit(self, _text):
+        self._user_edited = True
+
+    def _maybe_commit(self):
+        """Return in the box, or the focus leaving it for another widget:
+        a commit only when the user has typed since the last write, and
+        never while the dropdown is opening or open."""
+        if not self._user_edited or self._opening_popup:
+            return
+        view = self.view()
+        if view is not None and view.isVisible():
+            return                          # the popup took the focus
+        self.commit_text(self._edit.text())
+
+    def _on_activated(self, index):
+        armed, self._pick_armed = self._pick_armed, False
+        if not armed:
+            return                          # an echo, not a pick
+        self._commit(str(self.itemData(index) or ""))
+
+    def commit_text(self, text):
+        """A typed value: a row's own text means that row (the Automatic
+        row included), an empty box means automatic, otherwise it must be
+        an address the emulation accepts (espemu.is_station_ipv4) - or it
+        is refused, the user told, and the saved value shown again."""
+        text = str(text or "").strip()
+        idx = self.findText(text) if text else -1
+        if idx >= 0:
+            value = self.itemData(idx)
+        elif not text:
+            value = ""
+        elif espemu.is_station_ipv4(text):
+            value = text
+        else:
+            self._user_edited = False
+            self._refused(text)
+            QTimer.singleShot(0, self._show_saved)
+            return
+        self._commit(str(value or ""))
+
+    def _commit(self, value):
+        """IDEMPOTENT: the same value arriving twice persists nothing."""
+        self._user_edited = False
+        if value != self._saved():
+            self._persist(value)
+        QTimer.singleShot(0, self._show_saved)      # see the class docstring
+
+    def _show_saved(self):
+        try:
+            self.show_value(self._saved())
+        except RuntimeError:
+            pass                            # the widget went away first
 
 
 def settings_grid_row(name):
@@ -1794,11 +2059,77 @@ def build_settings_pane(
     host.settings_rs232_esp_verbose_checkbox.stateChanged.connect(
         lambda _s: settings_rs232_esp_verbose_changed())
 
+    # ── the address the emulated Next reports as its own (9.7.54) ──
+    # Nothing routes through it, but it is what the Next SHOWS (ZX Next
+    # Remote's listener screen, the NextZXOS WiFi wizard) and what someone
+    # on another PC types to reach the emulated Next - and before 9.7.54 it
+    # was a made-up 192.168.4.2 whatever the PC had. One editable combo:
+    # "Automatic (<primary>)" (this PC's primary outbound address, the one
+    # its default route uses), then every IPv4 address this PC carries (a
+    # PC with a VPN, VMware or WSL adapters has several), 127.0.0.1 last,
+    # and a typed address for the one the list missed. Stored as the
+    # dotted quad, "" for automatic; read by the next MAME launch and, via
+    # host._esp_emulation_apply_ip, applied LIVE to a running emulation.
+    host.settings_rs232_esp_ip_label = QLabel(
+        "IP address shown to the emulated Next:")
+
+    def _rs232_esp_ip_saved():
+        return esp_station_ip_setting(
+            configuration_dictionary.get(SETTING_MAME_RS232_ESP_IP, ""))
+
+    def _rs232_esp_ip_persist(value):
+        configuration_dictionary[SETTING_MAME_RS232_ESP_IP] = value
+        save_configuration_file()
+        # A running emulation takes it live (the Next sees it at its next
+        # AT+CIFSR / AT+CIPSTA?); nothing running = the next launch reads
+        # the setting itself.
+        apply_live = getattr(host, "_esp_emulation_apply_ip", None)
+        if apply_live is not None:
+            apply_live()
+
+    def _rs232_esp_ip_refused(text):
+        host._show_toast(
+            "⚠  RS232 ESP address not changed",
+            ui_tr_now("'{text}' is not an address the emulated Next can "
+                      "report - type an IPv4 address such as 10.0.0.5 (four "
+                      "numbers 0-255 separated by dots; not 0.0.0.0, a "
+                      "broadcast or a multicast address).").format(text=text),
+            variant="yellow", duration_ms=6000)
+
+    host.settings_rs232_esp_ip_combo = HostIpCombo(
+        saved=_rs232_esp_ip_saved, persist=_rs232_esp_ip_persist,
+        refused=_rs232_esp_ip_refused)
+    # The config restore and the language switch reach the combo by these.
+    host._rs232_esp_ip_show = host.settings_rs232_esp_ip_combo.show_value
+    host._rs232_esp_ip_retranslate = host.settings_rs232_esp_ip_combo.retranslate
+    _rs232_esp_ip_tip = (
+        "The IPv4 address the emulated Next reports as its own - what ZX\n"
+        "Next Remote's listener screen and the NextZXOS WiFi wizard show,\n"
+        "and what someone on another PC types to reach the emulated Next\n"
+        "(its listener binds every interface of this PC). Nothing routes\n"
+        "through it.\n"
+        "'Automatic' is this PC's primary address (the one its default\n"
+        "route uses; 127.0.0.1 with no network). A PC with several\n"
+        "addresses (VPN, virtual machines, WSL) can pick one from the list,\n"
+        "which is read again each time it opens, or type one the list\n"
+        "misses. Applied to the next MAME launch and, live, to a running\n"
+        "emulation - the Next sees it at its next query (the wizard's\n"
+        "'Refresh'). A 'Set Manual IP' done on the Next itself wins for\n"
+        "that session, until its reset. 0.0.0.0, a broadcast or a multicast\n"
+        "address is refused: the Next software reads 0.0.0.0 as 'not joined'.\n"
+        "Only the local RS232 ESP emulation reads this: a MAME launched\n"
+        "with its built-in esp8266_at card reports an address of its own\n"
+        f"choosing. Saved to hdfg.cfg ({SETTING_MAME_RS232_ESP_IP}).")
+    host.settings_rs232_esp_ip_label.setToolTip(_rs232_esp_ip_tip)
+    host.settings_rs232_esp_ip_combo.setToolTip(_rs232_esp_ip_tip)
+
     def _rs232_esp_widgets_set_enabled(on):
         on = bool(on)
         host.settings_rs232_esp_port_label.setEnabled(on)
         host.settings_rs232_esp_port_spinbox.setEnabled(on)
         host.settings_rs232_esp_verbose_checkbox.setEnabled(on)
+        host.settings_rs232_esp_ip_label.setEnabled(on)
+        host.settings_rs232_esp_ip_combo.setEnabled(on)
     _rs232_esp_widgets_set_enabled(False)
     # config restore re-applies the greying once the saved state is known.
     host._rs232_esp_widgets_set_enabled = _rs232_esp_widgets_set_enabled
@@ -1812,9 +2143,14 @@ def build_settings_pane(
     _rs232_esp_verbose_row = QHBoxLayout()
     _rs232_esp_verbose_row.addWidget(host.settings_rs232_esp_verbose_checkbox)
     _rs232_esp_verbose_row.addStretch(1)
+    _rs232_esp_ip_row = QHBoxLayout()
+    _rs232_esp_ip_row.addWidget(host.settings_rs232_esp_ip_label)
+    _rs232_esp_ip_row.addWidget(host.settings_rs232_esp_ip_combo)
+    _rs232_esp_ip_row.addStretch(1)
     _rs232_esp_vbox = QVBoxLayout()
     _rs232_esp_vbox.addLayout(_rs232_esp_row)
     _rs232_esp_vbox.addLayout(_rs232_esp_verbose_row)
+    _rs232_esp_vbox.addLayout(_rs232_esp_ip_row)
     grid_tab_Settings.addLayout(
         _rs232_esp_vbox, settings_grid_row("mame_rs232_esp"), 0, 1, 2)
 
