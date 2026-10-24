@@ -42,6 +42,15 @@ import threading
 import time
 import zlib
 
+# check() prints its detail even on a PASS, and the detail carries what
+# PowerShell wrote. Windows PowerShell 5.1 in a French locale groups numbers
+# with U+202F ("16 384 bytes"), which it emits as real UTF-8 when the console
+# is on code page 65001 and as "?" otherwise - while this process's stdout,
+# a pipe under run_all, is the ANSI code page (cp1252). The print then raised
+# UnicodeEncodeError on a push that had succeeded, and the suite reported a
+# failure whose detail it could not show (9.7.55's run_all).
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 HERE = os.path.dirname(os.path.abspath(__file__))
