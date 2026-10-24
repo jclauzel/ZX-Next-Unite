@@ -35,6 +35,7 @@ import platform
 import shlex
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.request
@@ -1026,7 +1027,9 @@ def build_emulator_ops(
         after a pointless transfer.
 
         Launching the IMAGE needs an image; launching a downloaded FILE
-        (*autostart*) does not, and must not be gated on one.
+        (*autostart*) in CSpect does not, and must not be gated on one.
+        MAME does need one for a file (9.7.55): its Next boots NextZXOS
+        from the card and NextZXOS starts the file.
 
         The image being held by ANOTHER emulator is the last check in each
         branch (9.6.2): it is only meaningful once there is an image to be
@@ -1052,6 +1055,9 @@ def build_emulator_ops(
                         and host._image_write_state.get(key) == IMAGE_WRITE_BUSY):
                     _probe_image_write_access(path)
                 return _image_busy_reason(emulator)
+            if emulator == "MAME":
+                return (_image_file_missing(path) if path
+                        else _mame_file_needs_image())
             return ""
         if emulator == "CSpect":
             if not _right_disk_content():
@@ -1081,6 +1087,125 @@ def build_emulator_ops(
         return ui_tr_now(
             "The disk image {path} can no longer be found — it may have "
             "been moved, renamed or deleted.").format(path=path)
+
+    def _mame_file_needs_image():
+        """Why MAME cannot start a file with no disk image selected: its Next
+        boots NextZXOS from the card, and NextZXOS is what starts the file."""
+        return ui_tr_now(
+            "MAME's ZX Spectrum Next starts a file through NextZXOS on the SD "
+            "card: select a disk image (.img/.hdf) in the SD Card tab first.")
+
+    def _write_mame_autoboot_script(text, flatpak):
+        """Write one launch's autoboot script and return its path, or "".
+
+        A file per launch, never a shared name: MAME re-runs the script
+        after each machine reset, and a second launch overwriting the
+        first one's file in between would type the wrong command. Flatpak
+        MAME sees the real home but not this process's /tmp (see
+        ``mame_autostart_staging_dir``), so its scripts sit beside that
+        folder. Scripts a day old are pruned on the way in."""
+        if flatpak:
+            folder = os.path.join(os.path.dirname(mame_autostart_staging_dir()),
+                                  "mame-lua")
+        else:
+            folder = os.path.join(tempfile.gettempdir(), "zxnu-mame-lua")
+        try:
+            os.makedirs(folder, exist_ok=True)
+            _now = time.time()
+            for _n in os.listdir(folder):
+                _p = os.path.join(folder, _n)
+                if _n.endswith(".lua") and _now - os.path.getmtime(_p) > 86400:
+                    os.remove(_p)
+        except OSError:
+            logging.warning("MAME autoboot script folder %s: pruning failed",
+                            folder, exc_info=True)
+        try:
+            fd, path = tempfile.mkstemp(prefix="nexload-", suffix=".lua",
+                                        dir=folder)
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(text)
+            return path
+        except OSError:
+            logging.exception("MAME autoboot script could not be written in %s",
+                              folder)
+            return ""
+
+    def _nextzxos_autostart_script(host_file, card_path, image, flatpak):
+        """Put *host_file* where NextZXOS can start it and write the autoboot
+        script that does; the script's path, or "" once the failure has been
+        reported.
+
+        *card_path* is where the same file already is on the card, when the
+        caller knows: it is started there, in its own folder, when that path
+        can be typed. Otherwise the host copy is put into
+        ``MAME_NEXT_CARD_STAGING_DIR`` (overwriting an earlier copy of the
+        same name) - the launch gate has already made sure no emulator holds
+        the image."""
+        name = os.path.basename(host_file)
+        where = str(card_path or "").replace("\\", "/")
+        # The caller's card path is on the image the SD Card explorer has
+        # loaded; MAME mounts the image box's path. Trusted only when the
+        # two are the same file (_image_state_key, the ONE key rule).
+        _loaded = getattr(host, "right_disk_image_path", "") or ""
+        if where and not (_loaded and _image_state_key(_loaded)
+                          == _image_state_key(image)):
+            logging.info("MAME autostart: %s is on %r, not the mounted %r - "
+                         "staging the host copy", where, _loaded, image)
+            where = ""
+        lines = nextzxos_card_launch_lines(where) if where else None
+        if lines is None:
+            if not os.path.isfile(host_file):
+                _emulator_launch_failed("MAME", ui_tr_now(
+                    "Start MAME: {name} could not be found on this PC, MAME "
+                    "was not started.").format(name=name))
+                return ""
+            run = getattr(host, "execute_hdf_monkey", None)
+            where = (MAME_NEXT_CARD_STAGING_DIR + "/"
+                     + nextzxos_staged_name(name))
+            res = None
+            if run is not None:
+                run("mkdir", image, extra_argv=[MAME_NEXT_CARD_STAGING_DIR],
+                    silent=True)
+                res = run("put", image,
+                          extra_argv=[host_file.replace("\\", "/"), where])
+            if res is None or res.returncode != 0:
+                _err = ""
+                for _attr in ("stdout", "stderr"):
+                    _raw = getattr(res, _attr, b"") or b""
+                    if isinstance(_raw, bytes):
+                        _raw = _raw.decode(errors="replace")
+                    if str(_raw).strip():
+                        _err = str(_raw).strip()
+                        break
+                logging.error("MAME autostart: hdfmonkey put %s -> %s failed: %s",
+                              host_file, where, _err)
+                _emulator_launch_failed("MAME", ui_tr_now(
+                    "Start MAME: {name} could not be copied onto the SD card "
+                    "image ({error}), MAME was not started.").format(
+                        name=name, error=_err or "hdfmonkey"))
+                return ""
+            lines = nextzxos_card_launch_lines(where)
+            if lines is None:          # nextzxos_staged_name makes it typeable
+                logging.error("MAME autostart: staged path %r is not typeable", where)
+                _emulator_launch_failed("MAME", ui_tr_now(
+                    "Start MAME: {name} could not be copied onto the SD card "
+                    "image ({error}), MAME was not started.").format(
+                        name=name, error=where))
+                return ""
+        script = _write_mame_autoboot_script(
+            mame_nextzxos_autostart_lua(lines, os.path.basename(where)), flatpak)
+        if not script:
+            _emulator_launch_failed("MAME", ui_tr_now(
+                "Start MAME: the script that starts {name} could not be "
+                "written, MAME was not started.").format(name=name))
+            return ""
+        logging.info("MAME autostart: %s from %s on the card, script %s",
+                     name, where, script)
+        add_main_log_window(ui_tr_now(
+            "MAME: NextZXOS will start {path} from the SD card once it has "
+            "booted - the commands are typed at its Command Line, so leave "
+            "the keyboard alone for about 15 seconds.").format(path=where))
+        return script
 
     def launch_cspect(autostart_file=None):
         """Launch CSpect against the loaded SD image.
@@ -1403,14 +1528,16 @@ def build_emulator_ops(
                          name="cspect-output", daemon=True).start()
 
 
-    def launch_mame(autostart_file=None):
+    def launch_mame(autostart_file=None, card_path=None):
         """Boot the Next in MAME with the selected image as its hard disk.
 
-        *autostart_file* optionally names a program for MAME to load once the
-        machine is up (see ``mame_autostart_argument`` for the media switch
-        used per file type). It must be a HOST path, NOT a path inside the
-        mounted image: MAME's file loader knows nothing about the emulated
-        SD card's contents.
+        *autostart_file* optionally names a .nex for NextZXOS to start once
+        it has booted (9.7.55, see ``MAME_NEXT_CARD_STAGING_DIR`` in
+        zxnu_config): a HOST path, which is put onto the card first unless
+        *card_path* says where on the card that same file already is (the
+        SD Card tab knows: it was just uploaded there, or it was extracted
+        from there). A generated autoboot script then types the CD and
+        .nexload at NextZXOS's Command Line.
 
         The Launch MAME button connects straight to this function, so Qt hands
         the parameter its ``clicked(checked)`` bool — hence the isinstance()
@@ -1422,19 +1549,24 @@ def build_emulator_ops(
         # hdfmonkey-produced listing, which is empty when hdfmonkey is
         # missing) — otherwise MAME could never be launched without hdfmonkey.
         _sel_image = host.imageinput.currentText().strip().strip('"')
-        # As for CSpect: launching the IMAGE needs one, launching a downloaded
-        # FILE does not — the Remote Explorer runs it on its own, with no image
-        # in the picture. The -hard1 pair below is simply omitted then.
+        # Unlike CSpect, MAME needs the image for a FILE too: its Next boots
+        # the firmware and NextZXOS from the card (with none, the firmware
+        # stalls at power-on), and NextZXOS is what starts the file.
         _has_autostart = isinstance(autostart_file, str) and bool(autostart_file.strip())
-        if not (_sel_image and os.path.isfile(_sel_image)) and not _has_autostart:
-            # Two different failures: nothing chosen at all, or a choice
-            # whose file has since gone. The second names the path — the
-            # combo still shows it, so "select a valid image" reads as a
+        if not (_sel_image and os.path.isfile(_sel_image)):
+            # Different failures: nothing chosen at all, or a choice whose
+            # file has since gone. The second names the path — the combo
+            # still shows it, so "select a valid image" reads as a
             # contradiction.
-            _emulator_launch_failed("MAME", _image_file_missing(_sel_image)
-                                    if _sel_image else ui_tr_now(
-                "Select a valid ZX Spectrum Next disk image (.img/.hdf) "
-                "before launching MAME."))
+            if _sel_image:
+                _why = _image_file_missing(_sel_image)
+            elif _has_autostart:
+                _why = _mame_file_needs_image()
+            else:
+                _why = ui_tr_now(
+                    "Select a valid ZX Spectrum Next disk image (.img/.hdf) "
+                    "before launching MAME.")
+            _emulator_launch_failed("MAME", _why)
             return
 
         # As for CSpect: the image may already be held by a running
@@ -1523,18 +1655,31 @@ def build_emulator_ops(
                 _rompath = default_mame_flatpak_rompath()
             mame_argv += ["-rompath", _rompath]
 
-        # Autostart file, inserted before -hard1 so the image stays the final
-        # argument. MAME resolves it against its own working directory, which
-        # is its install folder (see mame_cwd below), so it is made absolute.
-        if isinstance(autostart_file, str) and autostart_file.strip():
+        # Autostart file: NextZXOS starts it from the card once it has booted
+        # (never -snapshot, which loads at power-on, under the firmware - see
+        # MAME_NEXT_CARD_STAGING_DIR in zxnu_config). The autoboot pair goes
+        # before -hard1 so the image stays the final argument.
+        if _has_autostart:
             _auto = os.path.abspath(autostart_file.strip().strip('"'))
-            _auto_switch = mame_autostart_argument(_auto)
-            if _auto_switch:
-                mame_argv += [_auto_switch, _auto]
-            else:
+            if not _auto.lower().endswith(".nex"):
                 add_main_log_window(ui_tr_now(
                     "MAME cannot load {name} directly; starting MAME without "
                     "it.").format(name=os.path.basename(_auto)))
+            else:
+                _script = _nextzxos_autostart_script(
+                    _auto, card_path, mame_image, _flatpak)
+                if not _script:
+                    return
+                # The script owns MAME's autoboot for this launch: one typed
+                # into the parameters box would replace it (or type into
+                # the Command Line alongside it).
+                mame_argv, _dropped = strip_mame_autoboot_options(mame_argv)
+                if _dropped:
+                    add_main_log_window(ui_tr_now(
+                        "MAME parameters: {options} left out of this launch - "
+                        "the file is started by ZX-Next-Unite's own autoboot "
+                        "script.").format(options=", ".join(_dropped)))
+                mame_argv += ["-autoboot_delay", "0", "-autoboot_script", _script]
 
         if mame_image:
             mame_argv += [MAME_HARD_DISK_PARAMETER, mame_image]

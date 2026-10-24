@@ -24,7 +24,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.54"
+ZX_NEXT_UNITE_VERSION = "9.7.55"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -2008,6 +2008,287 @@ def mame_autostart_staging_dir():
     """
     return os.path.join(os.path.expanduser("~"), ".cache",
                         "zx-next-unite", "mame-autostart")
+
+
+# Starting a file in MAME's ZX Spectrum Next (9.7.55): NextZXOS loads it, not
+# MAME's -snapshot.
+#
+# Every MAME_ROM_CHOICE machine is a Next driver, and each boots the TBBlue
+# firmware from the SD card, which loads the ROMs and soft-resets into
+# NextZXOS about five seconds in. MAME's snapshot device has no delay on these
+# drivers, so "-snapshot x.nex" poked the program into RAM at POWER-ON, before
+# the firmware ran: the firmware then loaded over it and hung after its own
+# reset (measured on MAME 0.289, specnext_ks2 and tbblue alike: the corrupted
+# firmware screen, PC parked at $6011). Loading the same file later, once
+# NextZXOS is up, starts a self-contained game, but not a program that leans
+# on the OS: ZX Next Remote asks NextZXOS for memory (IDE_BANK) and finds
+# its own files on the card, and a .nex poked in from the PC is neither
+# booked by the OS nor on the card. So the file goes ON THE CARD and NextZXOS
+# starts it the way a user would - the Command Line, CD into its folder,
+# .nexload it - typed by a Lua autoboot script on the emulated membrane.
+# MAME's natural keyboard is no use for that: on the Next it drops every
+# symbol (", :, /, . and -, measured), so the script presses the SYMBOL
+# SHIFT chords itself.
+#
+# A file already on the card is started IN PLACE (its folder is the current
+# directory, as when the Browser starts it). One only on the PC, or whose card
+# path cannot be typed with the characters below, is put into this folder
+# first.
+MAME_NEXT_CARD_STAGING_DIR = "/zxnu-start"
+# Frames after the LAST machine reset before typing starts. The firmware's
+# hand-over is a reset and NextZXOS reached its menu ~120 frames after it
+# (MAME 0.289, NextZXOS 2.09), so 200 leaves a margin.
+MAME_NEXTZXOS_SETTLE_FRAMES = 200
+# No reset at all after this many frames: no NextZXOS to type into (the card
+# does not boot), so the script says so and types nothing.
+MAME_NEXTZXOS_GIVE_UP_FRAMES = 1500
+# A typed line longer than this takes the staging route instead (~4 frames a
+# character, and the Command Line is one editor line).
+MAME_NEXTZXOS_MAX_LINE = 120
+# What the script can type: letters (capitals through CAPS SHIFT), digits and
+# the few symbols below (SYMBOL SHIFT chords). A FILE name gets no space, no
+# quote and no colon - .nexload reads its argument raw - and must not start
+# with "-" (an option to a dot command). A FOLDER may hold spaces: the CD
+# line quotes it.
+_NEXTZXOS_NAME_CHARS = frozenset(string.ascii_letters + string.digits + "._-")
+_NEXTZXOS_DIR_CHARS = _NEXTZXOS_NAME_CHARS | frozenset(" /")
+# Every character a generated line can contain, i.e. what the Lua typist must
+# know. Pinned against the Lua's own table by tests/test_mame_autostart.py.
+NEXTZXOS_TYPED_CHARS = _NEXTZXOS_DIR_CHARS | frozenset('":')
+
+
+def nextzxos_card_launch_lines(card_path):
+    """The two Command Line entries that start the .nex at *card_path* (a
+    path on the image's first partition, as hdfmonkey names it): ``cd
+    "c:/<folder>"`` and ``.nexload <name>``. ``None`` when the path cannot be
+    typed (see ``_NEXTZXOS_*_CHARS``), names no .nex, or makes a line longer
+    than ``MAME_NEXTZXOS_MAX_LINE`` - the caller stages the file then."""
+    p = str(card_path or "").replace("\\", "/").strip()
+    if not p:
+        return None
+    parts = [c for c in p.split("/") if c]
+    if not parts or any(c in (".", "..") or c != c.strip() for c in parts):
+        return None
+    name, folders = parts[-1], parts[:-1]
+    if (not name.lower().endswith(".nex") or name[0] == "-"
+            or any(ch not in _NEXTZXOS_NAME_CHARS for ch in name)):
+        return None
+    folder = "/" + "/".join(folders)
+    if any(ch not in _NEXTZXOS_DIR_CHARS for ch in folder):
+        return None
+    lines = ('cd "c:%s"' % folder, ".nexload " + name)
+    if max(len(line) for line in lines) > MAME_NEXTZXOS_MAX_LINE:
+        return None
+    return lines
+
+
+def nextzxos_staged_name(file_name):
+    """The name a file gets in ``MAME_NEXT_CARD_STAGING_DIR``: the original
+    when it can be typed (ZX Next Remote looks for its own files by name),
+    else every untypeable character replaced by "_", kept short."""
+    base = str(file_name or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
+    stem, dot, ext = base.rpartition(".")
+    if not dot:
+        stem, ext = base, "nex"
+    ext = "".join(ch for ch in ext if ch in _NEXTZXOS_NAME_CHARS) or "nex"
+    stem = "".join(ch if ch in _NEXTZXOS_NAME_CHARS else "_" for ch in stem)
+    stem = stem[:48].strip(".") or "start"
+    if stem[0] == "-":
+        stem = "_" + stem[1:]
+    return stem + "." + ext
+
+
+# MAME's own spellings of the autoboot options (with their short aliases).
+# A launch that types into NextZXOS owns the autoboot script, so any the user
+# typed into the MAME parameters box are dropped for that launch.
+_MAME_AUTOBOOT_OPTIONS = ("-autoboot_script", "-script", "-autoboot_command",
+                          "-ab", "-autoboot_delay")
+
+
+def strip_mame_autoboot_options(tokens):
+    """``(kept, dropped)``: *tokens* without any autoboot option and its value
+    (see ``_MAME_AUTOBOOT_OPTIONS``), and the dropped pairs joined for a log
+    line."""
+    kept, dropped = [], []
+    it = iter(list(tokens))
+    for tok in it:
+        if str(tok).lower() in _MAME_AUTOBOOT_OPTIONS:
+            value = next(it, "")
+            dropped.append(f"{tok} {value}".strip())
+            continue
+        kept.append(tok)
+    return kept, dropped
+
+
+def lua_string_literal(text):
+    """*text* as a double-quoted Lua string literal: printable ASCII as is,
+    every other UTF-8 byte as a three-digit decimal escape (three digits, so
+    a digit that follows can never be read into the escape)."""
+    out = ['"']
+    for b in str(text).encode("utf-8"):
+        if b == 0x5C:
+            out.append("\\\\")
+        elif b == 0x22:
+            out.append('\\"')
+        elif 32 <= b < 127:
+            out.append(chr(b))
+        else:
+            out.append("\\%03d" % b)
+    out.append('"')
+    return "".join(out)
+
+
+# The autoboot script. MAME runs it at power-on and AGAIN after every machine
+# reset in the same Lua state, so the first run keeps its state in a global
+# and a later run only restarts the settle count - until the typing has
+# begun, after which a reset (the program's own, or the user's) changes
+# nothing. Keys are held HOLD frames and released GAP frames, with a longer
+# gap between two presses of the same key (the ROM's key scan must see it
+# released): ~4 frames a character, measured reliable on a 63-character pair
+# of lines including capitals, digits, "_", "-", a doubled digit and a space
+# in a quoted folder. "l" is the NextZXOS menu's hotkey for Command Line.
+_MAME_NEXTZXOS_LUA = r'''-- ZX-Next-Unite: start @@LABEL@@ through NextZXOS (generated per launch).
+local LINES = { @@LINES@@ }
+local LABEL = @@LABEL_LITERAL@@
+local SETTLE, GIVE_UP = @@SETTLE@@, @@GIVE_UP@@
+local HOLD, GAP, SAME_KEY_GAP, MENU_WAIT, LINE_WAIT = 2, 2, 6, 25, 30
+
+local st = _G.zxnu_nexload
+if st then
+  if not st.started then st.left = SETTLE end
+  return
+end
+st = { left = nil, started = false, frames = 0, plan = {}, step = 1,
+       wait = 0, down = {}, ok = true }
+_G.zxnu_nexload = st
+
+local function say(text) print("ZX-Next-Unite: " .. text) end
+
+local keys = {}
+for _, port in pairs(manager.machine.ioport.ports) do
+  if port.tag:match(":LINE%d$") then
+    for name, field in pairs(port.fields) do
+      local n = tostring(name)
+      if n == "CAPS SHIFT" or n == "SYMBOL SHIFT" or n == "ENTER"
+          or n == "SPACE" then
+        keys[n] = field
+      elseif n:match("^%w%s") then
+        keys[n:sub(1, 1)] = field
+      end
+    end
+  end
+end
+
+local SYM = { ['"'] = "p", [":"] = "z", ["/"] = "v", ["."] = "m",
+              ["-"] = "j", ["_"] = "0" }
+
+local function chord(ch)
+  local names
+  if ch == " " then names = { "SPACE" }
+  elseif ch == "\r" then names = { "ENTER" }
+  elseif SYM[ch] then names = { "SYMBOL SHIFT", SYM[ch] }
+  elseif ch:match("%u") then names = { "CAPS SHIFT", ch:lower() }
+  else names = { ch } end
+  local fields = {}
+  for _, n in ipairs(names) do
+    if not keys[n] then return nil, n end
+    table.insert(fields, keys[n])
+  end
+  return fields
+end
+
+local function add(fields, frames)
+  table.insert(st.plan, { fields = fields, frames = frames })
+end
+
+local function plan_text(text)
+  local prev
+  for ch in text:gmatch(".") do
+    local c, missing = chord(ch)
+    if not c then
+      say("cannot type '" .. ch .. "' (this machine has no " .. missing
+          .. " key); " .. LABEL .. " was not started.")
+      st.ok = false
+      return
+    end
+    if prev and prev[#prev] == c[#c] then add({}, SAME_KEY_GAP) end
+    add(c, HOLD)
+    add({}, GAP)
+    prev = c
+  end
+end
+
+plan_text("l")
+add({}, MENU_WAIT)
+for _, line in ipairs(LINES) do
+  plan_text(line .. "\r")
+  add({}, LINE_WAIT)
+end
+
+local function on_frame()
+  st.frames = st.frames + 1
+  if not st.started then
+    if st.left == nil then
+      if st.frames == GIVE_UP then
+        say("NextZXOS did not start (no reset after " .. GIVE_UP
+            .. " frames), so " .. LABEL .. " was not started.")
+      end
+      return
+    end
+    st.left = st.left - 1
+    if st.left > 0 then return end
+    st.started = true
+    if st.ok then say("typing the commands that start " .. LABEL) end
+  end
+  if not st.ok or st.finished then return end
+  if st.wait > 0 then st.wait = st.wait - 1 return end
+  for _, f in ipairs(st.down) do f:clear_value() end
+  st.down = {}
+  local s = st.plan[st.step]
+  if not s then
+    st.finished = true
+    return
+  end
+  st.step = st.step + 1
+  for _, f in ipairs(s.fields) do
+    f:set_value(1)
+    table.insert(st.down, f)
+  end
+  st.wait = s.frames - 1
+end
+
+if emu.add_machine_frame_notifier then
+  st.sub = emu.add_machine_frame_notifier(on_frame)
+else
+  emu.register_frame_done(on_frame)
+end
+'''
+
+
+def mame_nextzxos_autostart_lua(lines, label,
+                                settle=MAME_NEXTZXOS_SETTLE_FRAMES,
+                                give_up=MAME_NEXTZXOS_GIVE_UP_FRAMES):
+    """The Lua autoboot script that types *lines* (each followed by ENTER) at
+    NextZXOS's Command Line once the machine has booted. *label* names the
+    program in the script's console lines. Refuses a line holding a
+    character the script cannot type, rather than typing something else."""
+    for line in lines:
+        bad = sorted(set(line) - NEXTZXOS_TYPED_CHARS)
+        if bad:
+            raise ValueError(f"cannot type {bad!r} at the NextZXOS Command Line")
+    label_text = str(label)
+    values = {
+        "LINES": ", ".join(lua_string_literal(x) for x in lines),
+        "LABEL_LITERAL": lua_string_literal(label_text),
+        # The first line is a Lua comment: no newline may end it early.
+        "LABEL": "".join(ch if ch.isprintable() else "?" for ch in label_text),
+        "SETTLE": str(int(settle)),
+        "GIVE_UP": str(int(give_up)),
+    }
+    # One pass, so a file name that happens to spell a placeholder is
+    # never substituted a second time.
+    return re.sub(r"@@([A-Z_]+)@@", lambda m: values[m.group(1)],
+                  _MAME_NEXTZXOS_LUA)
 
 
 def emulator_option_argument(options, index):

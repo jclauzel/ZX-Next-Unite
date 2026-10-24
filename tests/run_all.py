@@ -50,6 +50,10 @@ SUITES = [
     ("test_mame_reader.py",      120, None),
     ("test_default_sync_root.py", 120, None),
     ("test_mame_autostart.py",   120, None),
+    # "Start MAME with file" goes through NextZXOS on the card (9.7.55): the
+    # real launch_mame on a fake host, plus a live run of the generated Lua
+    # when a MAME is under downloads/ (skipped on CI).
+    ("test_mame_nextzxos_start.py", 180, None),
     ("test_nextsync_autostart.py", 120, None),
     ("test_nextsync_verify_crc.py", 120, None),
     ("test_nextsync_sessions.py", 120, None),
