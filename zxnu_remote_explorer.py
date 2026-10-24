@@ -5852,16 +5852,19 @@ class RemoteExplorerWidget(QWidget):
         file is deliberately NOT deleted afterwards: it is the user's now, and
         the emulator is launched detached and opens it after we return.
 
-        NO disk image is involved and none is required. MAME loads a snapshot
-        with no -hard1, and CSpect takes a plain folder as its -mmc root (its
-        own sample launchers use `-mmc=./`), so the downloaded file's folder
-        serves as the card root.
+        CSpect needs no disk image: it takes a plain folder as its -mmc root
+        (its own sample launchers use `-mmc=./`), so the downloaded file's
+        folder serves as the card root. MAME does need one (9.7.55): its
+        Next boots NextZXOS from the SD Card tab's image, and the launcher
+        puts the file on that card for NextZXOS to start - the entry's
+        ``blocked()`` says so before anything is downloaded.
         """
         if not self._connected or self._busy_refused():
             return
         name = posixpath.basename(remote_path.rstrip("/")) or remote_path
-        # Only asks about things that genuinely stop a launch — booting a file
-        # needs no mounted image, so this does not fire for a missing SD card.
+        # Only asks about things that genuinely stop a launch — asked BEFORE
+        # the download, so a launch that cannot succeed (an image another
+        # emulator holds; for MAME, no image at all) costs no transfer.
         blocked = entry.blocked()
         if blocked:
             self._log(blocked)

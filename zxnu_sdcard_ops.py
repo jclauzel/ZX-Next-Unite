@@ -2011,9 +2011,10 @@ def build_local_explorer_ops(
                 lambda: QTimer.singleShot(0, _send_and_start))
             menu.addSeparator()
 
-        # The MAME twin of the action above. Same shape, same reason for
-        # starting on the LOCAL file rather than the copy just written into
-        # the image: MAME cannot read a path inside the mounted image.
+        # The MAME twin of the action above. MAME is handed the LOCAL file AND
+        # where its copy just landed on the card: NextZXOS starts that copy
+        # in place (9.7.55), the local file being the fallback the launcher
+        # stages when the card path cannot be typed at the Command Line.
         if (not is_dir and emulator_offers_autostart(file_path)
                 and _right_disk_content()
                 and host._mame_usable()
@@ -2031,7 +2032,10 @@ def build_local_explorer_ops(
                             "Send to SD Card and start MAME: the transfer "
                             "failed, MAME was not started."))
                         return
-                    host._launch_mame_fn(_p)
+                    # image_upload_external_paths writes <target>/<basename>.
+                    host._launch_mame_fn(
+                        _p, card_path=target.rstrip("/") + "/"
+                        + os.path.basename(_p))
                 add_main_log_window(ui_tr_now(
                     "Sending {name} to the SD card image, then starting "
                     "MAME…").format(name=os.path.basename(_p)))
@@ -3396,15 +3400,15 @@ def build_transfer_clipboard_ops(
     def _mame_start_from_image(image_path):
         """Boot a file that lives INSIDE the mounted image with MAME.
 
-        Same constraint as the CSpect twin above: MAME loads the file through
-        its own file system, so an in-image path is meaningless to it and the
-        file has to exist on the host first. Extract it (and nothing else) to
-        a temp folder with hdfmonkey, then start MAME on that copy with the
-        image still attached as -hard1, so anything the program loads from the
-        SD card resolves as usual.
+        NextZXOS starts it IN PLACE, from its own folder on the card (9.7.55,
+        see ``MAME_NEXT_CARD_STAGING_DIR``), so the launch is handed
+        *image_path*. The file is still extracted to a host folder first:
+        that copy is what the launcher puts into the staging folder when the
+        in-image path holds a character the Command Line cannot be typed
+        with.
 
-        The extracted copy is deliberately NOT deleted on success: MAME is
-        launched detached and opens the file after we return."""
+        The extracted copy is deliberately NOT deleted on success: the
+        launcher reads it after we return."""
         if not _right_disk_content() or not image_path:
             return
         name = os.path.basename(image_path)
@@ -3432,7 +3436,7 @@ def build_transfer_clipboard_ops(
                     "MAME was not started.").format(name=name))
                 shutil.rmtree(tmp, ignore_errors=True)
                 return
-            host._launch_mame_fn(local)
+            host._launch_mame_fn(local, card_path=image_path)
 
         add_main_log_window(ui_tr_now(
             "Extracting {name} from the image, then starting MAME…").format(

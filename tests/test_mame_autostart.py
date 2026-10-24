@@ -7,25 +7,21 @@ offers two right-click actions that boot a file straight into the emulator:
   * local explorer  -> "Send to SD Card and start MAME with file X"
                        (upload into the image first, then start)
 
-WHAT MAME ACTUALLY NEEDS — verified against a real MAME 0.288 rather than
-assumed, because the widely repeated advice is wrong. A raw file does NOT need
-a software-list entry and does NOT need copying into a software/<system>
-folder: `mame -listmedia tbblue` reports .nex among the *snapshot* extensions
-and
+WHAT MAME ACTUALLY NEEDS. `mame -listmedia tbblue` does list .nex among the
+*snapshot* extensions, and through 9.7.54 the launch was
 
-    mame tbblue -snapshot <host path>.nex -hard1 <image>
+    mame <machine> -snapshot <host path>.nex -hard1 <image>
 
-boots it (checked to run and, with a bogus path, to fail loudly). The software
-list the folklore refers to, hash/specnext_sd.xml, describes hash-matched
-SD-card images — a different mechanism that cannot describe a file it has never
-seen, so dropping a .nex into software/specnext would match nothing.
-
-The path must be a HOST path: MAME's loader knows nothing about the contents of
-the emulated SD card, so a file living on the image has to be extracted first.
-That is the same trap the CSpect feature shipped with, and it is pinned below.
-
-The launch itself needs a built MainWindow and a real emulator, so the argv
-assembly is checked at source level.
+which looked fine on MAME 0.288 but is WRONG on every Next driver (measured on
+0.289, specnext_ks2 and tbblue alike): the snapshot device has no delay there,
+so the program is poked into RAM at power-on, the TBBlue firmware then loads
+the ROMs over it and hangs after its own reset into NextZXOS (the corrupted
+firmware screen, PC parked at $6011). Since 9.7.55 the file goes ON THE CARD
+and NextZXOS starts it (cd + .nexload typed by a Lua autoboot script) - see
+test_mame_nextzxos_start.py, which drives the real launcher. What is pinned
+here is the SD Card tab's side: the file on the image is still extracted
+(the host copy is the launcher's fallback), and both actions hand the
+launcher the card path.
 
 Run with: python tests/test_mame_autostart.py
 """
@@ -118,20 +114,18 @@ if fn is not None:
           "os.path.abspath(autostart_file" in src)
     check("no leading-slash stripping (host path, not an image path)",
           'autostart_file.strip().lstrip("/")' not in src)
-    check("the media switch is chosen per file type, not hard-coded",
-          "mame_autostart_argument" in body)
+    # 9.7.55: never -snapshot - it loads at power-on, under the firmware.
+    check("the file is never handed to MAME's media switches",
+          "mame_autostart_argument" not in body
+          and '"-snapshot"' not in ast.get_source_segment(src, fn))
     # -hard1 <image> has always been documented as the final argument.
-    check("the file is added BEFORE -hard1, which stays last",
-          src.index("_auto_switch, _auto") < src.index("MAME_HARD_DISK_PARAMETER, mame_image"))
+    check("the autoboot script is added BEFORE -hard1, which stays last",
+          src.index('"-autoboot_script", _script')
+          < src.index("MAME_HARD_DISK_PARAMETER, mame_image"))
     check("an unsupported file does not silently vanish",
           "MAME cannot load {name} directly" in src)
-    # Launching the IMAGE still requires one (the Launch Mame button's job);
-    # running a downloaded FILE does not, so the Remote Explorer can boot a
-    # program fetched off the Next with no image mounted.
     check("launching the image itself still requires an image",
           "Select a valid ZX Spectrum Next disk image" in src)
-    check("running a file is not gated on an image",
-          "and not _has_autostart" in src)
     check("only a real file is passed as -hard1",
           "os.path.isfile(mame_image)" in src,
           "'-hard1 <not a file>' is fatal in MAME, not a no-op")
@@ -144,14 +138,14 @@ seg_img = ops[ops.find("def _mame_start_from_image"):]
 seg_img = seg_img[:seg_img.find("def _image_remote_zip")]
 check("it pulls the file out of the image with the hdfmonkey helper",
       "image_get_paths_to_local" in seg_img)
-check("it launches the EXTRACTED host copy, not the in-image path",
-      "_launch_mame_fn(local)" in seg_img)
+check("it hands the launcher the host copy AND where the file is on the card",
+      "_launch_mame_fn(local, card_path=image_path)" in seg_img)
 check("a failed extraction does not start MAME",
       "could not be read from the image" in seg_img)
-# The copy must survive a successful launch (MAME is detached and opens it
-# after we return), so the only cleanup on that path is the failure branch.
+# The copy must survive a successful launch (the launcher may stage it onto
+# the card after we return), so the only cleanup is the failure branch.
 fail_at = seg_img.find("could not be read from the image")
-launch_at = seg_img.find("_launch_mame_fn(local)")
+launch_at = seg_img.find("_launch_mame_fn(local, card_path=image_path)")
 check("the copy is not deleted out from under a detached MAME",
       fail_at != -1 and launch_at != -1
       and "shutil.rmtree(tmp, ignore_errors=True)" in seg_img[fail_at:launch_at],
@@ -187,7 +181,10 @@ check("a staging dir that cannot be created is reported, not ignored",
 seg_loc = ops[ops.find("def _send_and_start_mame"):]
 seg_loc = seg_loc[:seg_loc.find("menu.addAction")]
 check("the local action starts MAME on the local (host) file",
-      "_launch_mame_fn(_p)" in seg_loc)
+      re.search(r"_launch_mame_fn\(\s*_p,", seg_loc) is not None)
+check("...naming the copy it just uploaded: <target>/<basename>",
+      re.search(r'card_path=target\.rstrip\("/"\) \+ "/"\s*\+ os\.path\.basename\(_p\)',
+                seg_loc) is not None)
 check("the local action never builds an in-image path for MAME",
       "in_image" not in seg_loc)
 check("a failed transfer does not start MAME",

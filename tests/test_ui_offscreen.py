@@ -3805,16 +3805,19 @@ def inspect_phase12():
                   bool(blocker("CSpect")), repr(blocker("CSpect")))
             check("with no image, launching the image itself is blocked (MAME)",
                   bool(blocker("MAME")), repr(blocker("MAME")))
-            # Launching a downloaded FILE does not: the Remote Explorer fetches
-            # a program off the Next to the local disk and runs it, with no SD
-            # image involved. Gating that on an image is what produced the
-            # "Could not start CSpect — load a disk image first" toast on a
-            # perfectly valid launch.
+            # Launching a downloaded FILE in CSpect does not: the Remote
+            # Explorer fetches a program off the Next to the local disk and
+            # runs it, with no SD image involved. Gating that on an image is
+            # what produced the "Could not start CSpect — load a disk image
+            # first" toast on a perfectly valid launch.
             check("running a downloaded FILE is never gated on an image (CSpect)",
                   blocker("CSpect", autostart=True) == "",
                   repr(blocker("CSpect", autostart=True)))
-            check("running a downloaded FILE is never gated on an image (MAME)",
-                  blocker("MAME", autostart=True) == "",
+            # MAME does need one since 9.7.55: its Next boots NextZXOS from the
+            # card (none: the firmware stalls at power-on) and NextZXOS is
+            # what starts the file - said BEFORE the Remote Explorer downloads.
+            check("running a FILE in MAME needs the image, and says why",
+                  "NextZXOS" in blocker("MAME", autostart=True),
                   repr(blocker("MAME", autostart=True)))
             check("an unknown emulator is not reported as blocked",
                   blocker("Nonesuch") == "")

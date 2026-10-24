@@ -824,6 +824,18 @@ CATALOGS = {
             "Enviando {name} a la imagen de la tarjeta SD y luego iniciando MAME…",
         "MAME cannot load {name} directly; starting MAME without it.":
             "MAME no puede cargar {name} directamente; se iniciará MAME sin ese archivo.",
+        "MAME's ZX Spectrum Next starts a file through NextZXOS on the SD card: select a disk image (.img/.hdf) in the SD Card tab first.":
+            "El ZX Spectrum Next de MAME inicia los archivos mediante NextZXOS en la tarjeta SD: selecciona primero una imagen de disco (.img/.hdf) en la pestaña SD Card.",
+        "Start MAME: {name} could not be found on this PC, MAME was not started.":
+            "Iniciar MAME: no se encontró {name} en este PC; MAME no se ha iniciado.",
+        "Start MAME: {name} could not be copied onto the SD card image ({error}), MAME was not started.":
+            "Iniciar MAME: no se pudo copiar {name} en la imagen de la tarjeta SD ({error}); MAME no se ha iniciado.",
+        "Start MAME: the script that starts {name} could not be written, MAME was not started.":
+            "Iniciar MAME: no se pudo escribir el script que inicia {name}; MAME no se ha iniciado.",
+        "MAME: NextZXOS will start {path} from the SD card once it has booted - the commands are typed at its Command Line, so leave the keyboard alone for about 15 seconds.":
+            "MAME: NextZXOS iniciará {path} desde la tarjeta SD en cuanto arranque; los comandos se escriben en su Command Line, así que no toques el teclado durante unos 15 segundos.",
+        "MAME parameters: {options} left out of this launch - the file is started by ZX-Next-Unite's own autoboot script.":
+            "Parámetros de MAME: {options} se omite en este inicio; el archivo lo inicia el propio script de autoarranque de ZX-Next-Unite.",
         # ---- dialogs (message boxes) ----
         "CSpect update available":
             "Actualización de CSpect disponible",
@@ -2356,6 +2368,18 @@ CATALOGS = {
             "A enviar {name} para a imagem do cartão SD e depois a iniciar o MAME…",
         "MAME cannot load {name} directly; starting MAME without it.":
             "O MAME não consegue carregar {name} diretamente; o MAME será iniciado sem esse ficheiro.",
+        "MAME's ZX Spectrum Next starts a file through NextZXOS on the SD card: select a disk image (.img/.hdf) in the SD Card tab first.":
+            "O ZX Spectrum Next do MAME inicia os ficheiros através do NextZXOS no cartão SD: seleciona primeiro uma imagem de disco (.img/.hdf) no separador SD Card.",
+        "Start MAME: {name} could not be found on this PC, MAME was not started.":
+            "Iniciar o MAME: {name} não foi encontrado neste PC; o MAME não foi iniciado.",
+        "Start MAME: {name} could not be copied onto the SD card image ({error}), MAME was not started.":
+            "Iniciar o MAME: não foi possível copiar {name} para a imagem do cartão SD ({error}); o MAME não foi iniciado.",
+        "Start MAME: the script that starts {name} could not be written, MAME was not started.":
+            "Iniciar o MAME: não foi possível escrever o script que inicia {name}; o MAME não foi iniciado.",
+        "MAME: NextZXOS will start {path} from the SD card once it has booted - the commands are typed at its Command Line, so leave the keyboard alone for about 15 seconds.":
+            "MAME: o NextZXOS vai iniciar {path} a partir do cartão SD assim que arrancar; os comandos são escritos na sua Command Line, por isso não toques no teclado durante cerca de 15 segundos.",
+        "MAME parameters: {options} left out of this launch - the file is started by ZX-Next-Unite's own autoboot script.":
+            "Parâmetros do MAME: {options} foi omitido neste arranque; o ficheiro é iniciado pelo próprio script de arranque automático do ZX-Next-Unite.",
         # ---- dialogs (message boxes) ----
         "CSpect update available":
             "Atualização do CSpect disponível",
@@ -3884,6 +3908,18 @@ CATALOGS = {
             "Wysyłanie {name} do obrazu karty SD, potem uruchomienie MAME…",
         "MAME cannot load {name} directly; starting MAME without it.":
             "MAME nie może załadować {name} bezpośrednio — MAME zostanie uruchomione bez tego pliku.",
+        "MAME's ZX Spectrum Next starts a file through NextZXOS on the SD card: select a disk image (.img/.hdf) in the SD Card tab first.":
+            "ZX Spectrum Next w MAME uruchamia pliki przez NextZXOS z karty SD: najpierw wybierz obraz dysku (.img/.hdf) na karcie SD Card.",
+        "Start MAME: {name} could not be found on this PC, MAME was not started.":
+            "Uruchom MAME: nie znaleziono {name} na tym komputerze — MAME nie zostało uruchomione.",
+        "Start MAME: {name} could not be copied onto the SD card image ({error}), MAME was not started.":
+            "Uruchom MAME: nie udało się skopiować {name} do obrazu karty SD ({error}) — MAME nie zostało uruchomione.",
+        "Start MAME: the script that starts {name} could not be written, MAME was not started.":
+            "Uruchom MAME: nie udało się zapisać skryptu uruchamiającego {name} — MAME nie zostało uruchomione.",
+        "MAME: NextZXOS will start {path} from the SD card once it has booted - the commands are typed at its Command Line, so leave the keyboard alone for about 15 seconds.":
+            "MAME: NextZXOS uruchomi {path} z karty SD, gdy tylko wystartuje — polecenia są wpisywane w jego Command Line, więc nie dotykaj klawiatury przez około 15 sekund.",
+        "MAME parameters: {options} left out of this launch - the file is started by ZX-Next-Unite's own autoboot script.":
+            "Parametry MAME: pominięto {options} przy tym uruchomieniu — plik uruchamia własny skrypt autostartu ZX-Next-Unite.",
         # ---- dialogs (message boxes) ----
         "CSpect update available":
             "Dostępna aktualizacja CSpect",
@@ -5414,6 +5450,18 @@ CATALOGS = {
             "Отправка {name} в образ SD-карты, затем запуск MAME…",
         "MAME cannot load {name} directly; starting MAME without it.":
             "MAME не может загрузить {name} напрямую — MAME будет запущен без этого файла.",
+        "MAME's ZX Spectrum Next starts a file through NextZXOS on the SD card: select a disk image (.img/.hdf) in the SD Card tab first.":
+            "ZX Spectrum Next в MAME запускает файлы через NextZXOS с SD-карты: сначала выберите образ диска (.img/.hdf) на вкладке SD Card.",
+        "Start MAME: {name} could not be found on this PC, MAME was not started.":
+            "Запуск MAME: {name} не найден на этом компьютере — MAME не запущен.",
+        "Start MAME: {name} could not be copied onto the SD card image ({error}), MAME was not started.":
+            "Запуск MAME: не удалось скопировать {name} в образ SD-карты ({error}) — MAME не запущен.",
+        "Start MAME: the script that starts {name} could not be written, MAME was not started.":
+            "Запуск MAME: не удалось записать скрипт, запускающий {name}, — MAME не запущен.",
+        "MAME: NextZXOS will start {path} from the SD card once it has booted - the commands are typed at its Command Line, so leave the keyboard alone for about 15 seconds.":
+            "MAME: NextZXOS запустит {path} с SD-карты, как только загрузится, — команды вводятся в его Command Line, поэтому не трогайте клавиатуру около 15 секунд.",
+        "MAME parameters: {options} left out of this launch - the file is started by ZX-Next-Unite's own autoboot script.":
+            "Параметры MAME: {options} не используется при этом запуске — файл запускает собственный скрипт автозагрузки ZX-Next-Unite.",
         # ---- dialogs (message boxes) ----
         "CSpect update available":
             "Доступно обновление CSpect",
@@ -6940,6 +6988,18 @@ CATALOGS = {
             "Odesílání {name} do obrazu SD karty, poté spuštění MAME…",
         "MAME cannot load {name} directly; starting MAME without it.":
             "MAME nemůže {name} načíst přímo — MAME bude spuštěn bez tohoto souboru.",
+        "MAME's ZX Spectrum Next starts a file through NextZXOS on the SD card: select a disk image (.img/.hdf) in the SD Card tab first.":
+            "ZX Spectrum Next v MAME spouští soubory přes NextZXOS z karty SD: nejprve vyberte obraz disku (.img/.hdf) na kartě SD Card.",
+        "Start MAME: {name} could not be found on this PC, MAME was not started.":
+            "Spustit MAME: {name} se na tomto počítači nenašel — MAME nebyl spuštěn.",
+        "Start MAME: {name} could not be copied onto the SD card image ({error}), MAME was not started.":
+            "Spustit MAME: {name} se nepodařilo zkopírovat do obrazu karty SD ({error}) — MAME nebyl spuštěn.",
+        "Start MAME: the script that starts {name} could not be written, MAME was not started.":
+            "Spustit MAME: skript, který spouští {name}, se nepodařilo zapsat — MAME nebyl spuštěn.",
+        "MAME: NextZXOS will start {path} from the SD card once it has booted - the commands are typed at its Command Line, so leave the keyboard alone for about 15 seconds.":
+            "MAME: NextZXOS spustí {path} z karty SD, jakmile nastartuje — příkazy se zadávají do jeho Command Line, takže asi 15 sekund nesahejte na klávesnici.",
+        "MAME parameters: {options} left out of this launch - the file is started by ZX-Next-Unite's own autoboot script.":
+            "Parametry MAME: {options} se při tomto spuštění vynechává — soubor spouští vlastní skript automatického spuštění ZX-Next-Unite.",
         # ---- dialogs (message boxes) ----
         "CSpect update available":
             "K dispozici je aktualizace CSpectu",
@@ -8475,6 +8535,18 @@ CATALOGS = {
             "Envoi de {name} vers l'image de la carte SD, puis lancement de MAME…",
         "MAME cannot load {name} directly; starting MAME without it.":
             "MAME ne peut pas charger {name} directement ; MAME sera lancé sans ce fichier.",
+        "MAME's ZX Spectrum Next starts a file through NextZXOS on the SD card: select a disk image (.img/.hdf) in the SD Card tab first.":
+            "Le ZX Spectrum Next de MAME lance les fichiers via NextZXOS sur la carte SD : sélectionnez d'abord une image disque (.img/.hdf) dans l'onglet SD Card.",
+        "Start MAME: {name} could not be found on this PC, MAME was not started.":
+            "Lancer MAME : {name} est introuvable sur ce PC, MAME n'a pas été lancé.",
+        "Start MAME: {name} could not be copied onto the SD card image ({error}), MAME was not started.":
+            "Lancer MAME : impossible de copier {name} sur l'image de la carte SD ({error}), MAME n'a pas été lancé.",
+        "Start MAME: the script that starts {name} could not be written, MAME was not started.":
+            "Lancer MAME : impossible d'écrire le script qui lance {name}, MAME n'a pas été lancé.",
+        "MAME: NextZXOS will start {path} from the SD card once it has booted - the commands are typed at its Command Line, so leave the keyboard alone for about 15 seconds.":
+            "MAME : NextZXOS lancera {path} depuis la carte SD dès qu'il aura démarré ; les commandes sont tapées dans sa Command Line, ne touchez donc pas au clavier pendant environ 15 secondes.",
+        "MAME parameters: {options} left out of this launch - the file is started by ZX-Next-Unite's own autoboot script.":
+            "Paramètres MAME : {options} ignoré pour ce lancement ; le fichier est lancé par le script de démarrage automatique de ZX-Next-Unite.",
         # ---- dialogs (message boxes) ----
         "CSpect update available":
             "Mise à jour de CSpect disponible",
