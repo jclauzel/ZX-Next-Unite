@@ -15,7 +15,9 @@ that turn that hang into a clear failure:
 
 Run with: python tests/test_mame_install.py
 """
+import atexit
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -34,6 +36,9 @@ def check(label, cond, detail=""):
 
 
 BASE = tempfile.mkdtemp(prefix="zxnu-mame-test-")
+# Removed on every way out (both sys.exit calls and an escaping exception):
+# without it each run left a folder behind, 298 of them by 9.7.55.
+atexit.register(shutil.rmtree, BASE, ignore_errors=True)
 
 
 def write(path, payload=b"x"):
