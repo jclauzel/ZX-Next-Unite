@@ -126,6 +126,19 @@ emulator launch buttons below:
   built-in `.http` dot command. Enable it in the Settings tab (the port —
   80 by default — is set in the box next to the toggle). See the
   [HTTP bridge documentation](nextsync/sync/server/HTTP_BRIDGE.md).
+- ⭐ **MCP server (AI agents)** — Settings → *Enable MCP server* starts a
+  [Model Context Protocol](https://modelcontextprotocol.io) server on this PC
+  (loopback, port 2050) so an AI agent such as **Claude Code** or **Claude
+  Desktop** can drive the app: load or download a disk image, put files into
+  it, start MAME or CSpect on it, start the RS232 ESP emulation, start the
+  NextSync listener, list the Nexts seated on it, push a build to one and
+  **run it** (`next_deploy`: upload + CRC verify + the autoexec loop), read the
+  consoles. One command connects Claude Code (shown under the toggle:
+  `claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp`);
+  stdio-only clients run `zx-next-unite --mcp-stdio`. CSpect 4.2.0+ has an MCP
+  server of its own: *Start CSpect with its MCP server* launches it with
+  `-mcp=<port>`, so an agent drives both at once. No extra package needed.
+  See the [MCP server documentation](docs/MCP_SERVER.md).
 - ⭐ **PowerShell module (`ZxNextRemote`)** — drive a connected Next's SD card
   from a script or a prompt, with no HTTP call in sight: list the seated
   machines, `Ls`/`Get`/`Put`/`Ren`/`Rcpy`, and `Verify` an upload against the

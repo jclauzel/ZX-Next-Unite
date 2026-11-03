@@ -25,7 +25,7 @@ from zxnu_workers import RemoteExplorerSignals, run_remote_listen_server  # noqa
 from zxnu_http_bridge import NextSyncHttpBridge, QueueBridgeHost          # noqa: E402
 from test_remote_listen import mock_next                 # noqa: E402
 
-WORKER_PORT = 2050
+WORKER_PORT = 2070      # off 2050/2051: the MCP servers' defaults (9.7.57)
 HTTP_A = 18080
 HTTP_B = 18081
 HTTP_TOK1 = 18082
@@ -409,7 +409,7 @@ def http_h(port, path, headers=None):
 # =====================================================================
 #  Phase SESSIONS: /sessions + session-targeted ops over the app worker
 # =====================================================================
-WORKER_S = 2051
+WORKER_S = 2071
 HTTP_S = 18086
 
 

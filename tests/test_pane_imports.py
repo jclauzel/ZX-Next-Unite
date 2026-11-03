@@ -141,6 +141,8 @@ PANES = [
     ("zxnu_emulator_ops", "build_emulator_ops", []),
     # Extraction #13: the hdfg.cfg restore/save pipeline.
     ("zxnu_config_io", "build_config_io", []),
+    # The MCP server's app-side half (9.7.57): lifecycle + host adapter.
+    ("zxnu_mcp_ops", "build_mcp_ops", []),
     # Extraction #15: the NextSync op layer (server prepare/start, classic
     # explorer ops, server job/warnings/conflict) — three builders.
     ("zxnu_nextsync_ops",

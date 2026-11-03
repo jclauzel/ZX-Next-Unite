@@ -412,6 +412,7 @@ from zxnu_retro_ui import (build_main_retro_log, build_sidebar_anim,
 from zxnu_wizard import build_wizard
 from zxnu_sync5_img import build_sync5_img_ops
 from zxnu_network import build_network_watch
+from zxnu_mcp_ops import build_mcp_ops
 from zxnu_favorites_pane import (build_favorites_helpers,
     build_favorites_pane, build_favorites_ops)
 from zxnu_i18n import (mark_combo_items_translatable, normalize_ui_language,
@@ -4142,7 +4143,8 @@ class MainWindow(QMainWindow):
             # own source and cannot switch them: their owners re-write them.
             for _rewrite in ("_re_update_start_button",
                              "_retranslate_bg_image_preview",
-                             "_rs232_esp_ip_retranslate"):
+                             "_rs232_esp_ip_retranslate",
+                             "_mcp_retranslate"):
                 _fn = getattr(self, _rewrite, None)
                 if _fn is not None:
                     _fn()
@@ -4159,6 +4161,20 @@ class MainWindow(QMainWindow):
         )
         settings_scroll = self.settings_scroll
         wid_inner.tab.addTab(settings_scroll, "Settings 🔩")
+
+        # The MCP server (zxnu_mcp_ops, 9.7.57): its lifecycle closures and
+        # the host adapter the tools call. Built AFTER every pane and op
+        # layer it reaches into (the launchers, load_image, the listener's
+        # bridge callables, the Settings widgets) and BEFORE
+        # load_configuration_file, whose restore starts it when enabled.
+        build_mcp_ops(
+            self,
+            configuration_dictionary=configuration_dictionary,
+            save_configuration_file=save_configuration_file,
+            add_main_log_window=lambda *a, **k: add_main_log_window(*a, **k),
+            add_nextsync_log_window=lambda *a, **k: add_nextsync_log_window(*a, **k),
+            _right_disk_content=lambda: right_disk_image_explorer_content,
+        )
 
           # Create Help Tab
         # Mirrors the SD Card Utility log window: a Classic/Retro toggle that
@@ -5169,6 +5185,15 @@ def _graceful_nextsync_shutdown():
             fn()
     except Exception:
         logging.exception("Graceful shutdown: Remote Explorer listen-server stop failed")
+    # The MCP server (9.7.57): its threads are daemons and would die with the
+    # process, but a clean close lets a tool call in flight answer "stopped"
+    # instead of a reset, and frees the port before the next launch.
+    try:
+        fn = getattr(window, "_mcp_server_stop", None)
+        if callable(fn):
+            fn()
+    except Exception:
+        logging.exception("Graceful shutdown: MCP server stop failed")
     # In-flight catalogue/thumbnail/update fetches are QRunnables on the
     # GLOBAL QThreadPool doing network I/O — and interpreter finalization
     # waits for them, so a slow socket used to hold the whole exit hostage

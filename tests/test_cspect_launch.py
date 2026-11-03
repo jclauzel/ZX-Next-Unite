@@ -286,9 +286,13 @@ check("_check_image_writable asks the blocker before its r+b open",
       and ciw.index("_image_write_blocker") < ciw.index("open(clean, 'r+b')"))
 dl = sd.replace("\r\n", "\n")
 _ex = dl.find('open(target, "wb") as dst')
+# 9.7.57: the extraction is the module-level extract_nextzxos_image (shared
+# with the MCP server); its ``refuse`` callable IS the host's blocker.
 check("the NextZXOS extraction asks the blocker before truncating its target",
-      _ex != -1 and dl.rfind("_blocker(target)", 0, _ex) != -1
-      and _ex - dl.rfind("_blocker(target)", 0, _ex) < 900)
+      _ex != -1 and dl.rfind("refuse(target)", 0, _ex) != -1
+      and _ex - dl.rfind("refuse(target)", 0, _ex) < 900)
+check("the wizard hands the extraction the host's blocker",
+      "refuse=_blocker" in function_source(sd, "download_nextzxos_image"))
 
 gp = read("zxnu_getit_pane.py")
 sp = function_source(gp, "getit_on_starter_pack")

@@ -11,7 +11,7 @@ build-backend = "setuptools.build_meta"
 name = "zx-next-unite"
 # MUST match ZX_NEXT_UNITE_VERSION in zxnu_config.py — the release workflow
 # gates on it (same rule as the git tag).
-version = "9.7.56"
+version = "9.7.57"
 description = "GUI toolbox for the ZX Spectrum Next: SD-card/HDF image explorer, NextSync Wi-Fi file sync + Remote Explorer & HTTP bridge, and built-in software browsing via GetIt, ZXDB and zxArt"
 readme = "README.md"
 license = "MIT"
@@ -48,6 +48,9 @@ zx-next-unite = "zxnu_app:main"
 [project.scripts]
 # The standalone Sync4/Sync5 command-line server rides along.
 nextsync5 = "nextsync5:main"
+# The MCP stdio shim (9.7.57): what an MCP client that can only spawn a
+# stdio server runs; it relays to the MCP server inside the running app.
+zx-next-unite-mcp = "zxnu_mcp:main"
 
 [tool.setuptools]
 # Flat top-level modules (the strangler layout, see CLAUDE.md) — shipped
@@ -89,6 +92,8 @@ py-modules = [
     "zxnu_tab_ops",
     "zxnu_wizard",
     "zxnu_wizard_content",
+    "zxnu_mcp",
+    "zxnu_mcp_ops",
     "rc_backgrounds",
     "nextsync5",
 ]

@@ -497,6 +497,37 @@ def build_config_io(
             # state from the checkbox value just restored above.
             host._http_port_widgets_set_enabled(_http_bridge_on)
 
+            # MCP server (9.7.57): default OFF; when enabled the server
+            # starts with the app, deferred to the event loop like the
+            # bridge's start above (the window, the toasts and the server's
+            # own closures all exist by then). The decoders are
+            # zxnu_config's, shared with the Settings handlers and the
+            # server, so the widgets and the server read ONE rule. hasattr:
+            # a test that stubs the pane must not break the whole restore.
+            if hasattr(host, "settings_mcp_checkbox"):
+                _mcp_on = mcp_server_enabled(configuration_dictionary)
+                host.settings_mcp_checkbox.blockSignals(True)
+                host.settings_mcp_checkbox.setChecked(_mcp_on)
+                host.settings_mcp_checkbox.blockSignals(False)
+                host.settings_mcp_port_spinbox.blockSignals(True)
+                host.settings_mcp_port_spinbox.setValue(
+                    mcp_server_port(configuration_dictionary))
+                host.settings_mcp_port_spinbox.blockSignals(False)
+                host.settings_mcp_token_checkbox.blockSignals(True)
+                host.settings_mcp_token_checkbox.setChecked(
+                    mcp_token_enabled(configuration_dictionary))
+                host.settings_mcp_token_checkbox.blockSignals(False)
+                host.settings_mcp_token_edit.blockSignals(True)
+                host.settings_mcp_token_edit.setText(
+                    (configuration_dictionary.get(SETTING_MCP_TOKEN) or "").strip())
+                host.settings_mcp_token_edit.blockSignals(False)
+                host._mcp_widgets_set_enabled(_mcp_on)
+                _mcp_hint = getattr(host, "_mcp_refresh_hint", None)
+                if _mcp_hint is not None:
+                    _mcp_hint()
+                if _mcp_on and hasattr(host, "_mcp_server_start"):
+                    QTimer.singleShot(0, host._mcp_server_start)
+
             # MAME ROM/system choice (combo) and command-line parameters
             # (editable text). Built whether or not MAME was detected since
             # 9.7.53 (they were gated on the detection before); the hasattr
@@ -681,6 +712,19 @@ def build_config_io(
                 host.settings_cspect_params_edit.setText(_cspect_params)
                 host.settings_cspect_params_edit.blockSignals(False)
                 configuration_dictionary[SETTING_CUSTOM] = _cspect_params
+            # CSpect's own MCP server (9.7.57): the toggle and its port, read
+            # by launch_cspect per launch through zxnu_config's decoders.
+            if hasattr(host, "settings_cspect_mcp_checkbox"):
+                _cspect_mcp_on = cspect_mcp_enabled(configuration_dictionary)
+                host.settings_cspect_mcp_checkbox.blockSignals(True)
+                host.settings_cspect_mcp_checkbox.setChecked(_cspect_mcp_on)
+                host.settings_cspect_mcp_checkbox.blockSignals(False)
+                host.settings_cspect_mcp_port_spinbox.blockSignals(True)
+                host.settings_cspect_mcp_port_spinbox.setValue(
+                    cspect_mcp_port(configuration_dictionary))
+                host.settings_cspect_mcp_port_spinbox.blockSignals(False)
+                host.settings_cspect_mcp_port_label.setEnabled(_cspect_mcp_on)
+                host.settings_cspect_mcp_port_spinbox.setEnabled(_cspect_mcp_on)
             # Ensure runtime state matches the persisted setting (the
             # early-bootstrap read already honoured this, but reapply here
             # so any cfg edits made between launches take immediate effect).
