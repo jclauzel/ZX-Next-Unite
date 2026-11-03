@@ -787,6 +787,18 @@ def build_nextsync_pane(
         if fn is None or not host._re_running:
             return False
         return bool(fn(sid, cmd))
+    # The bridge host contract as plain callables (9.7.57), for a SECOND
+    # consumer of the -listen worker: the MCP server (zxnu_mcp_ops) builds
+    # its own BridgeReply commands from exactly these, so an agent's traffic
+    # is as silent to the Remote Explorer pane as the HTTP bridge's, and the
+    # two can never disagree on the command dialect or the roster.
+    host._re_bridge_callables = {
+        "enqueue": _re_bridge_enqueue,
+        "make_cmd": _re_bridge_make_cmd,
+        "state": _re_bridge_session_state,
+        "sessions": _re_bridge_sessions,
+        "enqueue_to": _re_bridge_enqueue_to,
+    }
 
     def _re_drop_silent(sid):
         # 9.7.45: Disconnect's second half - mark seat `sid` so a SILENT

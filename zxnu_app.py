@@ -9,6 +9,14 @@ itself never starts the GUI."""
 
 def main():
     import os
+    import sys
+
+    # `zx-next-unite --mcp-stdio` (9.7.57): the MCP stdio shim instead of the
+    # GUI, for MCP clients that can only spawn a stdio server. Decided before
+    # any Qt import (the shim relays to the server inside the RUNNING app).
+    if "--mcp-stdio" in sys.argv[1:]:
+        from zxnu_mcp import stdio_main
+        sys.exit(stdio_main(sys.argv[1:]))
 
     # Mark this process as a wheel/pipx install BEFORE any zxnu import:
     # zxnu_config resolves the per-user data root (hdfg.cfg, logs, the

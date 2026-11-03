@@ -60,6 +60,115 @@ from zxnu_sdcard_explorer import (SdCardExplorerPane, IMG_PATH_ROLE,
                                   IMG_ISDIR_ROLE)
 
 
+# ── The stock NextZXOS distribution images (zxnext.uk) ──────────────────────
+# (size key, combo label, URL). The "Download NextZXOS Image" wizard lists the
+# labels; the MCP server's image_download_nextzxos picks by size key.
+NEXTZXOS_IMAGES = (
+    ("2gb", "Next distribution 2Gb SD Card Image",
+     "https://zxnext.uk/hosted/index_files/hdfimages/cspect-next-2gb.zip"),
+    ("4gb", "Next distribution 4Gb SD Card Image",
+     "https://zxnext.uk/hosted/index_files/hdfimages/cspect-next-4gb.zip"),
+    ("8gb", "Next distribution 8Gb SD Card Image",
+     "https://zxnext.uk/hosted/index_files/hdfimages/cspect-next-8gb.zip"),
+)
+
+
+def nextzxos_image_url(size):
+    """The download URL of the stock image named by ``size`` ("2gb", "4gb",
+    "8gb", case-blind), or ""."""
+    key = str(size or "").strip().lower()
+    for k, _label, url in NEXTZXOS_IMAGES:
+        if k == key:
+            return url
+    return ""
+
+
+def download_nextzxos_archive(url, save_path, progress=None, pump=None):
+    """Download ``url`` to ``save_path`` in 64 KB chunks. ``progress(pct)``
+    is called as the percentage moves (only when the server says the size),
+    ``pump()`` after every chunk (the wizard passes QApplication.processEvents
+    so its dialog keeps painting; the MCP server passes nothing - it runs
+    this on its own thread). Raises on any failure; a partial file is left
+    for the caller to report."""
+    request = urllib.request.Request(url, headers={"User-Agent": "ZX-Next-Unite"})
+    with urllib.request.urlopen(request) as response:
+        total_size = response.getheader("Content-Length")
+        total_size = int(total_size) if total_size else 0
+        downloaded = 0
+        with open(save_path, "wb") as out_file:
+            while True:
+                chunk = response.read(65536)
+                if not chunk:
+                    break
+                out_file.write(chunk)
+                downloaded += len(chunk)
+                if total_size and progress is not None:
+                    progress(int(downloaded * 100 / total_size))
+                if pump is not None:
+                    pump()
+    logging.info(f"Downloaded NextZXOS image archive to {save_path}")
+
+
+def extract_nextzxos_image(save_path, progress=None, pump=None, refuse=None,
+                           on_start=None):
+    """Extract the first .img/.hdf member of the downloaded archive and
+    return the image's path - or ``save_path`` itself when it is not a zip
+    or holds no image (logged; load_image then reports what it cannot read).
+
+    The archive's own folder layout is deliberately ignored: the image lands
+    NEXT TO the zip, NAMED AFTER IT (cspect-next-2gb-fresh.zip ->
+    cspect-next-2gb-fresh.img) - the stock archives keep their image under a
+    fixed internal folder (2gb/cspect-next-2gb.img), so honouring it meant a
+    renamed download produced no artifact carrying the chosen name (the
+    reported "it didn't extract"), and every download of the same size
+    silently overwrote the previous one through that fixed path. Extraction
+    is chunked, ``progress(pct)`` / ``pump()`` as in download_nextzxos_archive
+    (a 2 GB inflate must show progress instead of freezing the wizard).
+    ``refuse(target)`` (the host's _image_write_blocker) answering a reason
+    raises RuntimeError with it before a byte is written: never extract over
+    an image an emulator this app started is running on (9.7.51) - the "wb"
+    open truncates it under a live NextZXOS, and CSpect shares the file for
+    writing, so the OS would not refuse it. ``on_start(member_name)`` is
+    called once a member is chosen (the wizard resets its bar there)."""
+    if not zipfile.is_zipfile(save_path):
+        logging.warning(f"{save_path} is not a zip archive; loading it as-is")
+        return save_path
+    with zipfile.ZipFile(save_path) as archive:
+        image_members = [info for info in archive.infolist()
+                         if info.filename.lower().endswith((".img", ".hdf"))]
+        if not image_members:
+            # No .img/.hdf inside: fall through with the zip itself - but say
+            # so in the log rather than nothing.
+            logging.warning(f"No .img/.hdf member found in {save_path}; "
+                            "loading the archive path as-is")
+            return save_path
+        member = image_members[0]
+        target = os.path.join(
+            os.path.dirname(save_path),
+            os.path.splitext(os.path.basename(save_path))[0]
+            + os.path.splitext(member.filename)[1].lower())
+        logging.info(f"Extracting {member.filename} ({member.file_size} bytes) to {target}")
+        why = refuse(target) if refuse is not None else ""
+        if why:
+            raise RuntimeError(why)
+        if on_start is not None:
+            on_start(member.filename)
+        extracted = 0
+        with archive.open(member) as src, open(target, "wb") as dst:
+            while True:
+                chunk = src.read(4 * 1024 * 1024)
+                if not chunk:
+                    break
+                dst.write(chunk)
+                extracted += len(chunk)
+                if member.file_size and progress is not None:
+                    progress(int(extracted * 100 / member.file_size))
+                if pump is not None:
+                    pump()
+    logging.info(f"Extracted disk image: {target}")
+    return target
+
+
 def build_sdcard_utils(
     host,
     *,
@@ -755,16 +864,13 @@ def build_sdcard_utils(
     def download_nextzxos_image():
         """Quick wizard to download a ready-to-use NextZXOS SD card image from
         zxnext.uk, save it to disk, extract the contained disk image, select it
-        into self.imageinput and load it automatically."""
+        into self.imageinput and load it automatically.
 
-        NEXTZXOS_IMAGES = [
-            ("Next distribution 2Gb SD Card Image",
-             "https://zxnext.uk/hosted/index_files/hdfimages/cspect-next-2gb.zip"),
-            ("Next distribution 4Gb SD Card Image",
-             "https://zxnext.uk/hosted/index_files/hdfimages/cspect-next-4gb.zip"),
-            ("Next distribution 8Gb SD Card Image",
-             "https://zxnext.uk/hosted/index_files/hdfimages/cspect-next-8gb.zip"),
-        ]
+        The download and the extraction are the module-level
+        download_nextzxos_archive / extract_nextzxos_image (9.7.57), shared
+        with the MCP server's image_download_nextzxos, which runs them with
+        no dialog; this wizard hands them its progress bar and the event
+        pump."""
 
         dialog = QDialog(host)
         dialog.setWindowTitle(ui_tr_now("Download NextZXOS Image"))
@@ -780,7 +886,7 @@ def build_sdcard_utils(
         dialog_layout.addWidget(info_label)
 
         image_combo = QComboBox(dialog)
-        for label, url in NEXTZXOS_IMAGES:
+        for _size, label, url in NEXTZXOS_IMAGES:
             image_combo.addItem(label, url)
         dialog_layout.addWidget(image_combo)
 
@@ -824,26 +930,10 @@ def build_sdcard_utils(
                 name=selected_label, url=selected_url))
 
             try:
-                request = urllib.request.Request(
-                    selected_url,
-                    headers={"User-Agent": "ZX-Next-Unite"}
-                )
-                with urllib.request.urlopen(request) as response:
-                    total_size = response.getheader("Content-Length")
-                    total_size = int(total_size) if total_size else 0
-                    downloaded = 0
-                    chunk_size = 65536
-                    with open(save_path, "wb") as out_file:
-                        while True:
-                            chunk = response.read(chunk_size)
-                            if not chunk:
-                                break
-                            out_file.write(chunk)
-                            downloaded += len(chunk)
-                            if total_size:
-                                percent = int(downloaded * 100 / total_size)
-                                download_progress.setValue(min(percent, 100))
-                            QApplication.processEvents()
+                download_nextzxos_archive(
+                    selected_url, save_path,
+                    progress=lambda pct: download_progress.setValue(min(pct, 100)),
+                    pump=QApplication.processEvents)
                 download_progress.setValue(100)
             except Exception as download_error:
                 logging.error(f"Failed downloading NextZXOS image: {download_error}")
@@ -879,59 +969,26 @@ def build_sdcard_utils(
             # writes the file log so a future failure leaves a trace.
             image_to_load = save_path
             try:
-                if zipfile.is_zipfile(save_path):
-                    with zipfile.ZipFile(save_path) as archive:
-                        image_members = [
-                            info for info in archive.infolist()
-                            if info.filename.lower().endswith((".img", ".hdf"))
-                        ]
-                        if image_members:
-                            member = image_members[0]
-                            target = os.path.join(
-                                os.path.dirname(save_path),
-                                os.path.splitext(os.path.basename(save_path))[0]
-                                + os.path.splitext(member.filename)[1].lower())
-                            logging.info(
-                                f"Extracting {member.filename} "
-                                f"({member.file_size} bytes) to {target}")
-                            # Never extract over an image an emulator this app
-                            # started is running on (9.7.51): the "wb" open
-                            # below truncates it under a live NextZXOS, and
-                            # CSpect shares the file for writing, so the OS
-                            # would not refuse it. The except below reports it.
-                            _blocker = getattr(host, "_image_write_blocker", None)
-                            _why = _blocker(target) if _blocker is not None else ""
-                            if _why:
-                                raise RuntimeError(_why)
-                            download_progress.setValue(0)
-                            download_progress.setFormat(
-                                ui_tr_now("Extracting image... %p%"))
-                            extracted = 0
-                            with archive.open(member) as src, \
-                                    open(target, "wb") as dst:
-                                while True:
-                                    chunk = src.read(4 * 1024 * 1024)
-                                    if not chunk:
-                                        break
-                                    dst.write(chunk)
-                                    extracted += len(chunk)
-                                    if member.file_size:
-                                        download_progress.setValue(min(
-                                            int(extracted * 100 / member.file_size),
-                                            100))
-                                    QApplication.processEvents()
-                            image_to_load = target
-                            add_main_log_window(ui_tr_now(
-                                "Extracted disk image: {path}").format(
-                                    path=image_to_load))
-                            logging.info(f"Extracted disk image: {image_to_load}")
-                        else:
-                            # No .img/.hdf inside: fall through with the zip
-                            # itself (load_image will report it cannot read
-                            # it) — but say so in the log rather than nothing.
-                            logging.warning(
-                                f"No .img/.hdf member found in {save_path}; "
-                                "loading the archive path as-is")
+                # Never extract over an image an emulator this app started is
+                # running on (9.7.51): the helper's "wb" open truncates it
+                # under a live NextZXOS, and CSpect shares the file for
+                # writing, so the OS would not refuse it. It raises with the
+                # blocker's reason; the except below reports it.
+                _blocker = getattr(host, "_image_write_blocker", None)
+
+                def _on_extract_start(_member_name):
+                    download_progress.setValue(0)
+                    download_progress.setFormat(
+                        ui_tr_now("Extracting image... %p%"))
+                image_to_load = extract_nextzxos_image(
+                    save_path,
+                    progress=lambda pct: download_progress.setValue(min(pct, 100)),
+                    pump=QApplication.processEvents, refuse=_blocker,
+                    on_start=_on_extract_start)
+                if image_to_load != save_path:
+                    add_main_log_window(ui_tr_now(
+                        "Extracted disk image: {path}").format(
+                            path=image_to_load))
             except Exception as extract_error:
                 logging.error(f"Failed extracting NextZXOS image: {extract_error}")
                 add_main_log_window(ui_tr_now(

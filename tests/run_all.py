@@ -110,6 +110,9 @@ SUITES = [
     ("test_image_filter_selection.py", 120, None),
     ("test_remote_explorer_widget.py", 180, None),
     ("test_http_bridge.py",     240, "flask"),
+    # The MCP server (9.7.57): the JSON-RPC dispatcher, the loopback HTTP
+    # transport, the stdio shim and every tool over a fake host - headless.
+    ("test_mcp_server.py",      180, None),
     ("test_powershell_module.py", 300, "flask"),  # skips without powershell/pwsh
     ("test_retro_log_widget.py", 120, None),
     ("test_i18n.py",            120, None),

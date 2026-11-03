@@ -251,6 +251,13 @@ or `FRAMES` / `FRAME_MS` in `tour_capture.py`, or `PER_SEG` in
 Save in the editor, run one task, watch the build on real hardware. The two
 halves are `extra\Send-ToNext.ps1` (PC) and `extra\autoexec.bas` (Next).
 
+Since 9.7.57 an AI agent can run the same loop through the app's MCP server
+(Settings → *Enable MCP server*; see [docs/MCP_SERVER.md](../docs/MCP_SERVER.md)):
+`next_deploy local_path=build\game.nex` is the push, the CRC verify and the
+`/forceexit` of this script in one tool call, and `emulator_start
+emulator=MAME file=build\game.nex image_dir=/home` is the same build landing
+on an emulated Next instead. The Next-side half below is unchanged either way.
+
 **On the Next, once:**
 
 1. Decide what serves the push. Three choices, and the loop asks you on

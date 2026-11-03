@@ -22,9 +22,13 @@ from array import array as _array
 from collections import namedtuple as _namedtuple
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
+# The MCP server's defaults live with the server (zxnu_mcp is stdlib-only,
+# so this import pulls in nothing): one spelling for the port the Settings
+# box, the restore and the stdio shim all mean.
+from zxnu_mcp import MCP_DEFAULT_PORT  # noqa: F401  (re-exported by the star import)
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.56"
+ZX_NEXT_UNITE_VERSION = "9.7.57"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -493,6 +497,97 @@ def generate_bridge_token(length=64):
     digits). Used for the HTTP bridge's optional bearer-token protection."""
     alphabet = string.ascii_letters + string.digits
     return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+# MCP server (zxnu_mcp / zxnu_mcp_ops, 9.7.57): a loopback Streamable-HTTP
+# endpoint speaking the Model Context Protocol, so an AI agent (Claude Code,
+# Claude Desktop, ...) can drive the app - load images, put files, start
+# MAME/CSpect, start the listener, push files to a seated Next. Off by
+# default; when enabled the server starts with the app. The optional bearer
+# token is the HTTP bridge's rule (generate_bridge_token mints it too).
+SETTING_MCP_SERVER        = "mcp_server"          # "true"/"false" (default false)
+SETTING_MCP_PORT          = "mcp_port"            # int, default MCP_DEFAULT_PORT (2050)
+SETTING_MCP_TOKEN_ENABLED = "mcp_token_enabled"   # "true"/"false" (default false)
+SETTING_MCP_TOKEN         = "mcp_token"           # the shared secret (alphanumeric)
+
+
+def mcp_server_enabled(cfg):
+    """Settings 'Enable MCP server' (9.7.57), default OFF: only an explicit
+    true/1/yes/on starts a server that lets another process drive the app."""
+    v = cfg.get(SETTING_MCP_SERVER, "") if cfg else ""
+    return str(v or "").strip().lower() in ("true", "1", "yes", "on")
+
+
+def mcp_server_port(cfg):
+    """The MCP server's TCP port: the saved value when it is a valid port,
+    else MCP_DEFAULT_PORT (a never-saved key is "", an edited cfg may hold
+    anything)."""
+    try:
+        port = int((cfg.get(SETTING_MCP_PORT) if cfg else "") or MCP_DEFAULT_PORT)
+    except (TypeError, ValueError):
+        return MCP_DEFAULT_PORT
+    return port if 1 <= port <= 65535 else MCP_DEFAULT_PORT
+
+
+def mcp_token_enabled(cfg):
+    """Settings 'Require bearer token' of the MCP server, default OFF."""
+    v = cfg.get(SETTING_MCP_TOKEN_ENABLED, "") if cfg else ""
+    return str(v or "").strip().lower() in ("true", "1", "yes", "on")
+
+
+# CSpect's OWN MCP server (CSpect 4.2.0+: "-mcp[=port]"; 9.7.57). Settings ->
+# "Start CSpect with its MCP server" makes launch_cspect add "-mcp=<port>" to
+# the command line, so an agent can drive the app through this MCP server AND
+# the emulator through CSpect's, each on its own port, at the same time. The
+# port is always given: CSpect's own default is not documented, and two
+# servers on one PC must be told apart by number.
+SETTING_CSPECT_MCP      = "cspect_mcp"        # "true"/"false" (default false)
+SETTING_CSPECT_MCP_PORT = "cspect_mcp_port"   # int, default CSPECT_MCP_DEFAULT_PORT
+CSPECT_MCP_DEFAULT_PORT = 2051                # next to this app's 2050; 2048 NextSync, 2222 espemu
+
+
+def cspect_mcp_enabled(cfg):
+    """Settings 'Start CSpect with its MCP server', default OFF."""
+    v = cfg.get(SETTING_CSPECT_MCP, "") if cfg else ""
+    return str(v or "").strip().lower() in ("true", "1", "yes", "on")
+
+
+def cspect_mcp_port(cfg):
+    """The port CSpect's MCP server is asked for: the saved value when it is
+    a valid port, else CSPECT_MCP_DEFAULT_PORT."""
+    try:
+        port = int((cfg.get(SETTING_CSPECT_MCP_PORT) if cfg else "") or CSPECT_MCP_DEFAULT_PORT)
+    except (TypeError, ValueError):
+        return CSPECT_MCP_DEFAULT_PORT
+    return port if 1 <= port <= 65535 else CSPECT_MCP_DEFAULT_PORT
+
+
+def cspect_mcp_argument(enabled, port):
+    """The command-line token for CSpect's MCP server: "-mcp=<port>" when
+    enabled, "" otherwise. Pure, for the launcher and its test."""
+    if not enabled:
+        return ""
+    try:
+        p = int(port)
+    except (TypeError, ValueError):
+        p = CSPECT_MCP_DEFAULT_PORT
+    if not 1 <= p <= 65535:
+        p = CSPECT_MCP_DEFAULT_PORT
+    return "-mcp=%d" % p
+
+
+def strip_cspect_mcp_tokens(params):
+    """``params`` (the Settings launch-parameters string) without any
+    hand-typed "-mcp" / "-mcp=N" token. Applied only while the toggle is ON,
+    so the toggle's port rules (a copy typed in the box would otherwise make
+    CSpect see two "-mcp" switches); with the toggle off a typed token stays,
+    an explicit choice. Whitespace between the surviving tokens is kept."""
+    out = []
+    for tok in str(params or "").split(" "):
+        if tok.lower() == "-mcp" or tok.lower().startswith("-mcp="):
+            continue
+        out.append(tok)
+    return " ".join(out)
 SETTING_GALLERY_ANIM_MODE      = "gallery_anim_mode"        # "hover" (default), "timer" or "none"
 SETTING_GALLERY_ROWS_PER_PAGE  = "gallery_rows_per_page"    # int 1..10, default 2
 SETTING_GALLERY_COLS           = "gallery_cols"             # int: 2 | 4 (default) | 8
@@ -1401,6 +1496,12 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              ("One RS232 ESP emulation serves every running MAME: launch a second MAME on another disk image and it joins the same emulation with its own separate session, so several emulated Nexts can be on the network at once. The emulation stops when the last MAME exits. When two of them ask for the same server port (a Next listening for incoming connections), the second one is moved to the next free port and the log says which port to connect to."),
              ("The IP address the RS232 ESP emulation reports to the emulated Next - what ZX Next Remote's listener screen and the NextZXOS WiFi wizard show, and what someone on another PC types to reach it - is this PC's primary address. A PC with several addresses (VPN, virtual machines, WSL) can pick another one in Settings, under 'IP address shown to the emulated Next', or type one; a running emulation takes the change live."),
              (""),
+             ("MCP server (AI agents):"),
+             ("-----------------------"),
+             ("Settings -> 'Enable MCP server' starts a Model Context Protocol server on this PC only (127.0.0.1, port 2050 by default) that lets an AI agent such as Claude Code or Claude Desktop drive zx-next-unite: load or download a disk image, put files into it, start MAME or CSpect on it, start the RS232 ESP emulation, start the NextSync listener, list the Nexts seated on it, push a build to one and run it, read the consoles. Every tool is the same operation the buttons perform, so an agent can do what you can and nothing more."),
+             ("Connect Claude Code with the one-line command shown under the toggle (claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp). A client that can only spawn a stdio server (Claude Desktop) runs 'zx-next-unite --mcp-stdio' (or the zx-next-unite-mcp command of a pipx install), which relays to the running app. 'Require bearer token' makes every request carry the token shown next to it."),
+             ("CSpect 4.2.0 and later has an MCP server of its own ('-mcp[=port]' on its command line). Settings -> 'Start CSpect with its MCP server' launches CSpect with it on the port set beside the toggle (2051 by default), so an agent can drive both at once: zx-next-unite through this server, the running CSpect through CSpect's. The emulator_start tool reports that port, and app_status shows it for every CSpect started from the app."),
+             (""),
              ("Setup & How to:"),
              ("---------------"),
              ("Check out the main setup & demo video available at: https://youtu.be/-gUxV4fM1yo  (and the full python install is covered in the old py-hdfm-gooey since ZX-Next-Unite is an evolution of it : https://youtu.be/FJG-Z0DCIjQ )"),
@@ -1519,8 +1620,8 @@ SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, S
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
 SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_CHECK, SETTING_MAME_INSTALLED_TAG, SETTING_MAME_ASPECT, SETTING_MAME_SOUND, SETTING_MAME_MOUSE, SETTING_MAME_JOYSTICK, SETTING_MAME_ESC, SETTING_MAME_FLATPAK, SETTING_MAME_FLATPAK_ROMPATH, SETTING_MAME_RS232_ESP, SETTING_MAME_RS232_ESP_PORT, SETTING_MAME_RS232_ESP_VERBOSE, SETTING_MAME_RS232_ESP_IP, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
-SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_NEXTSYNC_REMOTE_EXPLORER, SETTING_NEXTSYNC_RE_AUTOSTART, SETTING_NEXTSYNC_VERIFY_CRC, SETTING_NEXTSYNC_SESSIONS, SETTING_NEXTSYNC_DROP_SILENT_NEXT, SETTING_NEXTSYNC_REMOTE_CWD, SETTING_NEXTSYNC_RE_LOCAL_SORT, SETTING_NEXTSYNC_RE_NEXT_SORT, SETTING_NEXTSYNC_EXTRA_DRIVES, SETTING_NEXTSYNC_HTTP_BRIDGE, SETTING_NEXTSYNC_HTTP_PORT, SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT, SETTING_NEXTSYNC_HTTP_VERBOSE, SETTING_NEXTSYNC_HTTP_TOKEN_ENABLED, SETTING_NEXTSYNC_HTTP_TOKEN, SETTING_SDCARD_PYGAME_LOG, SETTING_SDCARD_SPLITTER, SETTING_GETIT_SPLITTER, SETTING_SDCARD_HSPLITTER, SETTING_NEXTSYNC_RE_SPLITTER, SETTING_NEXTSYNC_RE_LOG_SPLITTER, SETTING_HELP_PYGAME_LOG, SETTING_RETRO_LOG_FONT_SIZE, SETTING_GENERAL_FONT_SIZE, SETTING_RE_UPDATE_PROMPT, SETTING_SYNC5_IMG_AUTODEPLOY,
-SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK, SETTING_ZXNEXTREMOTE_UPDATE_CHECK, SETTING_ZXNU_UPDATE_CHECK, SETTING_DOTN_LAST_VERSION, SETTING_ZXNR_UPDATE_PATH, SETTING_DELETE_TO_RECYCLE_BIN, SETTING_QLNEXTREMOTE_UPDATE_CHECK, SETTING_QLNR_UPDATE_PATH,
+SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_NEXTSYNC_REMOTE_EXPLORER, SETTING_NEXTSYNC_RE_AUTOSTART, SETTING_NEXTSYNC_VERIFY_CRC, SETTING_NEXTSYNC_SESSIONS, SETTING_NEXTSYNC_DROP_SILENT_NEXT, SETTING_NEXTSYNC_REMOTE_CWD, SETTING_NEXTSYNC_RE_LOCAL_SORT, SETTING_NEXTSYNC_RE_NEXT_SORT, SETTING_NEXTSYNC_EXTRA_DRIVES, SETTING_NEXTSYNC_HTTP_BRIDGE, SETTING_NEXTSYNC_HTTP_PORT, SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT, SETTING_NEXTSYNC_HTTP_VERBOSE, SETTING_NEXTSYNC_HTTP_TOKEN_ENABLED, SETTING_NEXTSYNC_HTTP_TOKEN, SETTING_MCP_SERVER, SETTING_MCP_PORT, SETTING_MCP_TOKEN_ENABLED, SETTING_MCP_TOKEN, SETTING_SDCARD_PYGAME_LOG, SETTING_SDCARD_SPLITTER, SETTING_GETIT_SPLITTER, SETTING_SDCARD_HSPLITTER, SETTING_NEXTSYNC_RE_SPLITTER, SETTING_NEXTSYNC_RE_LOG_SPLITTER, SETTING_HELP_PYGAME_LOG, SETTING_RETRO_LOG_FONT_SIZE, SETTING_GENERAL_FONT_SIZE, SETTING_RE_UPDATE_PROMPT, SETTING_SYNC5_IMG_AUTODEPLOY,
+SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK, SETTING_CSPECT_MCP, SETTING_CSPECT_MCP_PORT, SETTING_ZXNEXTREMOTE_UPDATE_CHECK, SETTING_ZXNU_UPDATE_CHECK, SETTING_DOTN_LAST_VERSION, SETTING_ZXNR_UPDATE_PATH, SETTING_DELETE_TO_RECYCLE_BIN, SETTING_QLNEXTREMOTE_UPDATE_CHECK, SETTING_QLNR_UPDATE_PATH,
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO, SETTING_UI_LANGUAGE,
 SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN, SETTING_WIZARD_FONT_SIZE, SETTING_WIZARD_SP_OFFERED,
 SETTING_WINDOW_SCREEN, SETTING_WINDOW_SIZE, SETTING_SDCARD_TREE_COLS, SETTING_IMAGE_TREE_COLS, SETTING_RE_LOCAL_COLS, SETTING_RE_NEXT_COLS, SETTING_RE_REMOTE_CWDS, SETTING_RE_MACHINE_NAMES, SETTING_RE_MACHINE_COLORS,

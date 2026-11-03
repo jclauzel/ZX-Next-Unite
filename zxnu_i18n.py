@@ -1759,6 +1759,43 @@ CATALOGS = {
             "Abrir openal.org",
         "The OpenAL download failed — see the log for details. You can install it manually from {url}":
             "La descarga de OpenAL falló — consulta el registro para más detalles. Puedes instalarlo manualmente desde {url}",
+        # ---- 9.7.57: the MCP server (Settings, console, toasts, Help) ----
+        "Enable MCP server (lets an AI agent such as Claude Code drive ZX Next Unite)":
+            "Activar el servidor MCP (permite que un agente de IA como Claude Code controle ZX Next Unite)",
+        "Connect Claude Code with: {command}":
+            "Conecta Claude Code con: {command}",
+        "Start CSpect with its MCP server (-mcp, CSpect 4.2.0 or later)":
+            "Iniciar CSpect con su servidor MCP (-mcp, CSpect 4.2.0 o posterior)",
+        "MCP server listening on {url}":
+            "Servidor MCP escuchando en {url}",
+        "MCP server NOT started: {error}":
+            "Servidor MCP NO iniciado: {error}",
+        "MCP server stopped.":
+            "Servidor MCP detenido.",
+        "MCP server: bearer-token protection is ON (requests must carry Authorization: Bearer <token>; others get HTTP 401)":
+            "Servidor MCP: la protección por token de acceso está ACTIVADA (las peticiones deben llevar Authorization: Bearer <token>; las demás reciben HTTP 401)",
+        "CSpect starts with its own MCP server on port {port}":
+            "CSpect se inicia con su propio servidor MCP en el puerto {port}",
+        "MCP server started":
+            "Servidor MCP iniciado",
+        "MCP server not started":
+            "Servidor MCP no iniciado",
+        "Serving on {url}. An AI agent (Claude Code, Claude Desktop...) can now drive ZX Next Unite: connect it with the command shown in Settings.":
+            "Sirviendo en {url}. Un agente de IA (Claude Code, Claude Desktop...) ya puede controlar ZX Next Unite: conéctalo con el comando mostrado en Ajustes.",
+        "Port {port} is already in use; the MCP server has not been started.":
+            "El puerto {port} ya está en uso; el servidor MCP no se ha iniciado.",
+        "MCP server (AI agents):":
+            "Servidor MCP (agentes de IA):",
+        "Settings -> 'Enable MCP server' starts a Model Context Protocol server on this PC only (127.0.0.1, port 2050 by default) that lets an AI agent such as Claude Code or Claude Desktop drive zx-next-unite: load or download a disk image, put files into it, start MAME or CSpect on it, start the RS232 ESP emulation, start the NextSync listener, list the Nexts seated on it, push a build to one and run it, read the consoles. Every tool is the same operation the buttons perform, so an agent can do what you can and nothing more.":
+            "Ajustes -> 'Enable MCP server' inicia un servidor Model Context Protocol solo en este PC (127.0.0.1, puerto 2050 por defecto) que permite a un agente de IA como Claude Code o Claude Desktop controlar zx-next-unite: cargar o descargar una imagen de disco, meter archivos en ella, iniciar MAME o CSpect con ella, iniciar la emulación RS232 ESP, iniciar el listener de NextSync, listar los Next conectados a él, enviar una compilación a uno y ejecutarla, leer las consolas. Cada herramienta es la misma operación que realizan los botones, así que un agente puede hacer lo que tú puedes y nada más.",
+        "Connect Claude Code with the one-line command shown under the toggle (claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp). A client that can only spawn a stdio server (Claude Desktop) runs 'zx-next-unite --mcp-stdio' (or the zx-next-unite-mcp command of a pipx install), which relays to the running app. 'Require bearer token' makes every request carry the token shown next to it.":
+            "Conecta Claude Code con el comando de una línea mostrado bajo el interruptor (claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp). Un cliente que solo pueda lanzar un servidor stdio (Claude Desktop) ejecuta 'zx-next-unite --mcp-stdio' (o el comando zx-next-unite-mcp de una instalación pipx), que reenvía a la aplicación en marcha. 'Require bearer token' hace que cada petición lleve el token mostrado a su lado.",
+        "CSpect 4.2.0 and later has an MCP server of its own ('-mcp[=port]' on its command line). Settings -> 'Start CSpect with its MCP server' launches CSpect with it on the port set beside the toggle (2051 by default), so an agent can drive both at once: zx-next-unite through this server, the running CSpect through CSpect's. The emulator_start tool reports that port, and app_status shows it for every CSpect started from the app.":
+            "CSpect 4.2.0 y posteriores tienen su propio servidor MCP ('-mcp[=port]' en su línea de comandos). Ajustes -> 'Start CSpect with its MCP server' lanza CSpect con él en el puerto fijado junto al interruptor (2051 por defecto), de modo que un agente pueda controlar ambos a la vez: zx-next-unite a través de este servidor y el CSpect en marcha a través del de CSpect. La herramienta emulator_start informa de ese puerto y app_status lo muestra para cada CSpect iniciado desde la aplicación.",
+        "Copy to clipboard":
+            "Copiar al portapapeles",
+        "Copied to clipboard":
+            "Copiado al portapapeles",
     },
     "pt": {
         # ---- 9.6.0: per-emulator button colour ----
@@ -3303,6 +3340,43 @@ CATALOGS = {
             "Abrir openal.org",
         "The OpenAL download failed — see the log for details. You can install it manually from {url}":
             "A transferência do OpenAL falhou — vê o registo para detalhes. Podes instalá-lo manualmente a partir de {url}",
+        # ---- 9.7.57: the MCP server (Settings, console, toasts, Help) ----
+        "Enable MCP server (lets an AI agent such as Claude Code drive ZX Next Unite)":
+            "Ativar o servidor MCP (permite que um agente de IA como o Claude Code controle o ZX Next Unite)",
+        "Connect Claude Code with: {command}":
+            "Ligue o Claude Code com: {command}",
+        "Start CSpect with its MCP server (-mcp, CSpect 4.2.0 or later)":
+            "Iniciar o CSpect com o seu servidor MCP (-mcp, CSpect 4.2.0 ou posterior)",
+        "MCP server listening on {url}":
+            "Servidor MCP à escuta em {url}",
+        "MCP server NOT started: {error}":
+            "Servidor MCP NÃO iniciado: {error}",
+        "MCP server stopped.":
+            "Servidor MCP parado.",
+        "MCP server: bearer-token protection is ON (requests must carry Authorization: Bearer <token>; others get HTTP 401)":
+            "Servidor MCP: a proteção por token de acesso está ATIVADA (os pedidos têm de trazer Authorization: Bearer <token>; os outros recebem HTTP 401)",
+        "CSpect starts with its own MCP server on port {port}":
+            "O CSpect arranca com o seu próprio servidor MCP na porta {port}",
+        "MCP server started":
+            "Servidor MCP iniciado",
+        "MCP server not started":
+            "Servidor MCP não iniciado",
+        "Serving on {url}. An AI agent (Claude Code, Claude Desktop...) can now drive ZX Next Unite: connect it with the command shown in Settings.":
+            "A servir em {url}. Um agente de IA (Claude Code, Claude Desktop...) já pode controlar o ZX Next Unite: ligue-o com o comando mostrado nas Definições.",
+        "Port {port} is already in use; the MCP server has not been started.":
+            "A porta {port} já está em uso; o servidor MCP não foi iniciado.",
+        "MCP server (AI agents):":
+            "Servidor MCP (agentes de IA):",
+        "Settings -> 'Enable MCP server' starts a Model Context Protocol server on this PC only (127.0.0.1, port 2050 by default) that lets an AI agent such as Claude Code or Claude Desktop drive zx-next-unite: load or download a disk image, put files into it, start MAME or CSpect on it, start the RS232 ESP emulation, start the NextSync listener, list the Nexts seated on it, push a build to one and run it, read the consoles. Every tool is the same operation the buttons perform, so an agent can do what you can and nothing more.":
+            "Definições -> 'Enable MCP server' inicia um servidor Model Context Protocol apenas neste PC (127.0.0.1, porta 2050 por defeito) que permite a um agente de IA como o Claude Code ou o Claude Desktop controlar o zx-next-unite: carregar ou descarregar uma imagem de disco, colocar ficheiros nela, iniciar o MAME ou o CSpect com ela, iniciar a emulação RS232 ESP, iniciar o listener do NextSync, listar os Next ligados a ele, enviar uma build para um deles e executá-la, ler as consolas. Cada ferramenta é a mesma operação que os botões executam, por isso um agente pode fazer o que você pode e nada mais.",
+        "Connect Claude Code with the one-line command shown under the toggle (claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp). A client that can only spawn a stdio server (Claude Desktop) runs 'zx-next-unite --mcp-stdio' (or the zx-next-unite-mcp command of a pipx install), which relays to the running app. 'Require bearer token' makes every request carry the token shown next to it.":
+            "Ligue o Claude Code com o comando de uma linha mostrado sob o interruptor (claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp). Um cliente que só consiga lançar um servidor stdio (Claude Desktop) executa 'zx-next-unite --mcp-stdio' (ou o comando zx-next-unite-mcp de uma instalação pipx), que reencaminha para a aplicação em execução. 'Require bearer token' faz com que cada pedido traga o token mostrado ao lado.",
+        "CSpect 4.2.0 and later has an MCP server of its own ('-mcp[=port]' on its command line). Settings -> 'Start CSpect with its MCP server' launches CSpect with it on the port set beside the toggle (2051 by default), so an agent can drive both at once: zx-next-unite through this server, the running CSpect through CSpect's. The emulator_start tool reports that port, and app_status shows it for every CSpect started from the app.":
+            "O CSpect 4.2.0 e posteriores têm um servidor MCP próprio ('-mcp[=port]' na sua linha de comandos). Definições -> 'Start CSpect with its MCP server' lança o CSpect com ele na porta definida ao lado do interruptor (2051 por defeito), para que um agente possa controlar ambos ao mesmo tempo: o zx-next-unite através deste servidor e o CSpect em execução através do do CSpect. A ferramenta emulator_start indica essa porta e app_status mostra-a para cada CSpect iniciado a partir da aplicação.",
+        "Copy to clipboard":
+            "Copiar para a área de transferência",
+        "Copied to clipboard":
+            "Copiado para a área de transferência",
     },
     "pl": {
         # ---- 9.6.0: per-emulator button colour ----
@@ -4844,6 +4918,43 @@ CATALOGS = {
             "Otwórz openal.org",
         "The OpenAL download failed — see the log for details. You can install it manually from {url}":
             "Pobieranie OpenAL nie powiodło się — szczegóły w dzienniku. Możesz zainstalować go ręcznie z {url}",
+        # ---- 9.7.57: the MCP server (Settings, console, toasts, Help) ----
+        "Enable MCP server (lets an AI agent such as Claude Code drive ZX Next Unite)":
+            "Włącz serwer MCP (pozwala agentowi AI, np. Claude Code, sterować ZX Next Unite)",
+        "Connect Claude Code with: {command}":
+            "Połącz Claude Code poleceniem: {command}",
+        "Start CSpect with its MCP server (-mcp, CSpect 4.2.0 or later)":
+            "Uruchamiaj CSpect z jego serwerem MCP (-mcp, CSpect 4.2.0 lub nowszy)",
+        "MCP server listening on {url}":
+            "Serwer MCP nasłuchuje na {url}",
+        "MCP server NOT started: {error}":
+            "Serwer MCP NIE został uruchomiony: {error}",
+        "MCP server stopped.":
+            "Serwer MCP zatrzymany.",
+        "MCP server: bearer-token protection is ON (requests must carry Authorization: Bearer <token>; others get HTTP 401)":
+            "Serwer MCP: ochrona tokenem dostępu jest WŁĄCZONA (żądania muszą nieść Authorization: Bearer <token>; pozostałe dostają HTTP 401)",
+        "CSpect starts with its own MCP server on port {port}":
+            "CSpect uruchamia się z własnym serwerem MCP na porcie {port}",
+        "MCP server started":
+            "Serwer MCP uruchomiony",
+        "MCP server not started":
+            "Serwer MCP nie został uruchomiony",
+        "Serving on {url}. An AI agent (Claude Code, Claude Desktop...) can now drive ZX Next Unite: connect it with the command shown in Settings.":
+            "Serwuje na {url}. Agent AI (Claude Code, Claude Desktop...) może teraz sterować ZX Next Unite: połącz go poleceniem pokazanym w Ustawieniach.",
+        "Port {port} is already in use; the MCP server has not been started.":
+            "Port {port} jest już zajęty; serwer MCP nie został uruchomiony.",
+        "MCP server (AI agents):":
+            "Serwer MCP (agenci AI):",
+        "Settings -> 'Enable MCP server' starts a Model Context Protocol server on this PC only (127.0.0.1, port 2050 by default) that lets an AI agent such as Claude Code or Claude Desktop drive zx-next-unite: load or download a disk image, put files into it, start MAME or CSpect on it, start the RS232 ESP emulation, start the NextSync listener, list the Nexts seated on it, push a build to one and run it, read the consoles. Every tool is the same operation the buttons perform, so an agent can do what you can and nothing more.":
+            "Ustawienia -> 'Enable MCP server' uruchamia serwer Model Context Protocol tylko na tym PC (127.0.0.1, domyślnie port 2050), który pozwala agentowi AI, takiemu jak Claude Code lub Claude Desktop, sterować zx-next-unite: wczytać lub pobrać obraz dysku, umieścić w nim pliki, uruchomić na nim MAME lub CSpect, uruchomić emulację RS232 ESP, uruchomić listener NextSync, wypisać podłączone do niego Nexty, wysłać build na jeden z nich i uruchomić go, czytać konsole. Każde narzędzie to ta sama operacja, którą wykonują przyciski, więc agent może zrobić to, co Ty, i nic więcej.",
+        "Connect Claude Code with the one-line command shown under the toggle (claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp). A client that can only spawn a stdio server (Claude Desktop) runs 'zx-next-unite --mcp-stdio' (or the zx-next-unite-mcp command of a pipx install), which relays to the running app. 'Require bearer token' makes every request carry the token shown next to it.":
+            "Połącz Claude Code jednowierszowym poleceniem pokazanym pod przełącznikiem (claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp). Klient, który potrafi tylko uruchomić serwer stdio (Claude Desktop), uruchamia 'zx-next-unite --mcp-stdio' (lub polecenie zx-next-unite-mcp z instalacji pipx), które przekazuje żądania do działającej aplikacji. 'Require bearer token' sprawia, że każde żądanie niesie token pokazany obok.",
+        "CSpect 4.2.0 and later has an MCP server of its own ('-mcp[=port]' on its command line). Settings -> 'Start CSpect with its MCP server' launches CSpect with it on the port set beside the toggle (2051 by default), so an agent can drive both at once: zx-next-unite through this server, the running CSpect through CSpect's. The emulator_start tool reports that port, and app_status shows it for every CSpect started from the app.":
+            "CSpect 4.2.0 i nowsze mają własny serwer MCP ('-mcp[=port]' w wierszu poleceń). Ustawienia -> 'Start CSpect with its MCP server' uruchamia CSpect z nim na porcie ustawionym obok przełącznika (domyślnie 2051), więc agent może sterować oboma naraz: zx-next-unite przez ten serwer, a działającym CSpect przez serwer CSpect. Narzędzie emulator_start podaje ten port, a app_status pokazuje go dla każdego CSpect uruchomionego z aplikacji.",
+        "Copy to clipboard":
+            "Kopiuj do schowka",
+        "Copied to clipboard":
+            "Skopiowano do schowka",
     },
     "ru": {
         # ---- 9.6.0: per-emulator button colour ----
@@ -6386,6 +6497,43 @@ CATALOGS = {
             "Открыть openal.org",
         "The OpenAL download failed — see the log for details. You can install it manually from {url}":
             "Не удалось скачать OpenAL — подробности в журнале. Можно установить его вручную с {url}",
+        # ---- 9.7.57: the MCP server (Settings, console, toasts, Help) ----
+        "Enable MCP server (lets an AI agent such as Claude Code drive ZX Next Unite)":
+            "Включить сервер MCP (позволяет ИИ-агенту, например Claude Code, управлять ZX Next Unite)",
+        "Connect Claude Code with: {command}":
+            "Подключите Claude Code командой: {command}",
+        "Start CSpect with its MCP server (-mcp, CSpect 4.2.0 or later)":
+            "Запускать CSpect с его сервером MCP (-mcp, CSpect 4.2.0 и новее)",
+        "MCP server listening on {url}":
+            "Сервер MCP слушает на {url}",
+        "MCP server NOT started: {error}":
+            "Сервер MCP НЕ запущен: {error}",
+        "MCP server stopped.":
+            "Сервер MCP остановлен.",
+        "MCP server: bearer-token protection is ON (requests must carry Authorization: Bearer <token>; others get HTTP 401)":
+            "Сервер MCP: защита токеном доступа ВКЛЮЧЕНА (запросы должны нести Authorization: Bearer <token>; остальные получают HTTP 401)",
+        "CSpect starts with its own MCP server on port {port}":
+            "CSpect запускается с собственным сервером MCP на порту {port}",
+        "MCP server started":
+            "Сервер MCP запущен",
+        "MCP server not started":
+            "Сервер MCP не запущен",
+        "Serving on {url}. An AI agent (Claude Code, Claude Desktop...) can now drive ZX Next Unite: connect it with the command shown in Settings.":
+            "Работает на {url}. ИИ-агент (Claude Code, Claude Desktop...) теперь может управлять ZX Next Unite: подключите его командой, показанной в настройках.",
+        "Port {port} is already in use; the MCP server has not been started.":
+            "Порт {port} уже занят; сервер MCP не запущен.",
+        "MCP server (AI agents):":
+            "Сервер MCP (ИИ-агенты):",
+        "Settings -> 'Enable MCP server' starts a Model Context Protocol server on this PC only (127.0.0.1, port 2050 by default) that lets an AI agent such as Claude Code or Claude Desktop drive zx-next-unite: load or download a disk image, put files into it, start MAME or CSpect on it, start the RS232 ESP emulation, start the NextSync listener, list the Nexts seated on it, push a build to one and run it, read the consoles. Every tool is the same operation the buttons perform, so an agent can do what you can and nothing more.":
+            "Настройки -> 'Enable MCP server' запускает сервер Model Context Protocol только на этом ПК (127.0.0.1, порт 2050 по умолчанию), который позволяет ИИ-агенту, такому как Claude Code или Claude Desktop, управлять zx-next-unite: загрузить или скачать образ диска, положить в него файлы, запустить на нём MAME или CSpect, запустить эмуляцию RS232 ESP, запустить listener NextSync, перечислить подключённые к нему Next, отправить сборку на один из них и запустить её, читать консоли. Каждый инструмент — та же операция, что выполняют кнопки, поэтому агент может делать то же, что и вы, и ничего больше.",
+        "Connect Claude Code with the one-line command shown under the toggle (claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp). A client that can only spawn a stdio server (Claude Desktop) runs 'zx-next-unite --mcp-stdio' (or the zx-next-unite-mcp command of a pipx install), which relays to the running app. 'Require bearer token' makes every request carry the token shown next to it.":
+            "Подключите Claude Code однострочной командой, показанной под переключателем (claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp). Клиент, умеющий запускать только stdio-сервер (Claude Desktop), запускает 'zx-next-unite --mcp-stdio' (или команду zx-next-unite-mcp из установки pipx), которая передаёт запросы работающему приложению. 'Require bearer token' заставляет каждый запрос нести токен, показанный рядом.",
+        "CSpect 4.2.0 and later has an MCP server of its own ('-mcp[=port]' on its command line). Settings -> 'Start CSpect with its MCP server' launches CSpect with it on the port set beside the toggle (2051 by default), so an agent can drive both at once: zx-next-unite through this server, the running CSpect through CSpect's. The emulator_start tool reports that port, and app_status shows it for every CSpect started from the app.":
+            "У CSpect 4.2.0 и новее есть собственный сервер MCP ('-mcp[=port]' в командной строке). Настройки -> 'Start CSpect with its MCP server' запускает CSpect с ним на порту, заданном рядом с переключателем (2051 по умолчанию), так что агент может управлять обоими сразу: zx-next-unite через этот сервер, а запущенным CSpect — через сервер CSpect. Инструмент emulator_start сообщает этот порт, а app_status показывает его для каждого CSpect, запущенного из приложения.",
+        "Copy to clipboard":
+            "Скопировать в буфер обмена",
+        "Copied to clipboard":
+            "Скопировано в буфер обмена",
     },
     "cs": {
         # ---- 9.6.0: per-emulator button colour ----
@@ -7923,6 +8071,43 @@ CATALOGS = {
             "Otevřít openal.org",
         "The OpenAL download failed — see the log for details. You can install it manually from {url}":
             "Stažení OpenAL selhalo — podrobnosti najdete v protokolu. Můžete jej nainstalovat ručně z {url}",
+        # ---- 9.7.57: the MCP server (Settings, console, toasts, Help) ----
+        "Enable MCP server (lets an AI agent such as Claude Code drive ZX Next Unite)":
+            "Zapnout server MCP (umožní AI agentovi, např. Claude Code, ovládat ZX Next Unite)",
+        "Connect Claude Code with: {command}":
+            "Připojte Claude Code příkazem: {command}",
+        "Start CSpect with its MCP server (-mcp, CSpect 4.2.0 or later)":
+            "Spouštět CSpect s jeho serverem MCP (-mcp, CSpect 4.2.0 nebo novější)",
+        "MCP server listening on {url}":
+            "Server MCP naslouchá na {url}",
+        "MCP server NOT started: {error}":
+            "Server MCP NEBYL spuštěn: {error}",
+        "MCP server stopped.":
+            "Server MCP zastaven.",
+        "MCP server: bearer-token protection is ON (requests must carry Authorization: Bearer <token>; others get HTTP 401)":
+            "Server MCP: ochrana přístupovým tokenem je ZAPNUTA (požadavky musí nést Authorization: Bearer <token>; ostatní dostanou HTTP 401)",
+        "CSpect starts with its own MCP server on port {port}":
+            "CSpect se spouští s vlastním serverem MCP na portu {port}",
+        "MCP server started":
+            "Server MCP spuštěn",
+        "MCP server not started":
+            "Server MCP nebyl spuštěn",
+        "Serving on {url}. An AI agent (Claude Code, Claude Desktop...) can now drive ZX Next Unite: connect it with the command shown in Settings.":
+            "Běží na {url}. AI agent (Claude Code, Claude Desktop...) teď může ovládat ZX Next Unite: připojte ho příkazem zobrazeným v Nastavení.",
+        "Port {port} is already in use; the MCP server has not been started.":
+            "Port {port} je již obsazen; server MCP nebyl spuštěn.",
+        "MCP server (AI agents):":
+            "Server MCP (AI agenti):",
+        "Settings -> 'Enable MCP server' starts a Model Context Protocol server on this PC only (127.0.0.1, port 2050 by default) that lets an AI agent such as Claude Code or Claude Desktop drive zx-next-unite: load or download a disk image, put files into it, start MAME or CSpect on it, start the RS232 ESP emulation, start the NextSync listener, list the Nexts seated on it, push a build to one and run it, read the consoles. Every tool is the same operation the buttons perform, so an agent can do what you can and nothing more.":
+            "Nastavení -> 'Enable MCP server' spustí server Model Context Protocol jen na tomto PC (127.0.0.1, výchozí port 2050), který umožní AI agentovi, jako je Claude Code nebo Claude Desktop, ovládat zx-next-unite: načíst nebo stáhnout obraz disku, vložit do něj soubory, spustit na něm MAME nebo CSpect, spustit emulaci RS232 ESP, spustit listener NextSync, vypsat připojené Nexty, poslat build na jeden z nich a spustit ho, číst konzole. Každý nástroj je stejná operace, jakou provádějí tlačítka, takže agent může udělat to, co vy, a nic víc.",
+        "Connect Claude Code with the one-line command shown under the toggle (claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp). A client that can only spawn a stdio server (Claude Desktop) runs 'zx-next-unite --mcp-stdio' (or the zx-next-unite-mcp command of a pipx install), which relays to the running app. 'Require bearer token' makes every request carry the token shown next to it.":
+            "Připojte Claude Code jednořádkovým příkazem zobrazeným pod přepínačem (claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp). Klient, který umí spustit jen stdio server (Claude Desktop), spouští 'zx-next-unite --mcp-stdio' (nebo příkaz zx-next-unite-mcp z instalace pipx), který předává požadavky běžící aplikaci. 'Require bearer token' zajistí, že každý požadavek nese token zobrazený vedle.",
+        "CSpect 4.2.0 and later has an MCP server of its own ('-mcp[=port]' on its command line). Settings -> 'Start CSpect with its MCP server' launches CSpect with it on the port set beside the toggle (2051 by default), so an agent can drive both at once: zx-next-unite through this server, the running CSpect through CSpect's. The emulator_start tool reports that port, and app_status shows it for every CSpect started from the app.":
+            "CSpect 4.2.0 a novější má vlastní server MCP ('-mcp[=port]' na příkazovém řádku). Nastavení -> 'Start CSpect with its MCP server' spustí CSpect s ním na portu nastaveném vedle přepínače (výchozí 2051), takže agent může ovládat oba najednou: zx-next-unite přes tento server a běžící CSpect přes server CSpectu. Nástroj emulator_start tento port hlásí a app_status ho ukazuje u každého CSpectu spuštěného z aplikace.",
+        "Copy to clipboard":
+            "Zkopírovat do schránky",
+        "Copied to clipboard":
+            "Zkopírováno do schránky",
     },
     "fr": {
         # ---- 9.6.0: per-emulator button colour ----
@@ -9471,6 +9656,43 @@ CATALOGS = {
             "Ouvrir openal.org",
         "The OpenAL download failed — see the log for details. You can install it manually from {url}":
             "Le téléchargement d'OpenAL a échoué — voir le journal pour les détails. Vous pouvez l'installer manuellement depuis {url}",
+        # ---- 9.7.57: the MCP server (Settings, console, toasts, Help) ----
+        "Enable MCP server (lets an AI agent such as Claude Code drive ZX Next Unite)":
+            "Activer le serveur MCP (permet à un agent IA comme Claude Code de piloter ZX Next Unite)",
+        "Connect Claude Code with: {command}":
+            "Connectez Claude Code avec : {command}",
+        "Start CSpect with its MCP server (-mcp, CSpect 4.2.0 or later)":
+            "Lancer CSpect avec son serveur MCP (-mcp, CSpect 4.2.0 ou plus récent)",
+        "MCP server listening on {url}":
+            "Serveur MCP à l'écoute sur {url}",
+        "MCP server NOT started: {error}":
+            "Serveur MCP NON démarré : {error}",
+        "MCP server stopped.":
+            "Serveur MCP arrêté.",
+        "MCP server: bearer-token protection is ON (requests must carry Authorization: Bearer <token>; others get HTTP 401)":
+            "Serveur MCP : la protection par jeton d'accès est ACTIVÉE (les requêtes doivent porter Authorization: Bearer <token> ; les autres reçoivent HTTP 401)",
+        "CSpect starts with its own MCP server on port {port}":
+            "CSpect démarre avec son propre serveur MCP sur le port {port}",
+        "MCP server started":
+            "Serveur MCP démarré",
+        "MCP server not started":
+            "Serveur MCP non démarré",
+        "Serving on {url}. An AI agent (Claude Code, Claude Desktop...) can now drive ZX Next Unite: connect it with the command shown in Settings.":
+            "Serveur actif sur {url}. Un agent IA (Claude Code, Claude Desktop...) peut maintenant piloter ZX Next Unite : connectez-le avec la commande affichée dans les Réglages.",
+        "Port {port} is already in use; the MCP server has not been started.":
+            "Le port {port} est déjà utilisé ; le serveur MCP n'a pas été démarré.",
+        "MCP server (AI agents):":
+            "Serveur MCP (agents IA) :",
+        "Settings -> 'Enable MCP server' starts a Model Context Protocol server on this PC only (127.0.0.1, port 2050 by default) that lets an AI agent such as Claude Code or Claude Desktop drive zx-next-unite: load or download a disk image, put files into it, start MAME or CSpect on it, start the RS232 ESP emulation, start the NextSync listener, list the Nexts seated on it, push a build to one and run it, read the consoles. Every tool is the same operation the buttons perform, so an agent can do what you can and nothing more.":
+            "Réglages -> 'Enable MCP server' démarre un serveur Model Context Protocol sur ce PC uniquement (127.0.0.1, port 2050 par défaut) qui permet à un agent IA comme Claude Code ou Claude Desktop de piloter zx-next-unite : charger ou télécharger une image disque, y placer des fichiers, y lancer MAME ou CSpect, démarrer l'émulation RS232 ESP, démarrer le listener NextSync, lister les Next qui y sont connectés, pousser une compilation sur l'un d'eux et l'exécuter, lire les consoles. Chaque outil est l'opération même qu'effectuent les boutons : un agent peut faire ce que vous pouvez faire, et rien de plus.",
+        "Connect Claude Code with the one-line command shown under the toggle (claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp). A client that can only spawn a stdio server (Claude Desktop) runs 'zx-next-unite --mcp-stdio' (or the zx-next-unite-mcp command of a pipx install), which relays to the running app. 'Require bearer token' makes every request carry the token shown next to it.":
+            "Connectez Claude Code avec la commande d'une ligne affichée sous l'interrupteur (claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp). Un client qui ne sait lancer qu'un serveur stdio (Claude Desktop) exécute 'zx-next-unite --mcp-stdio' (ou la commande zx-next-unite-mcp d'une installation pipx), qui relaie vers l'application en cours. 'Require bearer token' fait porter à chaque requête le jeton affiché à côté.",
+        "CSpect 4.2.0 and later has an MCP server of its own ('-mcp[=port]' on its command line). Settings -> 'Start CSpect with its MCP server' launches CSpect with it on the port set beside the toggle (2051 by default), so an agent can drive both at once: zx-next-unite through this server, the running CSpect through CSpect's. The emulator_start tool reports that port, and app_status shows it for every CSpect started from the app.":
+            "CSpect 4.2.0 et plus récent a son propre serveur MCP ('-mcp[=port]' sur sa ligne de commande). Réglages -> 'Start CSpect with its MCP server' lance CSpect avec lui sur le port fixé à côté de l'interrupteur (2051 par défaut), si bien qu'un agent peut piloter les deux à la fois : zx-next-unite par ce serveur, le CSpect en cours par celui de CSpect. L'outil emulator_start indique ce port et app_status l'affiche pour chaque CSpect lancé depuis l'application.",
+        "Copy to clipboard":
+            "Copier dans le presse-papiers",
+        "Copied to clipboard":
+            "Copié dans le presse-papiers",
     },
 }
 

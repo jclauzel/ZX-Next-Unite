@@ -95,6 +95,7 @@ SETTINGS_TAB_ROWS = (
     "mame_update_check",   # also the Flatpak options box — platform alternates
     "mame_rs232_esp",      # checkbox + port + verbose sub-row, one packed row
     "cspect_params",
+    "cspect_mcp",          # checkbox + port: launch CSpect with its own MCP server (9.7.57)
     "cspect_update_check",
     "sdcard_pygame_anim",
     "alien_floyd_bg",
@@ -102,6 +103,7 @@ SETTINGS_TAB_ROWS = (
     "nextsync_pygame_anim",
     "itchio_tab",
     "http_bridge",
+    "mcp_server",          # checkbox + port, token row, connect-hint line (9.7.57)
     "open_config_file",
 )
 # A duplicate name would silently stack two rows on one grid row — the
@@ -1825,6 +1827,207 @@ def build_settings_pane(
     grid_tab_Settings.addLayout(_http_bridge_vbox, settings_grid_row("http_bridge"), 0, 1, 2)
     host._http_port_widgets_set_enabled = _http_port_widgets_set_enabled
 
+    # ── MCP server (9.7.57) ── the Model Context Protocol endpoint an AI
+    # agent (Claude Code, Claude Desktop, ...) drives the app through
+    # (zxnu_mcp / zxnu_mcp_ops). Modelled on the HTTP bridge rows above: an
+    # enable checkbox that starts/stops the server LIVE and persists, a port
+    # box (a running server is bounced onto the new port a moment after you
+    # stop typing), the optional bearer token, and - new here - a selectable
+    # hint line carrying the one-line client setup for the current settings,
+    # rewritten by _mcp_refresh_hint whenever the server, port or token
+    # changes and by _mcp_retranslate on a language switch (the template is
+    # catalogued; the command inside it is never translated).
+    def _mcp_widgets_set_enabled(on):
+        on = bool(on)
+        host.settings_mcp_port_label.setEnabled(on)
+        host.settings_mcp_port_spinbox.setEnabled(on)
+        if hasattr(host, "settings_mcp_token_checkbox"):
+            host.settings_mcp_token_checkbox.setEnabled(on)
+            token_on = on and host.settings_mcp_token_checkbox.isChecked()
+            host.settings_mcp_token_edit.setEnabled(token_on)
+            host.settings_mcp_token_generate_btn.setEnabled(token_on)
+        if hasattr(host, "settings_mcp_hint_label"):
+            host.settings_mcp_hint_label.setEnabled(on)
+
+    def settings_mcp_statechanged():
+        enabled = host.settings_mcp_checkbox.isChecked()
+        configuration_dictionary[SETTING_MCP_SERVER] = "true" if enabled else "false"
+        save_configuration_file()
+        _mcp_widgets_set_enabled(enabled)
+        if enabled:
+            host._mcp_server_start()
+        else:
+            host._mcp_server_stop()
+
+    host.settings_mcp_checkbox = QCheckBox(
+        "Enable MCP server (lets an AI agent such as Claude Code drive ZX Next Unite)")
+    host.settings_mcp_checkbox.setChecked(False)
+    host.settings_mcp_checkbox.setToolTip(
+        "Starts a Model Context Protocol server on this PC only (127.0.0.1,\n"
+        f"port {MCP_DEFAULT_PORT} by default - change it in the box on the right).\n"
+        "An AI agent connected to it gets tools for what the app does: load or\n"
+        "download a disk image, put files into it, start MAME or CSpect on it,\n"
+        "start the RS232 ESP emulation, start the NextSync listener, list the\n"
+        "Nexts seated on it, push a build to one and run it, read the consoles.\n"
+        "Every tool is the same operation the buttons perform, so an agent can\n"
+        "do what you can and nothing more. Claude Code: run the command shown\n"
+        "below; Claude Desktop: 'zx-next-unite --mcp-stdio' as a stdio server.\n"
+        "The server starts automatically with the app while this is enabled\n"
+        "(off by default).")
+    host.settings_mcp_checkbox.stateChanged.connect(settings_mcp_statechanged)
+
+    host.settings_mcp_port_label = QLabel("Port:")
+    host.settings_mcp_port_spinbox = QSpinBox()
+    host.settings_mcp_port_spinbox.setRange(1, 65535)
+    host.settings_mcp_port_spinbox.setValue(MCP_DEFAULT_PORT)
+    _mcp_port_tip = (
+        f"TCP port the MCP server listens on (default {MCP_DEFAULT_PORT}; 2048\n"
+        "is NextSync's, 2222 the RS232 ESP emulation's). Loopback only: it is\n"
+        f"never reachable from another machine. Saved to hdfg.cfg ({SETTING_MCP_PORT})\n"
+        "and used every time the server starts; a server already running is\n"
+        "restarted on the new port a moment after you stop typing.")
+    host.settings_mcp_port_label.setToolTip(_mcp_port_tip)
+    host.settings_mcp_port_spinbox.setToolTip(_mcp_port_tip)
+    host.settings_mcp_port_label.setEnabled(False)
+    host.settings_mcp_port_spinbox.setEnabled(False)
+
+    host._mcp_port_restart_timer = QTimer(host)
+    host._mcp_port_restart_timer.setSingleShot(True)
+    host._mcp_port_restart_timer.setInterval(1500)
+    host._mcp_port_restart_timer.timeout.connect(
+        lambda: host._mcp_server_restart_if_running())
+
+    def settings_mcp_port_changed(port):
+        configuration_dictionary[SETTING_MCP_PORT] = str(port)
+        save_configuration_file()
+        host._mcp_port_restart_timer.start()
+    host.settings_mcp_port_spinbox.valueChanged.connect(settings_mcp_port_changed)
+
+    _mcp_row = QHBoxLayout()
+    _mcp_row.addWidget(host.settings_mcp_checkbox)
+    _mcp_row.addSpacing(12)
+    _mcp_row.addWidget(host.settings_mcp_port_label)
+    _mcp_row.addWidget(host.settings_mcp_port_spinbox)
+    _mcp_row.addStretch(1)
+
+    def settings_mcp_token_statechanged():
+        enabled = host.settings_mcp_token_checkbox.isChecked()
+        configuration_dictionary[SETTING_MCP_TOKEN_ENABLED] = "true" if enabled else "false"
+        # First time the protection is switched on with no token yet: mint
+        # one, persist it and show it so the user can copy it.
+        if enabled and not (configuration_dictionary.get(SETTING_MCP_TOKEN) or "").strip():
+            tok = generate_bridge_token()
+            configuration_dictionary[SETTING_MCP_TOKEN] = tok
+            host.settings_mcp_token_edit.setText(tok)
+        save_configuration_file()
+        _mcp_widgets_set_enabled(host.settings_mcp_checkbox.isChecked())
+        host._mcp_server_restart_if_running()
+
+    def settings_mcp_token_edited():
+        configuration_dictionary[SETTING_MCP_TOKEN] = \
+            host.settings_mcp_token_edit.text().strip()
+        save_configuration_file()
+        host._mcp_server_restart_if_running()
+
+    def _mcp_token_generate():
+        tok = generate_bridge_token()
+        host.settings_mcp_token_edit.setText(tok)
+        configuration_dictionary[SETTING_MCP_TOKEN] = tok
+        save_configuration_file()
+        host._mcp_server_restart_if_running()
+
+    host.settings_mcp_token_checkbox = QCheckBox("Require bearer token")
+    host.settings_mcp_token_checkbox.setChecked(False)
+    host.settings_mcp_token_checkbox.setEnabled(False)
+    host.settings_mcp_token_checkbox.setToolTip(
+        "When on, the MCP server answers a request only if it carries\n"
+        "'Authorization: Bearer <token>' (or the ZXNEXTUNITE-MCP-TOKEN header)\n"
+        "equal to the token on the right; every other request gets HTTP 401.\n"
+        "A 64-character random token is generated the first time you enable\n"
+        "this; edit it or press Generate for a new one. Saved to hdfg.cfg\n"
+        f"({SETTING_MCP_TOKEN_ENABLED} / {SETTING_MCP_TOKEN}); a running server\n"
+        "is bounced when you change it. The command below carries it. Off by\n"
+        "default: the server is reachable from this PC only.")
+    host.settings_mcp_token_checkbox.stateChanged.connect(
+        lambda _s: settings_mcp_token_statechanged())
+
+    host.settings_mcp_token_edit = QLineEdit()
+    host.settings_mcp_token_edit.setPlaceholderText(
+        "bearer token (generated when you enable the checkbox)")
+    host.settings_mcp_token_edit.setToolTip(
+        "The shared secret an MCP client must send as a bearer token.\n"
+        "Copy it into your client's configuration, or type your own value.")
+    host.settings_mcp_token_edit.setEnabled(False)
+    host.settings_mcp_token_edit.editingFinished.connect(settings_mcp_token_edited)
+
+    host.settings_mcp_token_generate_btn = QPushButton("Generate")
+    host.settings_mcp_token_generate_btn.setToolTip(
+        "Generate a new random 64-character bearer token")
+    host.settings_mcp_token_generate_btn.setEnabled(False)
+    host.settings_mcp_token_generate_btn.clicked.connect(lambda: _mcp_token_generate())
+
+    _mcp_token_row = QHBoxLayout()
+    _mcp_token_row.addWidget(host.settings_mcp_token_checkbox)
+    _mcp_token_row.addSpacing(8)
+    _mcp_token_row.addWidget(host.settings_mcp_token_edit, 1)
+    _mcp_token_row.addWidget(host.settings_mcp_token_generate_btn)
+
+    # The connect hint: selectable, so the command can be copied straight
+    # from the Settings tab. Its text is written at RUNTIME through a
+    # catalogued ui_tr_now template, so the walk adopts it; _mcp_retranslate
+    # (called from _i18n_apply) and _mcp_refresh_hint (called by the server
+    # lifecycle) are its two owners.
+    host.settings_mcp_hint_label = QLabel()
+    host.settings_mcp_hint_label.setWordWrap(True)
+    host.settings_mcp_hint_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+    host.settings_mcp_hint_label.setToolTip(
+        "Paste this in a terminal to register the server with Claude Code\n"
+        "(it carries the port and, when required, the bearer token). Other\n"
+        "clients: POST JSON-RPC to the URL, or run 'zx-next-unite --mcp-stdio'.")
+    host.settings_mcp_hint_label.setEnabled(False)
+
+    def _mcp_refresh_hint():
+        fn = getattr(host, "_mcp_connect_hint", None)
+        cmd = fn() if fn is not None else ""
+        host.settings_mcp_hint_label.setText(
+            ui_tr_now("Connect Claude Code with: {command}").format(command=cmd))
+    host._mcp_refresh_hint = _mcp_refresh_hint
+    host._mcp_retranslate = _mcp_refresh_hint
+
+    # "Copy to clipboard": the COMMAND alone (never the translated prefix),
+    # read live from the server so a port or token change is what gets
+    # pasted. Always enabled - the command is valid the moment the toggle
+    # goes on, and copying it first is a natural order.
+    def _mcp_copy_hint():
+        fn = getattr(host, "_mcp_connect_hint", None)
+        cmd = fn() if fn is not None else ""
+        if not cmd:
+            return
+        QApplication.clipboard().setText(cmd)
+        try:
+            host._show_toast("Copied to clipboard", cmd, variant="green",
+                             duration_ms=4000)
+        except (RuntimeError, AttributeError):
+            logging.exception("could not show the clipboard toast")
+
+    host.settings_mcp_copy_btn = QPushButton("Copy to clipboard")
+    host.settings_mcp_copy_btn.setToolTip(
+        "Copy the connect command (port and token included) to the clipboard,\n"
+        "ready to paste in a terminal - no retyping, no typo.")
+    host.settings_mcp_copy_btn.clicked.connect(lambda: _mcp_copy_hint())
+
+    _mcp_hint_row = QHBoxLayout()
+    _mcp_hint_row.addWidget(host.settings_mcp_hint_label, 1)
+    _mcp_hint_row.addSpacing(8)
+    _mcp_hint_row.addWidget(host.settings_mcp_copy_btn, 0, Qt.AlignTop)
+
+    _mcp_vbox = QVBoxLayout()
+    _mcp_vbox.addLayout(_mcp_row)
+    _mcp_vbox.addLayout(_mcp_token_row)
+    _mcp_vbox.addLayout(_mcp_hint_row)
+    grid_tab_Settings.addLayout(_mcp_vbox, settings_grid_row("mcp_server"), 0, 1, 2)
+    host._mcp_widgets_set_enabled = _mcp_widgets_set_enabled
+
     # ── MAME options ── built ALWAYS (9.7.53), like the CSpect rows and the
     # RS232 ESP row below. They used to sit under `if host._mame_usable():`,
     # i.e. they existed only when MAME had been DETECTED by the time this
@@ -2182,6 +2385,60 @@ def build_settings_pane(
     host.settings_cspect_params_edit.setToolTip(cspect_params_lbl.toolTip())
     host.settings_cspect_params_edit.editingFinished.connect(settings_cspect_params_changed)
     grid_tab_Settings.addWidget(host.settings_cspect_params_edit, settings_grid_row("cspect_params"), 1)
+
+    # ── CSpect's own MCP server (9.7.57) ── CSpect 4.2.0+ carries an MCP
+    # server behind "-mcp[=port]". The toggle makes launch_cspect add
+    # "-mcp=<port>" (the port is ALWAYS given: CSpect's own default is not
+    # documented, and an agent driving the app's MCP server and CSpect's at
+    # once must tell the two apart by number), the box sets the port. Both
+    # persist; the launcher reads them per launch, so no restart.
+    def settings_cspect_mcp_statechanged():
+        enabled = host.settings_cspect_mcp_checkbox.isChecked()
+        configuration_dictionary[SETTING_CSPECT_MCP] = "true" if enabled else "false"
+        save_configuration_file()
+        host.settings_cspect_mcp_port_label.setEnabled(enabled)
+        host.settings_cspect_mcp_port_spinbox.setEnabled(enabled)
+
+    host.settings_cspect_mcp_checkbox = QCheckBox(
+        "Start CSpect with its MCP server (-mcp, CSpect 4.2.0 or later)")
+    host.settings_cspect_mcp_checkbox.setChecked(False)
+    host.settings_cspect_mcp_checkbox.setToolTip(
+        "Adds '-mcp=<port>' to CSpect's command line at every launch, so the\n"
+        "emulator starts its own Model Context Protocol server and an AI agent\n"
+        "can drive it (breakpoints, memory, keys...) while driving ZX Next\n"
+        "Unite through the app's MCP server - two servers, two ports. A '-mcp'\n"
+        "typed into the launch parameters above is replaced while this is on.\n"
+        "Saved to the configuration file; off by default. CSpect lists the\n"
+        "switch in its ReadMe.txt ('-mcp[=port]').")
+    host.settings_cspect_mcp_checkbox.stateChanged.connect(
+        settings_cspect_mcp_statechanged)
+
+    host.settings_cspect_mcp_port_label = QLabel("Port:")
+    host.settings_cspect_mcp_port_spinbox = QSpinBox()
+    host.settings_cspect_mcp_port_spinbox.setRange(1, 65535)
+    host.settings_cspect_mcp_port_spinbox.setValue(CSPECT_MCP_DEFAULT_PORT)
+    _cspect_mcp_port_tip = (
+        f"TCP port CSpect's MCP server is asked for (default {CSPECT_MCP_DEFAULT_PORT};\n"
+        f"the app's own MCP server uses {MCP_DEFAULT_PORT}). Saved to hdfg.cfg\n"
+        f"({SETTING_CSPECT_MCP_PORT}) and passed as '-mcp=<port>' at the next launch.")
+    host.settings_cspect_mcp_port_label.setToolTip(_cspect_mcp_port_tip)
+    host.settings_cspect_mcp_port_spinbox.setToolTip(_cspect_mcp_port_tip)
+    host.settings_cspect_mcp_port_label.setEnabled(False)
+    host.settings_cspect_mcp_port_spinbox.setEnabled(False)
+
+    def settings_cspect_mcp_port_changed(port):
+        configuration_dictionary[SETTING_CSPECT_MCP_PORT] = str(port)
+        save_configuration_file()
+    host.settings_cspect_mcp_port_spinbox.valueChanged.connect(
+        settings_cspect_mcp_port_changed)
+
+    _cspect_mcp_row = QHBoxLayout()
+    _cspect_mcp_row.addWidget(host.settings_cspect_mcp_checkbox)
+    _cspect_mcp_row.addSpacing(12)
+    _cspect_mcp_row.addWidget(host.settings_cspect_mcp_port_label)
+    _cspect_mcp_row.addWidget(host.settings_cspect_mcp_port_spinbox)
+    _cspect_mcp_row.addStretch(1)
+    grid_tab_Settings.addLayout(_cspect_mcp_row, settings_grid_row("cspect_mcp"), 0, 1, 2)
 
     # ── Unite! pygame background animation toggle ──────────────────────
     def _settings_pygame_anim_changed():

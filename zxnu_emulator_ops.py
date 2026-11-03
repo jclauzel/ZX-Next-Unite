@@ -449,6 +449,10 @@ def build_emulator_ops(
         host._esp_emu_users = 0
         _esp_announce_station_ip(server)
         return server
+    # Exposed for the MCP server's esp_emulation_start (9.7.57): the same
+    # reuse-or-start, reading the same Settings, so an agent's worker is the
+    # one the next MAME launch joins. UI thread only (it creates a QObject).
+    host._start_esp_emulation = _start_esp_emulation
 
     # Which ESP card this MAME offers (9.7.48): the "-listslots" answer,
     # cached per BINARY (its path, size and mtime) and machine, so a launch
@@ -570,7 +574,12 @@ def build_emulator_ops(
         local pane with no image loaded), so on any other tab a refusal would
         look exactly like nothing happening. The log line stays — it is the
         record — and the toast is what makes the refusal visible.
+
+        Also recorded on the host (9.7.57): the launchers answer a caller
+        with None on every refusal, and the MCP server's emulator_start reads
+        this tuple right after the call to tell an agent WHY nothing started.
         """
+        host._last_launch_failure = (emulator, message)
         add_main_log_window(message)
         try:
             host._show_toast(
@@ -1207,7 +1216,7 @@ def build_emulator_ops(
             "the keyboard alone for about 15 seconds.").format(path=where))
         return script
 
-    def launch_cspect(autostart_file=None):
+    def launch_cspect(autostart_file=None, *, mcp=None, mcp_port=None):
         """Launch CSpect against the loaded SD image.
 
         *autostart_file* is a HOST path to a file CSpect should load and start
@@ -1282,7 +1291,25 @@ def build_emulator_ops(
             SETTING_CUSTOM, CSPECT_DEFAULT_LAUNCH_PARAMETERS)
         if not cspect_default_params:
             cspect_default_params = CSPECT_DEFAULT_LAUNCH_PARAMETERS
+        # CSpect's OWN MCP server (4.2.0+, "-mcp[=port]"; 9.7.57): Settings ->
+        # "Start CSpect with its MCP server", or a per-launch override from
+        # the app's MCP server (emulator_start's cspect_mcp / cspect_mcp_port),
+        # adds "-mcp=<port>" so an agent drives the emulator through CSpect's
+        # server and the app through this one, each on its own port. While
+        # the toggle rules, a copy typed into the parameters box is dropped
+        # (CSpect would otherwise see two switches); with it off a typed
+        # token is the user's explicit choice and stays.
+        _mcp_on = cspect_mcp_enabled(configuration_dictionary) if mcp is None else bool(mcp)
+        _mcp_port = cspect_mcp_port(configuration_dictionary) if mcp_port is None else int(mcp_port)
+        _mcp_arg = cspect_mcp_argument(_mcp_on, _mcp_port)
+        if _mcp_arg:
+            cspect_default_params = strip_cspect_mcp_tokens(cspect_default_params)
         cspect_arguments = " " + cspect_default_params + " "
+        if _mcp_arg:
+            cspect_arguments += _mcp_arg + " "
+            add_main_log_window(ui_tr_now(
+                "CSpect starts with its own MCP server on port {port}").format(
+                    port=_mcp_port))
         # Selections are read by INDEX: these combos show translated labels,
         # so currentText() no longer identifies the entry (see
         # emulator_option_argument).
@@ -1397,6 +1424,9 @@ def build_emulator_ops(
         _held_key = _image_state_key(_held_image) if _held_image else ""
         if _held_key:
             host._images_held_by_us.setdefault(_held_key, []).append(cspect_proc)
+        # The port CSpect's own MCP server was asked for (0 = none), read by
+        # the app's MCP server when it lists the emulators it started.
+        cspect_proc.zxnu_mcp_port = _mcp_port if _mcp_arg else 0
         _refresh_emulator_launchability()
 
         cspect_signals = CSpectProcessSignals()
@@ -1526,6 +1556,10 @@ def build_emulator_ops(
         threading.Thread(target=_read_cspect_output,
                          args=(cspect_proc, cspect_signals),
                          name="cspect-output", daemon=True).start()
+        # The process, for a programmatic caller (the MCP server's
+        # emulator_start, 9.7.57); None on every refusal above. Qt ignores a
+        # slot's return value, so the buttons and the strips see no change.
+        return cspect_proc
 
 
     def launch_mame(autostart_file=None, card_path=None):
@@ -1939,6 +1973,9 @@ def build_emulator_ops(
             name="mame-output",
             daemon=True,
         ).start()
+        # The process, for a programmatic caller (the MCP server's
+        # emulator_start, 9.7.57); None on every refusal above.
+        return mame_proc
 
     # ── Automatic MAME install (64-bit Windows) ──────────────────────────
     # When MAME isn't on PATH, the SD-card tab shows an "Install MAME" button
