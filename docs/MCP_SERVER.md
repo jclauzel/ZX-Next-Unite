@@ -81,6 +81,89 @@ reason, so the agent reads it and tries something else. Every `next_*` tool
 takes an optional `session` (a sid from `next_sessions`) to target one seated
 Next; without it the active one answers.
 
+## Getting started: your first session
+
+Five minutes from a cold start to an agent driving the app.
+
+### 1. Start the app from this checkout and switch the server on
+
+```bash
+python zx-next-unite.py
+```
+
+(or the portable `zx-next-unite.exe`, or the `zx-next-unite` command of a pipx
+install). On the **Settings** tab tick **Enable MCP server**. The NextSync
+console answers:
+
+```
+MCP server listening on http://127.0.0.1:2050/mcp
+```
+
+The setting persists, so from now on the server starts with the app.
+
+### 2. Register the server with Claude Code
+
+Press **Copy to clipboard** beside the hint line in Settings and paste it in a
+terminal — or type it:
+
+```bash
+claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp
+```
+
+```
+Added HTTP MCP server zx-next-unite with URL: http://127.0.0.1:2050/mcp to local config
+```
+
+Check it:
+
+```bash
+claude mcp list
+```
+
+`zx-next-unite: http://127.0.0.1:2050/mcp (HTTP) - ✓ Connected` is what you
+want. `✘ Failed to connect` means the app is not running, the toggle is off, or
+the port in the command differs from the one in Settings — re-copy the command.
+
+### 3. Open a fresh Claude Code session in this folder
+
+Claude Code discovers a server's tools when a session **starts** (in a session
+that is already open, `/mcp` reconnects). The 46 tools appear as
+`mcp__zx-next-unite__<name>`, and Claude picks them from plain requests — you
+never type a tool name unless you want to.
+
+### 4. Try these prompts
+
+| You type | What runs |
+|---|---|
+| *What is ZX Next Unite doing right now?* | `app_status` |
+| *Load C:\temp\cspect-next-2gb.img and list /games* | `image_load`, `image_ls` |
+| *Put C:\projects\mygame\mygame.nex into /games on the image and start MAME with it* | `image_put`, then `emulator_start` with `file` and `image_dir` |
+| *Start CSpect on the image with its own MCP server on port 2051* | `emulator_start emulator=CSpect cspect_mcp=true` |
+| *Start the NextSync listener with sync root C:\temp\sync and tell me when a Next connects* | `nextsync_listener_start`, then `next_sessions` |
+| *Deploy C:\projects\mygame\mygame.nex to the Next and run it* | `next_deploy` — upload, CRC-32 verify on the Next, leave listen mode; with `autoexec.bas` on the card the Next runs it |
+| *Show the last 20 lines of the NextSync console* | `app_log_tail console=nextsync lines=20` |
+| *Stop the emulator you started* | `emulator_processes`, `emulator_stop` |
+
+To name a tool directly: *call the app_status tool of zx-next-unite*.
+
+### 5. A build-and-run loop, as one prompt
+
+> Build my game with its build.ps1, then put the .nex on the loaded image under
+> /games and start MAME with it; if MAME refuses, tell me why.
+
+Claude runs the build, then `image_put`, then `emulator_start`; on a refusal it
+reads the reason from the result (no image loaded, the image held by a running
+emulator, the file missing) and tells you. Swap the last step for *deploy it to
+the Next and run it* and the same loop lands the build on real hardware through
+`next_deploy`.
+
+### 6. What you see in the app meanwhile
+
+Every call is a line on the NextSync console — `MCP: image_put -> ok (0.1s)`,
+`MCP: next_ls -> refused (0.0s): no Next is seated on the listener…` — and in
+the file log. A refusal always comes back to the agent as readable text, so you
+can simply ask Claude what went wrong.
+
 ## Two workflows
 
 **Deploy to the Next on the desk** — the `extra/Send-ToNext.ps1` loop in one
