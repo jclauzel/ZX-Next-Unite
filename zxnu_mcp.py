@@ -60,6 +60,7 @@ clients with the version they asked for):
 
 import hmac
 import json
+import logging
 import os
 import socket
 import sys
@@ -402,6 +403,21 @@ class _McpHttpServer(ThreadingHTTPServer):
     def __init__(self, addr, handler, mcp):
         self.mcp = mcp
         super().__init__(addr, handler)
+
+    def handle_error(self, request, client_address):
+        """socketserver's default prints a traceback to stderr for ANY
+        exception a handler thread raises - and with HTTP/1.1 keep-alive a
+        client that simply closes its connection (Claude Code's health
+        probe, a shim ending, any disconnect) raises ConnectionResetError
+        out of the next readline on Windows (WinError 10054), BrokenPipe
+        elsewhere. That is the link ending, not an error: swallowed. Any
+        other exception goes to the file log, never to a console nobody
+        reads."""
+        ex = sys.exc_info()[1]
+        if isinstance(ex, (ConnectionResetError, ConnectionAbortedError,
+                           BrokenPipeError, TimeoutError)):
+            return
+        logging.exception("MCP: request from %s failed", client_address)
 
 
 class _Handler(BaseHTTPRequestHandler):

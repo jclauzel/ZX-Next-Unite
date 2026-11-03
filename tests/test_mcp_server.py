@@ -21,9 +21,11 @@ import json
 import os
 import re
 import socket
+import struct
 import sys
 import tempfile
 import threading
+import time
 import urllib.error
 import urllib.request
 import zlib
@@ -520,6 +522,35 @@ def test_http():
         check("the help page needs no token", st == 200)
     finally:
         http.stop()
+
+    # a client that RESETS its keep-alive connection must leave no traceback
+    # on stderr (socketserver's default handle_error prints one; a Claude
+    # Code health probe or a shim ending did exactly that on Windows).
+    _host, srv = make_server()
+    http = McpHttpServer(srv, port=0)
+    http.start()
+    old_err = sys.stderr
+    sys.stderr = io.StringIO()
+    try:
+        s = socket.create_connection(("127.0.0.1", http.port), timeout=5)
+        s.sendall(json.dumps(rpc("ping")).encode().join(
+            [f"POST {MCP_PATH} HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\n"
+             f"Content-Length: {len(json.dumps(rpc('ping')))}\r\n\r\n".encode(), b""]))
+        s.recv(4096)
+        # SO_LINGER 0: the close sends RST, not FIN - the Windows 10054 case.
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+        s.close()
+        s2 = socket.create_connection(("127.0.0.1", http.port), timeout=5)
+        s2.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+        s2.close()                       # reset before a single byte
+        time.sleep(0.5)
+        st, _, _ = _http(http.url, rpc("ping"))
+        check("the server still answers after client resets", st == 200)
+        leaked = sys.stderr.getvalue()
+    finally:
+        sys.stderr = old_err
+        http.stop()
+    check("a client reset prints no traceback", "Traceback" not in leaked and "10054" not in leaked, leaked[:300])
 
     # port in use
     blocker = socket.socket()
