@@ -1994,10 +1994,37 @@ def build_settings_pane(
     host._mcp_refresh_hint = _mcp_refresh_hint
     host._mcp_retranslate = _mcp_refresh_hint
 
+    # "Copy to clipboard": the COMMAND alone (never the translated prefix),
+    # read live from the server so a port or token change is what gets
+    # pasted. Always enabled - the command is valid the moment the toggle
+    # goes on, and copying it first is a natural order.
+    def _mcp_copy_hint():
+        fn = getattr(host, "_mcp_connect_hint", None)
+        cmd = fn() if fn is not None else ""
+        if not cmd:
+            return
+        QApplication.clipboard().setText(cmd)
+        try:
+            host._show_toast("Copied to clipboard", cmd, variant="green",
+                             duration_ms=4000)
+        except (RuntimeError, AttributeError):
+            logging.exception("could not show the clipboard toast")
+
+    host.settings_mcp_copy_btn = QPushButton("Copy to clipboard")
+    host.settings_mcp_copy_btn.setToolTip(
+        "Copy the connect command (port and token included) to the clipboard,\n"
+        "ready to paste in a terminal - no retyping, no typo.")
+    host.settings_mcp_copy_btn.clicked.connect(lambda: _mcp_copy_hint())
+
+    _mcp_hint_row = QHBoxLayout()
+    _mcp_hint_row.addWidget(host.settings_mcp_hint_label, 1)
+    _mcp_hint_row.addSpacing(8)
+    _mcp_hint_row.addWidget(host.settings_mcp_copy_btn, 0, Qt.AlignTop)
+
     _mcp_vbox = QVBoxLayout()
     _mcp_vbox.addLayout(_mcp_row)
     _mcp_vbox.addLayout(_mcp_token_row)
-    _mcp_vbox.addWidget(host.settings_mcp_hint_label)
+    _mcp_vbox.addLayout(_mcp_hint_row)
     grid_tab_Settings.addLayout(_mcp_vbox, settings_grid_row("mcp_server"), 0, 1, 2)
     host._mcp_widgets_set_enabled = _mcp_widgets_set_enabled
 

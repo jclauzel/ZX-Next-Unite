@@ -1792,6 +1792,10 @@ CATALOGS = {
             "Conecta Claude Code con el comando de una línea mostrado bajo el interruptor (claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp). Un cliente que solo pueda lanzar un servidor stdio (Claude Desktop) ejecuta 'zx-next-unite --mcp-stdio' (o el comando zx-next-unite-mcp de una instalación pipx), que reenvía a la aplicación en marcha. 'Require bearer token' hace que cada petición lleve el token mostrado a su lado.",
         "CSpect 4.2.0 and later has an MCP server of its own ('-mcp[=port]' on its command line). Settings -> 'Start CSpect with its MCP server' launches CSpect with it on the port set beside the toggle (2051 by default), so an agent can drive both at once: zx-next-unite through this server, the running CSpect through CSpect's. The emulator_start tool reports that port, and app_status shows it for every CSpect started from the app.":
             "CSpect 4.2.0 y posteriores tienen su propio servidor MCP ('-mcp[=port]' en su línea de comandos). Ajustes -> 'Start CSpect with its MCP server' lanza CSpect con él en el puerto fijado junto al interruptor (2051 por defecto), de modo que un agente pueda controlar ambos a la vez: zx-next-unite a través de este servidor y el CSpect en marcha a través del de CSpect. La herramienta emulator_start informa de ese puerto y app_status lo muestra para cada CSpect iniciado desde la aplicación.",
+        "Copy to clipboard":
+            "Copiar al portapapeles",
+        "Copied to clipboard":
+            "Copiado al portapapeles",
     },
     "pt": {
         # ---- 9.6.0: per-emulator button colour ----
@@ -3369,6 +3373,10 @@ CATALOGS = {
             "Ligue o Claude Code com o comando de uma linha mostrado sob o interruptor (claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp). Um cliente que só consiga lançar um servidor stdio (Claude Desktop) executa 'zx-next-unite --mcp-stdio' (ou o comando zx-next-unite-mcp de uma instalação pipx), que reencaminha para a aplicação em execução. 'Require bearer token' faz com que cada pedido traga o token mostrado ao lado.",
         "CSpect 4.2.0 and later has an MCP server of its own ('-mcp[=port]' on its command line). Settings -> 'Start CSpect with its MCP server' launches CSpect with it on the port set beside the toggle (2051 by default), so an agent can drive both at once: zx-next-unite through this server, the running CSpect through CSpect's. The emulator_start tool reports that port, and app_status shows it for every CSpect started from the app.":
             "O CSpect 4.2.0 e posteriores têm um servidor MCP próprio ('-mcp[=port]' na sua linha de comandos). Definições -> 'Start CSpect with its MCP server' lança o CSpect com ele na porta definida ao lado do interruptor (2051 por defeito), para que um agente possa controlar ambos ao mesmo tempo: o zx-next-unite através deste servidor e o CSpect em execução através do do CSpect. A ferramenta emulator_start indica essa porta e app_status mostra-a para cada CSpect iniciado a partir da aplicação.",
+        "Copy to clipboard":
+            "Copiar para a área de transferência",
+        "Copied to clipboard":
+            "Copiado para a área de transferência",
     },
     "pl": {
         # ---- 9.6.0: per-emulator button colour ----
@@ -4943,6 +4951,10 @@ CATALOGS = {
             "Połącz Claude Code jednowierszowym poleceniem pokazanym pod przełącznikiem (claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp). Klient, który potrafi tylko uruchomić serwer stdio (Claude Desktop), uruchamia 'zx-next-unite --mcp-stdio' (lub polecenie zx-next-unite-mcp z instalacji pipx), które przekazuje żądania do działającej aplikacji. 'Require bearer token' sprawia, że każde żądanie niesie token pokazany obok.",
         "CSpect 4.2.0 and later has an MCP server of its own ('-mcp[=port]' on its command line). Settings -> 'Start CSpect with its MCP server' launches CSpect with it on the port set beside the toggle (2051 by default), so an agent can drive both at once: zx-next-unite through this server, the running CSpect through CSpect's. The emulator_start tool reports that port, and app_status shows it for every CSpect started from the app.":
             "CSpect 4.2.0 i nowsze mają własny serwer MCP ('-mcp[=port]' w wierszu poleceń). Ustawienia -> 'Start CSpect with its MCP server' uruchamia CSpect z nim na porcie ustawionym obok przełącznika (domyślnie 2051), więc agent może sterować oboma naraz: zx-next-unite przez ten serwer, a działającym CSpect przez serwer CSpect. Narzędzie emulator_start podaje ten port, a app_status pokazuje go dla każdego CSpect uruchomionego z aplikacji.",
+        "Copy to clipboard":
+            "Kopiuj do schowka",
+        "Copied to clipboard":
+            "Skopiowano do schowka",
     },
     "ru": {
         # ---- 9.6.0: per-emulator button colour ----
@@ -6518,6 +6530,10 @@ CATALOGS = {
             "Подключите Claude Code однострочной командой, показанной под переключателем (claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp). Клиент, умеющий запускать только stdio-сервер (Claude Desktop), запускает 'zx-next-unite --mcp-stdio' (или команду zx-next-unite-mcp из установки pipx), которая передаёт запросы работающему приложению. 'Require bearer token' заставляет каждый запрос нести токен, показанный рядом.",
         "CSpect 4.2.0 and later has an MCP server of its own ('-mcp[=port]' on its command line). Settings -> 'Start CSpect with its MCP server' launches CSpect with it on the port set beside the toggle (2051 by default), so an agent can drive both at once: zx-next-unite through this server, the running CSpect through CSpect's. The emulator_start tool reports that port, and app_status shows it for every CSpect started from the app.":
             "У CSpect 4.2.0 и новее есть собственный сервер MCP ('-mcp[=port]' в командной строке). Настройки -> 'Start CSpect with its MCP server' запускает CSpect с ним на порту, заданном рядом с переключателем (2051 по умолчанию), так что агент может управлять обоими сразу: zx-next-unite через этот сервер, а запущенным CSpect — через сервер CSpect. Инструмент emulator_start сообщает этот порт, а app_status показывает его для каждого CSpect, запущенного из приложения.",
+        "Copy to clipboard":
+            "Скопировать в буфер обмена",
+        "Copied to clipboard":
+            "Скопировано в буфер обмена",
     },
     "cs": {
         # ---- 9.6.0: per-emulator button colour ----
@@ -8088,6 +8104,10 @@ CATALOGS = {
             "Připojte Claude Code jednořádkovým příkazem zobrazeným pod přepínačem (claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp). Klient, který umí spustit jen stdio server (Claude Desktop), spouští 'zx-next-unite --mcp-stdio' (nebo příkaz zx-next-unite-mcp z instalace pipx), který předává požadavky běžící aplikaci. 'Require bearer token' zajistí, že každý požadavek nese token zobrazený vedle.",
         "CSpect 4.2.0 and later has an MCP server of its own ('-mcp[=port]' on its command line). Settings -> 'Start CSpect with its MCP server' launches CSpect with it on the port set beside the toggle (2051 by default), so an agent can drive both at once: zx-next-unite through this server, the running CSpect through CSpect's. The emulator_start tool reports that port, and app_status shows it for every CSpect started from the app.":
             "CSpect 4.2.0 a novější má vlastní server MCP ('-mcp[=port]' na příkazovém řádku). Nastavení -> 'Start CSpect with its MCP server' spustí CSpect s ním na portu nastaveném vedle přepínače (výchozí 2051), takže agent může ovládat oba najednou: zx-next-unite přes tento server a běžící CSpect přes server CSpectu. Nástroj emulator_start tento port hlásí a app_status ho ukazuje u každého CSpectu spuštěného z aplikace.",
+        "Copy to clipboard":
+            "Zkopírovat do schránky",
+        "Copied to clipboard":
+            "Zkopírováno do schránky",
     },
     "fr": {
         # ---- 9.6.0: per-emulator button colour ----
@@ -9669,6 +9689,10 @@ CATALOGS = {
             "Connectez Claude Code avec la commande d'une ligne affichée sous l'interrupteur (claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp). Un client qui ne sait lancer qu'un serveur stdio (Claude Desktop) exécute 'zx-next-unite --mcp-stdio' (ou la commande zx-next-unite-mcp d'une installation pipx), qui relaie vers l'application en cours. 'Require bearer token' fait porter à chaque requête le jeton affiché à côté.",
         "CSpect 4.2.0 and later has an MCP server of its own ('-mcp[=port]' on its command line). Settings -> 'Start CSpect with its MCP server' launches CSpect with it on the port set beside the toggle (2051 by default), so an agent can drive both at once: zx-next-unite through this server, the running CSpect through CSpect's. The emulator_start tool reports that port, and app_status shows it for every CSpect started from the app.":
             "CSpect 4.2.0 et plus récent a son propre serveur MCP ('-mcp[=port]' sur sa ligne de commande). Réglages -> 'Start CSpect with its MCP server' lance CSpect avec lui sur le port fixé à côté de l'interrupteur (2051 par défaut), si bien qu'un agent peut piloter les deux à la fois : zx-next-unite par ce serveur, le CSpect en cours par celui de CSpect. L'outil emulator_start indique ce port et app_status l'affiche pour chaque CSpect lancé depuis l'application.",
+        "Copy to clipboard":
+            "Copier dans le presse-papiers",
+        "Copied to clipboard":
+            "Copié dans le presse-papiers",
     },
 }
 

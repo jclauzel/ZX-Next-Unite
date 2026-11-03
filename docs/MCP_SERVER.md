@@ -21,7 +21,8 @@ Settings → **Enable MCP server**. The row carries:
   rule: every request must carry `Authorization: Bearer <token>` (or the
   `ZXNEXTUNITE-MCP-TOKEN` header), others get HTTP 401;
 * a selectable **hint line** with the one-line Claude Code setup for the
-  current settings.
+  current settings, and a **Copy to clipboard** button beside it that copies
+  the command alone (port and token included), ready to paste in a terminal.
 
 Everything persists in `hdfg.cfg` (`mcp_server`, `mcp_port`,
 `mcp_token_enabled`, `mcp_token`); when enabled, the server starts with the

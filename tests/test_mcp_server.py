@@ -858,8 +858,11 @@ def test_wiring():
         check(f"{row} placed by name", f'settings_grid_row("{row}")' in pane)
     for w in ("settings_mcp_checkbox", "settings_mcp_port_spinbox", "settings_mcp_token_checkbox",
               "settings_mcp_token_edit", "settings_mcp_token_generate_btn", "settings_mcp_hint_label",
+              "settings_mcp_copy_btn",
               "settings_cspect_mcp_checkbox", "settings_cspect_mcp_port_spinbox", "_mcp_retranslate", "_mcp_refresh_hint"):
         check(f"pane writes host.{w}", f"host.{w} =" in pane)
+    check("the Copy button puts the COMMAND on the clipboard (never the translated prefix)",
+          "QApplication.clipboard().setText(cmd)" in pane)
     cio = _src("zxnu_config_io.py")
     check("restore decodes through mcp_server_enabled / cspect_mcp_enabled",
           "mcp_server_enabled(configuration_dictionary)" in cio and "cspect_mcp_enabled(configuration_dictionary)" in cio
@@ -891,7 +894,7 @@ def test_wiring():
              "CSpect starts with its own MCP server on port {port}",
              "MCP server started", "MCP server not started",
              "Port {port} is already in use; the MCP server has not been started.",
-             "MCP server (AI agents):"]
+             "MCP server (AI agents):", "Copy to clipboard", "Copied to clipboard"]
     for lang in ("es", "pt", "pl", "ru", "cs", "fr"):
         for t in texts:
             tr = CATALOGS[lang].get(t)
