@@ -1524,6 +1524,10 @@ def build_emulator_ops(
                 "ERROR: Failed to launch CSpect: {error}").format(error=ex))
             return
         _started = time.monotonic()
+        # Which emulator this process is, for anything that lists the record
+        # below (the MCP server's emulator_processes). Said by the launcher
+        # that started it: the command line cannot be asked - see launch_mame.
+        cspect_proc.zxnu_emulator = "CSpect"
 
         # The image this CSpect holds, for as long as it runs. The UI used
         # to be frozen for exactly that long, which is what made a record
@@ -2001,6 +2005,12 @@ def build_emulator_ops(
             _emulator_launch_failed("MAME", ui_tr_now(
                 "ERROR: Failed to launch MAME: {error}").format(error=ex))
             return
+        # Which emulator this process is, for anything that lists the record
+        # below (the MCP server's emulator_processes). The launcher says it,
+        # because the command line cannot be asked: the stock NextZXOS images
+        # are named cspect-next-*.img, so a MAME booting one carries "cspect"
+        # in its own arguments and was listed as CSpect (found 2026-11-05).
+        mame_proc.zxnu_emulator = "MAME"
         if _held_key:
             host._images_held_by_us.setdefault(_held_key, []).append(mame_proc)
             _refresh_emulator_launchability()
