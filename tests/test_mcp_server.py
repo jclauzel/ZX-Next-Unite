@@ -113,8 +113,8 @@ class FakeHost:
     def image_recent(self):
         return [{"path": self.image, "exists": True}] if self.image else []
 
-    def image_download(self, size, dest_dir, load):
-        self.calls.append(("image_download", size, dest_dir, load))
+    def image_download(self, size, dest_dir, load, overwrite):
+        self.calls.append(("image_download", size, dest_dir, load, overwrite))
         return {"ok": True, "zip": "x.zip", "image": "x.img", "loaded": load}
 
     def image_refresh(self, path):
@@ -804,7 +804,8 @@ def test_tools():
         is_err, text, _ = result_of(call(srv, "image_rm", {"path": "/games/zzz"}))
         check("image_rm of a missing entry -> isError", is_err and "not found" in text)
         is_err, _, s = result_of(call(srv, "image_download_nextzxos", {"size": "4gb"}))
-        check("image_download_nextzxos passes size/dest/load", not is_err and host.calls[-1] == ("image_download", "4gb", "", True))
+        check("image_download_nextzxos passes size/dest/load, and never asks to overwrite by itself",
+              not is_err and host.calls[-1] == ("image_download", "4gb", "", True, False))
 
         # ---- emulators
         is_err, _, s = result_of(call(srv, "emulator_start", {"emulator": "CSpect", "cspect_mcp": True, "cspect_mcp_port": 2099}))
@@ -1374,6 +1375,234 @@ def test_emulator_label():
           f"{stamps} {names}")
 
 
+class _FakeDownload:
+    """What urlopen answers in test_image_download_guard: ``body`` in the
+    64 KB reads download_nextzxos_archive makes, optionally dying after
+    ``fail_after`` of them (a link that drops mid-download)."""
+
+    def __init__(self, body, fail_after=None):
+        self.body = io.BytesIO(body)
+        self.size = len(body)
+        self.fail_after = fail_after
+        self.reads = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def getheader(self, name):
+        return str(self.size) if name == "Content-Length" else None
+
+    def read(self, n):
+        if self.fail_after is not None and self.reads >= self.fail_after:
+            raise ConnectionResetError("the link dropped")
+        self.reads += 1
+        return self.body.read(n)
+
+
+def test_image_download_guard():
+    """image_download_nextzxos never replaces a file unless told to.
+
+    Noticed 2026-11-05 while using the server: the download is always saved
+    under the archive's own name (cspect-next-2gb.zip, the image extracted
+    next to it as cspect-next-2gb.img), both opened for writing, so asking for
+    an image in a folder that already held one of that size would have written
+    over it - with everything put on that card since. The wizard's save dialog
+    asks its user; an agent's call asked nobody."""
+    print("-- image_download_nextzxos: an existing zip or image is never replaced")
+    import zxnu_sdcard_ops as sd
+    from zxnu_mcp_ops import nextzxos_overwrite_refusal
+
+    # ---- the tool: overwrite is off unless a JSON true says otherwise
+    host, srv = make_server()
+    tools = {t["name"]: t for t in srv.handle_message(rpc("tools/list"))["result"]["tools"]}
+    spec = tools["image_download_nextzxos"]["inputSchema"]["properties"].get("overwrite") or {}
+    check("the tool declares overwrite, a boolean that defaults to false",
+          spec.get("type") == "boolean" and spec.get("default") is False, spec)
+    check("...and its description says an existing file is never replaced",
+          "never replaced" in tools["image_download_nextzxos"]["description"])
+    is_err, _, _ = result_of(call(srv, "image_download_nextzxos", {"overwrite": True}))
+    check("overwrite=true reaches the host", not is_err
+          and host.calls[-1] == ("image_download", "2gb", "", True, True), host.calls[-1])
+    is_err, _, _ = result_of(call(srv, "image_download_nextzxos", {"overwrite": None}))
+    check("a null overwrite is not consent", not is_err
+          and host.calls[-1] == ("image_download", "2gb", "", True, False), host.calls[-1])
+    before = len(host.calls)
+    for bad in ("true", 1, "yes"):
+        reply = call(srv, "image_download_nextzxos", {"overwrite": bad})
+        refused = "error" in reply or result_of(reply)[0]
+        check(f"overwrite={bad!r} is refused, not read as true",
+              refused and len(host.calls) == before, reply)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        # ---- which names a download writes, and which are taken
+        zip_path = os.path.join(tmp, "cspect-next-2gb.zip")
+        img_path = os.path.join(tmp, "cspect-next-2gb.img")
+        hdf_path = os.path.join(tmp, "cspect-next-2gb.hdf")
+        check("the image is named after the archive, extension lower-cased",
+              sd.nextzxos_image_target(zip_path, ".IMG") == img_path
+              and sd.nextzxos_image_target(zip_path, ".hdf") == hdf_path)
+        check("an empty folder: nothing is taken", sd.nextzxos_download_occupied(zip_path) == [])
+        check("a folder that does not exist yet: nothing is taken",
+              sd.nextzxos_download_occupied(os.path.join(tmp, "new", "cspect-next-2gb.zip")) == [])
+        with open(img_path, "wb") as fh:
+            fh.write(b"MY WORK")
+        check("an image of that name is taken, the archive being absent",
+              sd.nextzxos_download_occupied(zip_path) == [img_path])
+        check("...and another size's names are free beside it",
+              sd.nextzxos_download_occupied(os.path.join(tmp, "cspect-next-4gb.zip")) == [])
+        with open(zip_path, "wb") as fh:
+            fh.write(b"OLD ZIP")
+        check("archive and image: both, in writing order",
+              sd.nextzxos_download_occupied(zip_path) == [zip_path, img_path])
+        os.remove(img_path)
+        os.mkdir(hdf_path)
+        check("whatever holds the name counts (.hdf, and a folder at that)",
+              sd.nextzxos_download_occupied(zip_path) == [zip_path, hdf_path])
+        os.rmdir(hdf_path)
+        os.remove(zip_path)
+
+        # ---- the refusal an agent reads
+        with open(zip_path, "wb") as fh:
+            fh.write(b"z" * 10)
+        with open(img_path, "wb") as fh:
+            fh.write(b"i" * (3 * 1048576))
+        text = nextzxos_overwrite_refusal([zip_path, img_path])
+        check("the refusal names both files with their sizes, and that nothing was fetched",
+              "nothing was downloaded" in text and "cspect-next-2gb.zip (10 bytes" in text
+              and "cspect-next-2gb.img (3 MB" in text and tmp in text, text)
+        check("...and the three ways on: load what is there, another folder, overwrite",
+              f"image_load {img_path}" in text and "another dest_dir" in text
+              and "overwrite=true to replace them" in text, text)
+        text = nextzxos_overwrite_refusal([zip_path])
+        check("an archive alone: no image to load is offered, and it is 'it'",
+              "image_load" not in text and "overwrite=true to replace it" in text, text)
+        check("a file that vanished meanwhile is still named",
+              "gone.img" in nextzxos_overwrite_refusal([os.path.join(tmp, "gone.img")]))
+        os.remove(zip_path)
+        os.remove(img_path)
+
+        # ---- the download itself: create or fail
+        real_urlopen = sd.urllib.request.urlopen
+        answers = []
+        sd.urllib.request.urlopen = lambda request: answers.pop(0)
+        try:
+            body = b"A" * 200000
+            answers.append(_FakeDownload(body))
+            sd.download_nextzxos_archive("http://x/cspect-next-2gb.zip", zip_path, overwrite=False)
+            with open(zip_path, "rb") as fh:
+                check("overwrite=False into a free name downloads the file", fh.read() == body)
+            answers.append(_FakeDownload(b"B" * 200000))
+            try:
+                sd.download_nextzxos_archive("http://x/cspect-next-2gb.zip", zip_path, overwrite=False)
+                raised = None
+            except FileExistsError as ex:
+                raised = ex
+            with open(zip_path, "rb") as fh:
+                check("overwrite=False onto an existing file raises and leaves every byte",
+                      raised is not None and fh.read() == body, raised)
+            answers.append(_FakeDownload(b"C" * 200000))
+            sd.download_nextzxos_archive("http://x/cspect-next-2gb.zip", zip_path)
+            with open(zip_path, "rb") as fh:
+                check("the wizard's default still replaces the file its dialog asked about",
+                      fh.read() == b"C" * 200000)
+            os.remove(zip_path)
+            answers.append(_FakeDownload(b"D" * 200000, fail_after=2))
+            try:
+                sd.download_nextzxos_archive("http://x/cspect-next-2gb.zip", zip_path, overwrite=False)
+                raised = None
+            except ConnectionResetError as ex:
+                raised = ex
+            check("overwrite=False: a download that dies removes its own partial file",
+                  raised is not None and not os.path.exists(zip_path), raised)
+            answers.append(_FakeDownload(b"E" * 200000, fail_after=2))
+            try:
+                sd.download_nextzxos_archive("http://x/cspect-next-2gb.zip", zip_path)
+                raised = None
+            except ConnectionResetError as ex:
+                raised = ex
+            check("the wizard's default keeps its contract: the partial file is left",
+                  raised is not None and os.path.getsize(zip_path) == 2 * 65536, raised)
+            os.remove(zip_path)
+        finally:
+            sd.urllib.request.urlopen = real_urlopen
+
+        # ---- the extraction: create or fail
+        image = bytes(range(256)) * 4096                       # 1 MB
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("2gb/cspect-next-2gb.IMG", image)
+        with open(img_path, "wb") as fh:
+            fh.write(b"MY WORK")
+        try:
+            sd.extract_nextzxos_image(zip_path, overwrite=False)
+            raised = None
+        except FileExistsError as ex:
+            raised = ex
+        with open(img_path, "rb") as fh:
+            check("overwrite=False onto an existing image raises and leaves every byte",
+                  raised is not None and fh.read() == b"MY WORK", raised)
+        check("...and the error names that image",
+              raised is not None and os.path.normcase(str(raised.filename)) == os.path.normcase(img_path),
+              raised and raised.filename)
+        os.remove(img_path)
+        got = sd.extract_nextzxos_image(zip_path, overwrite=False)
+        with open(img_path, "rb") as fh:
+            check("overwrite=False into a free name extracts the image",
+                  got == img_path and fh.read() == image, got)
+        with open(img_path, "wb") as fh:
+            fh.write(b"MY WORK")
+        got = sd.extract_nextzxos_image(zip_path)
+        with open(img_path, "rb") as fh:
+            check("the wizard's default still replaces the image named after its archive",
+                  got == img_path and fh.read() == image)
+        os.remove(img_path)
+
+        def dies():
+            raise OSError("the disk filled up")
+        try:
+            sd.extract_nextzxos_image(zip_path, pump=dies, overwrite=False)
+            raised = None
+        except OSError as ex:
+            raised = ex
+        check("overwrite=False: an extraction that dies removes its own partial image",
+              raised is not None and not os.path.exists(img_path), raised)
+        with open(img_path, "wb") as fh:
+            fh.write(b"MY WORK")
+        for overwrite in (False, True):
+            try:
+                sd.extract_nextzxos_image(zip_path, refuse=lambda target: "an emulator holds it",
+                                          overwrite=overwrite)
+                raised = None
+            except RuntimeError as ex:
+                raised = ex
+            with open(img_path, "rb") as fh:
+                check(f"overwrite={overwrite}: the emulator gate still refuses first, image untouched",
+                      raised is not None and "emulator holds it" in str(raised)
+                      and fh.read() == b"MY WORK", raised)
+
+    # ---- the adapter: asks before it fetches, and passes the answer down
+    ops = _src("zxnu_mcp_ops.py")
+    start = ops.find("def image_download(self, size, dest_dir, load, overwrite=False):")
+    body = ops[start:ops.find("def hdfmonkey(self", start)]
+    asked = body.find("nextzxos_download_occupied(save_path)")
+    fetched = body.find("download_nextzxos_archive(url, save_path, overwrite=overwrite)")
+    made = body.find("os.makedirs(dest")
+    check("the adapter's overwrite defaults to False", start >= 0)
+    check("it looks for existing files before it creates the folder or fetches a byte",
+          0 <= asked < made < fetched, f"{asked} {made} {fetched}")
+    check("the check is skipped only for overwrite",
+          "if not overwrite:" in body[:asked] and "raise McpToolError(nextzxos_overwrite_refusal(taken))" in body)
+    check("both the download and the extraction are told not to replace",
+          fetched >= 0 and "extract_nextzxos_image(save_path, refuse=blocker," in body
+          and body.count("overwrite=overwrite") == 2, body.count("overwrite=overwrite"))
+    wizard = _src("zxnu_sdcard_ops.py")
+    check("neither file is opened for plain writing any more: the mode follows overwrite",
+          wizard.count('"wb" if overwrite else "xb"') == 2
+          and 'open(save_path, "wb")' not in wizard and 'open(target, "wb")' not in wizard)
+
+
 def main():
     test_dispatcher()
     test_http()
@@ -1383,6 +1612,7 @@ def main():
     test_parse_ls()
     test_wiring()
     test_emulator_label()
+    test_image_download_guard()
     print("ALL PASSED" if ok else "SOME CHECKS FAILED")
     return 0 if ok else 1
 

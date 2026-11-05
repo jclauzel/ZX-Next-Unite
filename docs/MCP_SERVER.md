@@ -69,7 +69,7 @@ with the tool names.
 | Family | Tools |
 |---|---|
 | App | `app_status` (everything at a glance), `app_log_tail` (the SD Card console, the NextSync console or the file log) |
-| Disk image | `image_status`, `image_load`, `image_unload`, `image_recent`, `image_download_nextzxos` (the stock 2/4/8 GB zxnext.uk image), `image_ls`, `image_get`, `image_put` (a file or a whole folder), `image_mkdir`, `image_rm` (`recursive` for folders), `image_rename` |
+| Disk image | `image_status`, `image_load`, `image_unload`, `image_recent`, `image_download_nextzxos` (the stock 2/4/8 GB zxnext.uk image; never replaces a zip or an image already in the folder unless `overwrite` is true), `image_ls`, `image_get`, `image_put` (a file or a whole folder), `image_mkdir`, `image_rm` (`recursive` for folders), `image_rename` |
 | Emulators | `emulator_list`, `emulator_start` (MAME / CSpect on the loaded image, optionally starting a program file; CSpect optionally with its own MCP server), `emulator_processes`, `emulator_stop` |
 | RS232 ESP emulation | `esp_emulation_status`, `esp_emulation_start` (optionally on another port), `esp_emulation_stop` |
 | NextSync servers | `nextsync_status`, `nextsync_listener_start` / `_stop` (the Remote Explorer's `-listen` server), `nextsync_set_sync_root`, `nextsync_classic_start` / `_stop` (Jari Komppa's one-shot or continuous sync), `nextsync_http_bridge_start` / `_stop` |
@@ -81,6 +81,14 @@ bytes on the Next differ) comes back as an `isError` result carrying the
 reason, so the agent reads it and tries something else. Every `next_*` tool
 takes an optional `session` (a sid from `next_sessions`) to target one seated
 Next; without it the active one answers.
+
+`image_download_nextzxos` always saves under the archive's own name
+(`cspect-next-2gb.zip`, the image beside it as `cspect-next-2gb.img`). Since
+9.7.60 it refuses when the folder already holds either file, before
+downloading anything, and its error lists what is there: load that image with
+`image_load`, pass another `dest_dir`, or pass `overwrite: true` to replace
+both. An image an emulator started by the app is running on is never replaced,
+whatever `overwrite` says.
 
 ## Getting started: your first session
 

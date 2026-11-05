@@ -799,7 +799,9 @@ def stdio_main(argv=None, stdin=None, stdout=None, environ=None):
 #   image_status() -> dict
 #   image_load(path, timeout) -> (ok, message)        "" unloads
 #   image_recent() -> [dict]
-#   image_download(size, dest_dir, load) -> dict      {"zip","image","loaded"}
+#   image_download(size, dest_dir, load, overwrite) -> dict
+#       {"zip","image","loaded"}; with overwrite False it raises rather than
+#       replace a zip or an image already in dest_dir, before fetching
 #   image_path() -> str                               "" when none is loaded
 #   hdfmonkey(verb, argv) -> (rc, stdout, stderr)     on the LOADED image
 #   image_refresh(path)                               re-list a folder in the explorer
@@ -1072,17 +1074,27 @@ def build_mcp_tools(host):
           "Download a stock NextZXOS distribution SD-card image from zxnext.uk "
           "(the 'Download NextZXOS Image' button), extract the .img next to "
           "the zip and, by default, load it. Hundreds of MB: this can take "
-          "minutes.",
+          "minutes. Both files are named after the size (cspect-next-2gb.zip "
+          "and .img), and an existing one is never replaced: when dest_dir "
+          "already holds either, nothing is downloaded and the error says "
+          "what is there - image_load that image, or pass another dest_dir.",
           {"size": param("string", "which distribution image", enum=["2gb", "4gb", "8gb"],
                          default="2gb"),
            "dest_dir": param("string", "folder to save the zip and the extracted image "
                              "into (default: <data folder>/downloads/nextzxos)"),
-           "load": param("boolean", "load the extracted image when done", default=True)})
+           "load": param("boolean", "load the extracted image when done", default=True),
+           "overwrite": param("boolean", "replace a zip and an image of the same name "
+                              "already in dest_dir. Everything on that image is lost: "
+                              "set it only when the user asked to replace it",
+                              default=False)})
     def image_download_nextzxos(args):
         size = args.get("size") or "2gb"
         dest = str(args.get("dest_dir") or "").strip()
         load = args.get("load", True)
-        return host.image_download(size, dest, bool(load))
+        # Only a JSON true replaces anything: a null (which the validator
+        # lets through) must never read as consent.
+        overwrite = args.get("overwrite") is True
+        return host.image_download(size, dest, bool(load), overwrite)
 
     def _hdf(verb, argv):
         rc, out, err = host.hdfmonkey(verb, list(argv))

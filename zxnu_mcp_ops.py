@@ -48,7 +48,8 @@ from zxnu_http_bridge import BridgeReply, flask_available
 from zxnu_i18n import ui_tr_now
 from zxnu_mcp import (LAUNCH_TIMEOUT, MCP_INSTRUCTIONS, MCP_PATH, McpHttpServer,
                       McpServer, McpToolError, build_mcp_tools)
-from zxnu_sdcard_ops import (download_nextzxos_archive, extract_nextzxos_image,
+from zxnu_sdcard_ops import (NEXTZXOS_IMAGE_EXTENSIONS, download_nextzxos_archive,
+                             extract_nextzxos_image, nextzxos_download_occupied,
                              nextzxos_image_url)
 from zxnu_workers import emulator_launch_entries
 
@@ -117,6 +118,38 @@ def _emulator_label(proc):
     """
     label = getattr(proc, "zxnu_emulator", "")
     return label if label and isinstance(label, str) else "emulator"
+
+
+def _existing_file_words(path):
+    """"name (size, modified when)" for a file a refusal names, so whoever
+    reads it can tell a stale download from a card with work on it."""
+    name = os.path.basename(path)
+    try:
+        st = os.stat(path)
+    except OSError:
+        return name
+    size = (f"{st.st_size / 1048576:.0f} MB" if st.st_size >= 1048576
+            else f"{st.st_size} bytes")
+    when = time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime))
+    return f"{name} ({size}, modified {when})"
+
+
+def nextzxos_overwrite_refusal(taken):
+    """What image_download_nextzxos answers when its download would write
+    over ``taken`` (nextzxos_download_occupied's list, never empty): what is
+    there, that nothing was fetched, and the three ways on."""
+    folder = os.path.dirname(taken[0]) or "."
+    listed = " and ".join(_existing_file_words(p) for p in taken)
+    images = [p for p in taken if p.lower().endswith(NEXTZXOS_IMAGE_EXTENSIONS)]
+    ways = []
+    if images:
+        ways.append(f"image_load {images[0]} to use the image that is there")
+    ways.append("another dest_dir to keep " + ("them" if len(taken) > 1 else "it")
+                + " and download a fresh image")
+    ways.append("overwrite=true to replace " + ("them" if len(taken) > 1 else "it")
+                + " (only when the user asked for that)")
+    return (f"nothing was downloaded: {folder} already holds {listed}, which "
+            "this download would replace. Use " + "; or ".join(ways) + ".")
 
 
 def build_mcp_ops(host, *, configuration_dictionary, save_configuration_file,
@@ -268,23 +301,45 @@ def build_mcp_ops(host, *, configuration_dictionary, save_configuration_file,
                 return out
             return ui.call(on_ui)
 
-        def image_download(self, size, dest_dir, load):
+        def image_download(self, size, dest_dir, load, overwrite=False):
             url = nextzxos_image_url(size)
             if not url:
                 raise McpToolError(f"unknown image size {size!r}")
             dest = dest_dir or os.path.join(ZXNU_DATA_ROOT, "downloads", "nextzxos")
-            os.makedirs(dest, exist_ok=True)
             save_path = os.path.join(dest, os.path.basename(url.rsplit("/", 1)[-1]))
+            # Nothing is replaced unless the caller said so. The download is
+            # always saved under the archive's own name, so a second one into
+            # the same folder used to write over the first - and over the
+            # image extracted from it, with whatever had been put on that
+            # card since (noticed 2026-11-05, before it cost anything). The
+            # wizard's save dialog asks its user; nobody is asked here.
+            # Checked before a byte is fetched; the two overwrite=False calls
+            # below are what make it certain.
+            if not overwrite:
+                taken = nextzxos_download_occupied(save_path)
+                if taken:
+                    raise McpToolError(nextzxos_overwrite_refusal(taken))
+            os.makedirs(dest, exist_ok=True)
             ui.post(lambda: add_main_log_window(ui_tr_now(
                 "Downloading {name} from {url}").format(name=size, url=url)))
             try:
-                download_nextzxos_archive(url, save_path)
+                download_nextzxos_archive(url, save_path, overwrite=overwrite)
+            except FileExistsError as ex:
+                raise McpToolError(
+                    f"nothing was downloaded: {save_path} appeared as the "
+                    "download started and was not replaced") from ex
             except Exception as ex:                        # noqa: BLE001
                 logging.error("MCP: NextZXOS download failed: %s", ex)
                 raise McpToolError(f"download failed: {ex}") from ex
             blocker = getattr(host, "_image_write_blocker", None)
             try:
-                image = extract_nextzxos_image(save_path, refuse=blocker)
+                image = extract_nextzxos_image(save_path, refuse=blocker,
+                                               overwrite=overwrite)
+            except FileExistsError as ex:
+                raise McpToolError(
+                    f"downloaded to {save_path} but not extracted: "
+                    f"{ex.filename or 'the image'} appeared during the "
+                    "download and was not replaced") from ex
             except Exception as ex:                        # noqa: BLE001
                 logging.error("MCP: NextZXOS extraction failed: %s", ex)
                 raise McpToolError(f"downloaded to {save_path} but could not extract: {ex}") from ex

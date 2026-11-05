@@ -83,34 +83,95 @@ def nextzxos_image_url(size):
     return ""
 
 
-def download_nextzxos_archive(url, save_path, progress=None, pump=None):
+# The extensions a disk image carries inside a stock archive. The extracted
+# image keeps its member's, lower-cased.
+NEXTZXOS_IMAGE_EXTENSIONS = (".img", ".hdf")
+
+
+def nextzxos_image_target(save_path, extension):
+    """Where extract_nextzxos_image writes the image of the archive saved as
+    ``save_path``: next to the archive and named after it, with the image
+    member's ``extension`` lower-cased. The one spelling of that rule, so the
+    overwrite check below names the file the extraction really writes."""
+    return os.path.join(
+        os.path.dirname(save_path),
+        os.path.splitext(os.path.basename(save_path))[0] + extension.lower())
+
+
+def nextzxos_download_occupied(save_path):
+    """The names a download saved as ``save_path`` writes that something on
+    disk already has, in writing order: the archive, then the image.
+
+    Asked BEFORE anything is fetched by a caller that must not replace a file
+    (the MCP server: the wizard's save dialog asks its user, an agent's call
+    asks nobody). The image takes its extension from the archive's member,
+    which is not known until the archive is here, so both names it can take
+    are looked at. ``lexists``: whatever holds the name counts, a dangling
+    link included.
+
+    This is the early answer, there to save a download of hundreds of
+    megabytes. What makes the refusal certain is ``overwrite=False`` on the
+    two functions below, which create their file or fail."""
+    names = [save_path] + [nextzxos_image_target(save_path, extension)
+                           for extension in NEXTZXOS_IMAGE_EXTENSIONS]
+    return [name for name in names if os.path.lexists(name)]
+
+
+def _discard_partial(path):
+    """Remove a file THIS call created and could not finish (overwrite=False
+    only: the exclusive open is the proof it was not there before). Left
+    behind, a partial archive or image would refuse the retry, and nothing
+    tells it from a whole one by name. Never raises."""
+    try:
+        os.remove(path)
+    except OSError as ex:
+        logging.warning(f"Could not remove the unfinished file {path}: {ex}")
+
+
+def download_nextzxos_archive(url, save_path, progress=None, pump=None,
+                              overwrite=True):
     """Download ``url`` to ``save_path`` in 64 KB chunks. ``progress(pct)``
     is called as the percentage moves (only when the server says the size),
     ``pump()`` after every chunk (the wizard passes QApplication.processEvents
     so its dialog keeps painting; the MCP server passes nothing - it runs
     this on its own thread). Raises on any failure; a partial file is left
-    for the caller to report."""
+    for the caller to report.
+
+    ``overwrite=False`` never replaces ``save_path``: the file is opened for
+    exclusive creation, so one that is already there raises FileExistsError
+    and is left untouched, and nothing can appear between a check and the
+    write. A download that then fails removes its own partial file. The
+    default is the wizard's contract, unchanged: its save dialog has asked,
+    the file is replaced, a partial one stays."""
     request = urllib.request.Request(url, headers={"User-Agent": "ZX-Next-Unite"})
     with urllib.request.urlopen(request) as response:
         total_size = response.getheader("Content-Length")
         total_size = int(total_size) if total_size else 0
         downloaded = 0
-        with open(save_path, "wb") as out_file:
-            while True:
-                chunk = response.read(65536)
-                if not chunk:
-                    break
-                out_file.write(chunk)
-                downloaded += len(chunk)
-                if total_size and progress is not None:
-                    progress(int(downloaded * 100 / total_size))
-                if pump is not None:
-                    pump()
+        out_file = open(save_path, "wb" if overwrite else "xb")
+        try:
+            with out_file:
+                while True:
+                    chunk = response.read(65536)
+                    if not chunk:
+                        break
+                    out_file.write(chunk)
+                    downloaded += len(chunk)
+                    if total_size and progress is not None:
+                        progress(int(downloaded * 100 / total_size))
+                    if pump is not None:
+                        pump()
+        except BaseException:
+            # The file is closed here (the with above), which Windows needs
+            # before it will delete it.
+            if not overwrite:
+                _discard_partial(save_path)
+            raise
     logging.info(f"Downloaded NextZXOS image archive to {save_path}")
 
 
 def extract_nextzxos_image(save_path, progress=None, pump=None, refuse=None,
-                           on_start=None):
+                           on_start=None, overwrite=True):
     """Extract the first .img/.hdf member of the downloaded archive and
     return the image's path - or ``save_path`` itself when it is not a zip
     or holds no image (logged; load_image then reports what it cannot read).
@@ -129,13 +190,20 @@ def extract_nextzxos_image(save_path, progress=None, pump=None, refuse=None,
     an image an emulator this app started is running on (9.7.51) - the "wb"
     open truncates it under a live NextZXOS, and CSpect shares the file for
     writing, so the OS would not refuse it. ``on_start(member_name)`` is
-    called once a member is chosen (the wizard resets its bar there)."""
+    called once a member is chosen (the wizard resets its bar there).
+
+    ``overwrite=False`` never replaces an image that is already there: the
+    target is opened for exclusive creation, so an existing one raises
+    FileExistsError and keeps every byte, and an extraction that fails
+    removes its own partial image (see download_nextzxos_archive). The
+    default is the wizard's behaviour, unchanged: the image named after the
+    chosen archive is replaced."""
     if not zipfile.is_zipfile(save_path):
         logging.warning(f"{save_path} is not a zip archive; loading it as-is")
         return save_path
     with zipfile.ZipFile(save_path) as archive:
         image_members = [info for info in archive.infolist()
-                         if info.filename.lower().endswith((".img", ".hdf"))]
+                         if info.filename.lower().endswith(NEXTZXOS_IMAGE_EXTENSIONS)]
         if not image_members:
             # No .img/.hdf inside: fall through with the zip itself - but say
             # so in the log rather than nothing.
@@ -143,10 +211,8 @@ def extract_nextzxos_image(save_path, progress=None, pump=None, refuse=None,
                             "loading the archive path as-is")
             return save_path
         member = image_members[0]
-        target = os.path.join(
-            os.path.dirname(save_path),
-            os.path.splitext(os.path.basename(save_path))[0]
-            + os.path.splitext(member.filename)[1].lower())
+        target = nextzxos_image_target(
+            save_path, os.path.splitext(member.filename)[1])
         logging.info(f"Extracting {member.filename} ({member.file_size} bytes) to {target}")
         why = refuse(target) if refuse is not None else ""
         if why:
@@ -154,17 +220,26 @@ def extract_nextzxos_image(save_path, progress=None, pump=None, refuse=None,
         if on_start is not None:
             on_start(member.filename)
         extracted = 0
-        with archive.open(member) as src, open(target, "wb") as dst:
-            while True:
-                chunk = src.read(4 * 1024 * 1024)
-                if not chunk:
-                    break
-                dst.write(chunk)
-                extracted += len(chunk)
-                if member.file_size and progress is not None:
-                    progress(int(extracted * 100 / member.file_size))
-                if pump is not None:
-                    pump()
+        # The member is opened FIRST: one that cannot be read must not leave
+        # an empty image behind, nor (overwrite) empty the one that is there.
+        with archive.open(member) as src:
+            dst = open(target, "wb" if overwrite else "xb")
+            try:
+                with dst:
+                    while True:
+                        chunk = src.read(4 * 1024 * 1024)
+                        if not chunk:
+                            break
+                        dst.write(chunk)
+                        extracted += len(chunk)
+                        if member.file_size and progress is not None:
+                            progress(int(extracted * 100 / member.file_size))
+                        if pump is not None:
+                            pump()
+            except BaseException:
+                if not overwrite:
+                    _discard_partial(target)
+                raise
     logging.info(f"Extracted disk image: {target}")
     return target
 
