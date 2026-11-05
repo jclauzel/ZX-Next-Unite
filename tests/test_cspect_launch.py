@@ -290,9 +290,11 @@ check("_check_image_writable asks the blocker before its r+b open",
       "_image_write_blocker" in ciw
       and ciw.index("_image_write_blocker") < ciw.index("open(clean, 'r+b')"))
 dl = sd.replace("\r\n", "\n")
-_ex = dl.find('open(target, "wb") as dst')
+_ex = dl.find('dst = open(target, "wb" if overwrite else "xb")')
 # 9.7.57: the extraction is the module-level extract_nextzxos_image (shared
 # with the MCP server); its ``refuse`` callable IS the host's blocker.
+# 9.7.60: the open's mode follows ``overwrite`` (the MCP server creates the
+# image or fails); the blocker is still asked first in both modes.
 check("the NextZXOS extraction asks the blocker before truncating its target",
       _ex != -1 and dl.rfind("refuse(target)", 0, _ex) != -1
       and _ex - dl.rfind("refuse(target)", 0, _ex) < 900)

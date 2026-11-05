@@ -4148,6 +4148,142 @@ def _phase12_cspect_in_background(win, toasts):
                 pass
 
 
+def _phase12_mcp_image_download_guard(win):
+    """image_download_nextzxos never replaces a file, in the real app (9.7.60).
+
+    The download is always saved under the archive's own name and the image
+    extracted next to it under that name, so a second download into a folder
+    used to write over the first image, with everything put on that card
+    since. Checked on the app's own adapter, called from a worker thread as
+    the MCP server's HTTP thread calls it, with the download replaced by one
+    that writes a small archive (no network in the suite): what is refused,
+    that a refusal fetches nothing and writes nothing, what a free folder and
+    overwrite still do, that the emulator gate keeps the last word, and an
+    image that appears while the archive is downloading."""
+    import threading as _th
+    import zipfile as _zip
+    import zxnu_mcp_ops
+    from zxnu_mcp import McpToolError
+
+    adapter = getattr(win, "_mcp_host_adapter", None)
+    if adapter is None:
+        check("MCP image download: the host adapter exists", False)
+        return
+    missing = object()
+    real_download = zxnu_mcp_ops.download_nextzxos_archive
+    real_blocker = getattr(win, "_image_write_blocker", missing)
+    fetched = []
+
+    def fake_download(url, save_path, progress=None, pump=None, overwrite=True):
+        fetched.append((os.path.basename(save_path), overwrite))
+        with _zip.ZipFile(save_path, "w" if overwrite else "x") as archive:
+            archive.writestr("2gb/cspect-next-2gb.img",
+                             b"FRESH IMAGE %d" % len(fetched))
+
+    def run(dest, overwrite=False):
+        """adapter.image_download on a worker thread; {'r': ...} or {'e': ...}."""
+        box = {}
+
+        def job():
+            try:
+                box["r"] = adapter.image_download("2gb", dest, False, overwrite)
+            except Exception as ex:                          # noqa: BLE001
+                box["e"] = ex
+        _th.Thread(target=job, daemon=True).start()
+        wait_until(lambda: "r" in box or "e" in box, 30, "image_download")
+        return box
+
+    def read(path):
+        with open(path, "rb") as fh:
+            return fh.read()
+
+    tmp = tempfile.mkdtemp(prefix="zxnu-mcp-download-")
+    try:
+        zxnu_mcp_ops.download_nextzxos_archive = fake_download
+
+        held = os.path.join(tmp, "held")
+        os.makedirs(held)
+        img = os.path.join(held, "cspect-next-2gb.img")
+        with open(img, "wb") as fh:
+            fh.write(b"MY WORK")
+        box = run(held)
+        why = str(box.get("e") or "")
+        check("MCP image download: an image of that name is there -> refused",
+              isinstance(box.get("e"), McpToolError), box)
+        check("...nothing was fetched and nothing was written",
+              fetched == [] and read(img) == b"MY WORK"
+              and os.listdir(held) == ["cspect-next-2gb.img"], f"{fetched} {os.listdir(held)}")
+        check("...and the refusal names the file and the ways on",
+              "cspect-next-2gb.img (7 bytes" in why and f"image_load {img}" in why
+              and "another dest_dir" in why and "overwrite=true" in why, why)
+
+        ziponly = os.path.join(tmp, "ziponly")
+        os.makedirs(ziponly)
+        old_zip = os.path.join(ziponly, "cspect-next-2gb.zip")
+        with open(old_zip, "wb") as fh:
+            fh.write(b"OLD ARCHIVE")
+        box = run(ziponly)
+        check("MCP image download: the archive alone is there -> refused, untouched",
+              isinstance(box.get("e"), McpToolError) and fetched == []
+              and read(old_zip) == b"OLD ARCHIVE"
+              and os.listdir(ziponly) == ["cspect-next-2gb.zip"], box)
+
+        fresh = os.path.join(tmp, "not", "there", "yet")
+        fresh_img = os.path.join(fresh, "cspect-next-2gb.img")
+        box = run(fresh)
+        got = box.get("r") or {}
+        check("MCP image download: a free folder is created, downloaded into and extracted",
+              got.get("ok") is True and got.get("loaded") is False
+              and got.get("image") == fresh_img and read(fresh_img) == b"FRESH IMAGE 1", box)
+        check("...the download having been told not to replace anything",
+              fetched == [("cspect-next-2gb.zip", False)], fetched)
+        box = run(fresh)
+        why = str(box.get("e") or "")
+        check("MCP image download: the same call again is refused, naming both files",
+              isinstance(box.get("e"), McpToolError) and len(fetched) == 1
+              and "cspect-next-2gb.zip (" in why and "cspect-next-2gb.img (" in why
+              and "replace them" in why and read(fresh_img) == b"FRESH IMAGE 1", why)
+
+        box = run(fresh, overwrite=True)
+        got = box.get("r") or {}
+        check("MCP image download: overwrite=True replaces both",
+              got.get("ok") is True and fetched[-1] == ("cspect-next-2gb.zip", True)
+              and len(fetched) == 2 and read(fresh_img) == b"FRESH IMAGE 2", box)
+
+        win._image_write_blocker = lambda path: "an emulator holds it"
+        box = run(fresh, overwrite=True)
+        why = str(box.get("e") or "")
+        check("MCP image download: an image an emulator holds is not replaced even with overwrite",
+              isinstance(box.get("e"), McpToolError) and "an emulator holds it" in why
+              and read(fresh_img) == b"FRESH IMAGE 2", why)
+        if real_blocker is missing:
+            del win._image_write_blocker
+        else:
+            win._image_write_blocker = real_blocker
+
+        race = os.path.join(tmp, "race")
+        race_img = os.path.join(race, "cspect-next-2gb.img")
+
+        def racing_download(url, save_path, progress=None, pump=None, overwrite=True):
+            fake_download(url, save_path, progress, pump, overwrite)
+            with open(race_img, "wb") as fh:
+                fh.write(b"SOMEONE ELSE'S")
+        zxnu_mcp_ops.download_nextzxos_archive = racing_download
+        box = run(race)
+        why = str(box.get("e") or "")
+        check("MCP image download: an image that appears during the download is not replaced",
+              isinstance(box.get("e"), McpToolError) and "appeared during the download" in why
+              and "cspect-next-2gb.img" in why and read(race_img) == b"SOMEONE ELSE'S", why)
+    finally:
+        zxnu_mcp_ops.download_nextzxos_archive = real_download
+        if real_blocker is missing:
+            if "_image_write_blocker" in vars(win):
+                del win._image_write_blocker
+        else:
+            win._image_write_blocker = real_blocker
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def _phase12_mcp_catalog_adapter(win):
     """The MCP server's catalogue adapter (9.7.58), in the real app.
 
@@ -4774,6 +4910,7 @@ def inspect_phase12():
                     pass
         _phase12_cspect_in_background(win, toasts)
         _phase12_mcp_catalog_adapter(win)
+        _phase12_mcp_image_download_guard(win)
     finally:
         win._show_toast = real_toast
     app.quit()
