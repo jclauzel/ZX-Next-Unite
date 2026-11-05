@@ -1094,6 +1094,72 @@ check("ZXNR entry: a title alone is not enough, and no entry is False",
       and not _zxi.is_zxnextremote_entry(None))
 
 
+# ---- GetIt: the ONE download rule (9.7.58) ---------------------------------
+# getit_download_entry is what the GetIt tab's "Send using NextSync" runs and
+# what the MCP server's catalog_download runs, so an agent gets the very file
+# the button would have fetched, in a folder named by the same rule.
+import zxnu_api as _za  # noqa: E402
+
+check("GetIt folder: the title minus what no file system takes",
+      _za.getit_safe_folder_name('Knight: Lore/Next?', "570b3c") == "Knight LoreNext")
+check("GetIt folder: every forbidden character goes",
+      _za.getit_safe_folder_name('a<b>c:d"e/f\\g|h?i*j', "x") == "abcdefghij")
+check("GetIt folder: nothing left, or no title, falls back to the id",
+      _za.getit_safe_folder_name("***", "570b3c") == "570b3c"
+      and _za.getit_safe_folder_name("", "570b3c") == "570b3c"
+      and _za.getit_safe_folder_name(None, "570b3c") == "570b3c")
+
+_real_cd_fetch = _za._http_fetch_with_cd_retry
+_cd_calls = []
+_cd_answer = {"cd": "", "data": b""}
+
+
+def _fake_cd_fetch(url, headers=None, timeout=60, **_kw):
+    _cd_calls.append((url, dict(headers or {}), timeout))
+    return _cd_answer["cd"], _cd_answer["data"]
+
+
+_za._http_fetch_with_cd_retry = _fake_cd_fetch
+try:
+    with tempfile.TemporaryDirectory() as _getit_tmp:
+        _cd_answer.update(cd='attachment; filename="KnightLoreNextr1.zip"', data=b"PK-bytes")
+        _p = _za.getit_download_entry("570b3c", _getit_tmp, "fallback.bin")
+        check("GetIt download: asks the entry's own URL, as the tab does",
+              _cd_calls[-1][0] == "https://zxnext.uk/nx/570b3c/"
+              and "User-Agent" in _cd_calls[-1][1], str(_cd_calls[-1]))
+        check("GetIt download: named by the server's Content-Disposition",
+              os.path.basename(_p) == "KnightLoreNextr1.zip"
+              and os.path.dirname(_p) == _getit_tmp, _p)
+        with open(_p, "rb") as _fh:
+            check("GetIt download: the bytes are written", _fh.read() == b"PK-bytes")
+        _cd_answer.update(cd="", data=b"1")
+        check("GetIt download: no header -> the entry's LINK name",
+              os.path.basename(_za.getit_download_entry("570b3c", _getit_tmp, "game.tap"))
+              == "game.tap")
+        check("GetIt download: neither -> <id>.bin",
+              os.path.basename(_za.getit_download_entry("570b3c", _getit_tmp)) == "570b3c.bin")
+        # What the server says must never choose the folder.
+        for _evil in ('attachment; filename="../../evil.exe"',
+                      'attachment; filename="C:\\\\Windows\\\\evil.exe"',
+                      "attachment; filename='/etc/evil.exe'"):
+            _cd_answer.update(cd=_evil, data=b"x")
+            _p = _za.getit_download_entry("570b3c", _getit_tmp, "")
+            check(f"GetIt download: a path in the header stays in the folder ({_evil[22:34]}...)",
+                  os.path.dirname(_p) == _getit_tmp and os.path.basename(_p) == "evil.exe", _p)
+        _cd_answer.update(cd="", data=b"x")
+        _p = _za.getit_download_entry("570b3c", _getit_tmp, "sub/dir/name.nex")
+        check("GetIt download: the same for a LINK that carries a path",
+              os.path.dirname(_p) == _getit_tmp and os.path.basename(_p) == "name.nex", _p)
+finally:
+    _za._http_fetch_with_cd_retry = _real_cd_fetch
+
+with open(os.path.join(REPO, "zxnu_getit_pane.py"), encoding="utf-8") as _fh:
+    _pane_src = _fh.read()
+check("the GetIt tab's Send goes through that one rule (no second copy)",
+      "return getit_download_entry(eid, folder, fname)" in _pane_src
+      and "getit_safe_folder_name(title or default_name, eid)" in _pane_src)
+
+
 print()
 if FAIL:
     print(f"RESULT: {len(FAIL)} FAILURE(S)")

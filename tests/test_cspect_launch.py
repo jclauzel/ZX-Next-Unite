@@ -224,7 +224,12 @@ check("launch_cspect no longer calls the blocking shell helper",
       "execute_shell_command(" not in function_code(ops, "launch_cspect"))
 check("...nor subprocess.run", "subprocess.run(" not in function_code(ops, "launch_cspect"))
 check("it starts CSpect with Popen and the shared kwargs",
-      "subprocess.Popen(_cmd, **cspect_popen_kwargs(cspect_cwd))" in lc)
+      "_popen_kwargs = cspect_popen_kwargs(cspect_cwd)" in lc
+      and "subprocess.Popen(_cmd, **_popen_kwargs)" in lc)
+check("...plus only the environment that tells the UARTRS232 plugin what to "
+      "do (9.7.58)",
+      '_popen_kwargs["env"] = _esp_env' in lc
+      and lc.count("_popen_kwargs[") == 1)
 check("the command string is the one run() was given",
       '_cmd = cspect_executable + " " + cspect_arguments' in lc)
 check("the image is recorded as held once Popen succeeded",

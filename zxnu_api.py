@@ -362,6 +362,44 @@ def getit_parse_detail(text: str) -> dict:
     return detail
 
 
+def getit_safe_folder_name(name: str, fallback: str) -> str:
+    """The local / on-card folder a GetIt entry is put in: its title with
+    the characters no file system takes removed, or *fallback* (the entry
+    id) when nothing is left. ONE rule for the tab's "Send" actions and the
+    MCP server's catalog_download, so the two land in the same place."""
+    return re.sub(r'[<>:"/\\|?*]', "", name or fallback or "").strip() or fallback
+
+
+def getit_download_entry(eid: str, folder: str, default_name: str = "",
+                         timeout: int = 60) -> str:
+    """Download GetIt entry *eid* into *folder* (which must exist) and return
+    the path written.
+
+    The file is named by the server's Content-Disposition, else
+    *default_name* (the entry's LINK tag), else ``<eid>.bin``. Only the base
+    name is ever used: what the server says must not choose the folder.
+    Qt-free and synchronous - call it from a worker thread. It is what the
+    GetIt tab's "Send using NextSync" runs (zxnu_getit_pane) and what the MCP
+    server's catalog_download runs, so an agent gets the file the button
+    would have fetched.
+    """
+    cd, data = _http_fetch_with_cd_retry(
+        f"{GETIT_BASE_URL}/nx/{eid}/",
+        headers={"User-Agent": GETIT_USER_AGENT}, timeout=timeout)
+    real = ""
+    for part in (cd or "").split(";"):
+        part = part.strip()
+        if part.lower().startswith("filename="):
+            real = part[len("filename="):].strip().strip('"').strip("'")
+            break
+    name = os.path.basename(
+        (real or default_name or "").replace("\\", "/")) or f"{eid}.bin"
+    dest = os.path.join(folder, name)
+    with open(dest, "wb") as fh:
+        fh.write(data)
+    return dest
+
+
 def getit_resolve_starter_pack(entries, pack=None):
     """Match the curated starter pack against a live catalogue listing.
 

@@ -1282,6 +1282,17 @@ class MainWindow(QMainWindow):
                        and "CSpect" in found
                        and platform.system() == "Windows")
             self._cspect_openal_notice_pending = False
+            # The UARTRS232 plugin offer (9.7.58), armed by the same itch.io
+            # install / update paths and one-shot the same way: the CSpect
+            # just installed is the one in use now, so ask whether it should
+            # get the plugin (and the Settings toggle that uses it). After
+            # the OpenAL offer below - the offer itself waits for the screen
+            # to be free, so the two dialogs never stack.
+            _esp_offer = (getattr(self, "_cspect_esp_plugin_offer_pending", False)
+                          and "CSpect" in found)
+            self._cspect_esp_plugin_offer_pending = False
+            if _esp_offer and getattr(self, "_offer_cspect_esp_plugin", None):
+                QTimer.singleShot(900, self._offer_cspect_esp_plugin)
             if _openal and not is_openal_installed():
                 rich_body = body.replace("\r\n", "<br>")
                 rich_body += "<br><br>" + ui_tr_now(
@@ -1509,6 +1520,11 @@ class MainWindow(QMainWindow):
         # by _show_emulator_detection_toast so it never fires on a plain startup
         # detection.
         self._cspect_openal_notice_pending = False
+        # Its twin for the UARTRS232 plugin (9.7.58): armed by an itch.io
+        # CSpect install or update, consumed by the same toast, which then
+        # offers the plugin - and the Settings toggle - for the build just
+        # adopted (_offer_cspect_esp_plugin, zxnu_emulator_ops).
+        self._cspect_esp_plugin_offer_pending = False
         # One-shot guard for the startup itch.io CSpect update check: it can be
         # kicked from two places (the startup timer and the itch.io post-login
         # callback), and _cspect_update_installing guards against overlapping

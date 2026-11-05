@@ -424,6 +424,22 @@ CATALOGS = {
             "Emulación RS232 ESP: {count} emuladores la están compartiendo ahora (puerto {port}).",
         "RS232 ESP emulation could not start (port {port} in use?). MAME starts without it.":
             "La emulación RS232 ESP no pudo iniciarse (¿puerto {port} en uso?). MAME se inicia sin ella.",
+        "RS232 ESP emulation is already running on port {port} for another emulator; this CSpect joins it. The new port applies once every emulator using it has exited.":
+            "La emulación RS232 ESP ya está en marcha en el puerto {port} para otro emulador; este CSpect se une a ella. El nuevo puerto se aplicará cuando hayan salido todos los emuladores que la usan.",
+        "RS232 ESP emulation could not start (port {port} in use?). CSpect starts without it.":
+            "La emulación RS232 ESP no pudo iniciarse (¿puerto {port} en uso?). CSpect se inicia sin ella.",
+        "RS232 ESP: the CSpect launch parameters contain -com (a real ESP on a serial port), so the RS232 ESP emulation is not used for this launch.":
+            "RS232 ESP: los parámetros de lanzamiento de CSpect contienen -com (un ESP real en un puerto serie), así que la emulación RS232 ESP no se usa en este lanzamiento.",
+        "RS232 ESP: CSpect's folder could not be found, so the UARTRS232 plugin was not installed; CSpect starts without the RS232 ESP emulation.":
+            "RS232 ESP: no se encontró la carpeta de CSpect, así que el plugin UARTRS232 no se instaló; CSpect se inicia sin la emulación RS232 ESP.",
+        "RS232 ESP: the UARTRS232 plugin could not be copied into {folder} ({error}); CSpect starts without the RS232 ESP emulation.":
+            "RS232 ESP: no se pudo copiar el plugin UARTRS232 en {folder} ({error}); CSpect se inicia sin la emulación RS232 ESP.",
+        "RS232 ESP: the UARTRS232 plugin {version} was installed in the CSpect folder {folder}.":
+            "RS232 ESP: el plugin UARTRS232 {version} se instaló en la carpeta de CSpect {folder}.",
+        "RS232 ESP: CSpect uses the RS232 ESP emulation on port {port} through the UARTRS232 plugin. That link has no baud rate, so .sync5 and ZX Next Remote connect at every speed (slow, default and fast).":
+            "RS232 ESP: CSpect usa la emulación RS232 ESP en el puerto {port} a través del plugin UARTRS232. Ese enlace no tiene velocidad en baudios, así que .sync5 y ZX Next Remote conectan a cualquier velocidad (slow, default y fast).",
+        "RS232 ESP: the UARTReplacement plugin is installed in this CSpect folder too. UARTRS232 takes the UART for this launch; untick the CSpect RS232 ESP emulation in Settings to use the real ESP instead.":
+            "RS232 ESP: el plugin UARTReplacement también está instalado en esta carpeta de CSpect. UARTRS232 toma el UART en este lanzamiento; desmarca la emulación RS232 ESP de CSpect en Ajustes para usar el ESP real.",
         "RS232 ESP: MAME's built-in ESP8266 card is in use ('-rs232_esp esp8266_at'). It follows the Next's UART speed, so .sync5 and ZX Next Remote connect at every speed (slow, default and fast); the RS232 ESP emulation is not started.":
             "RS232 ESP: se usa la tarjeta ESP8266 integrada de MAME ('-rs232_esp esp8266_at'). Sigue la velocidad UART del Next, así que .sync5 y ZX Next Remote conectan a cualquier velocidad (slow, default y fast); la emulación RS232 ESP no se inicia.",
         "RS232 ESP: the MAME parameters name the '{card}' card, so that one is used.":
@@ -442,6 +458,8 @@ CATALOGS = {
             "La Emulación RS232 ESP opcional para MAME (Ajustes) es una reimplementación completa y limpia en Python de una idea de jesperl, de Janko Stamenović: un emulador ESP-AT que conecta el módulo Wi-Fi emulado de MAME con la red real. Muchas gracias por la idea inspiradora - ver https://sourceforge.net/projects/jesperl/.",
         "One RS232 ESP emulation serves every running MAME: launch a second MAME on another disk image and it joins the same emulation with its own separate session, so several emulated Nexts can be on the network at once. The emulation stops when the last MAME exits. When two of them ask for the same server port (a Next listening for incoming connections), the second one is moved to the next free port and the log says which port to connect to.":
             "Una sola emulación RS232 ESP sirve a todos los MAME en marcha: lanza un segundo MAME con otra imagen de disco y se unirá a la misma emulación con su propia sesión independiente, de modo que varios Next emulados pueden estar en la red a la vez. La emulación se detiene cuando sale el último MAME. Cuando dos de ellos piden el mismo puerto de servidor (un Next a la escucha de conexiones entrantes), el segundo se traslada al siguiente puerto libre y el registro indica a qué puerto conectarse.",
+        "CSpect can use the same RS232 ESP emulation: tick 'RS232 ESP Emulation (CSpect)' in Settings and every CSpect launch installs the UARTRS232 plugin (UARTRS232.dll) beside CSpect.exe and connects the emulated Next's ESP to the emulation - no USB ESP module needed. That link has no baud rate, so '.sync5' and ZX Next Remote connect at every speed. If the UARTReplacement plugin (a real ESP on a serial port) is installed in the same CSpect folder, the box switches between the emulated ESP (ticked) and the real one (unticked). The plugin's source is in extra/UARTRS232.":
+            "CSpect puede usar la misma emulación RS232 ESP: marca 'RS232 ESP Emulation (CSpect)' en Ajustes y cada lanzamiento de CSpect instala el plugin UARTRS232 (UARTRS232.dll) junto a CSpect.exe y conecta el ESP del Next emulado a la emulación; no hace falta un módulo ESP USB. Ese enlace no tiene velocidad en baudios, así que '.sync5' y ZX Next Remote conectan a cualquier velocidad. Si el plugin UARTReplacement (un ESP real en un puerto serie) está instalado en la misma carpeta de CSpect, la casilla alterna entre el ESP emulado (marcada) y el real (desmarcada). El código fuente del plugin está en extra/UARTRS232.",
         "The IP address the RS232 ESP emulation reports to the emulated Next - what ZX Next Remote's listener screen and the NextZXOS WiFi wizard show, and what someone on another PC types to reach it - is this PC's primary address. A PC with several addresses (VPN, virtual machines, WSL) can pick another one in Settings, under 'IP address shown to the emulated Next', or type one; a running emulation takes the change live.":
             "La dirección IP que la emulación RS232 ESP presenta al Next emulado - la que muestran la pantalla del listener de ZX Next Remote y el asistente WiFi de NextZXOS, y la que alguien escribe en otro PC para alcanzarlo - es la dirección principal de este PC. Un PC con varias direcciones (VPN, máquinas virtuales, WSL) puede elegir otra en Ajustes, bajo 'IP address shown to the emulated Next', o escribir una; una emulación en marcha aplica el cambio al instante.",
         "A MAME build that carries the built-in ESP8266 card (esp8266_at, in the ZX Spectrum Next MAME fork since October 2026) is launched with that card instead of the RS232 ESP emulation: it follows the Next's UART speed, so '.sync5' and ZX Next Remote connect at every speed (slow, default and fast). Through the RS232 ESP emulation (older MAME builds, the null_modem card) transfers need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings.":
@@ -1280,6 +1298,8 @@ CATALOGS = {
             "Alien Floyd's — mostrar la pestaña «Alien Floyd's» a pantalla completa (Retro/pygame)",
         "Check for CSpect update on itch.io on startup":
             "Buscar actualizaciones de CSpect en itch.io al iniciar",
+        "CSpect - Discard Beta or Patrons, Builders updates":
+            "CSpect - Descartar actualizaciones Beta, Patrons o Builders",
         "Check for ZX Next Unite updates at startup on Github":
             "Buscar actualizaciones de ZX Next Unite en GitHub al iniciar",
         "Offer to update an older .sync5 / ZX Next Remote when a Next connects": "Ofrecer actualizar un .sync5 / ZX Next Remote antiguo cuando se conecta un Next",
@@ -1352,6 +1372,8 @@ CATALOGS = {
             "Ruta de ROMs de Flatpak:",
         "RS232 ESP Emulation (Mame)":
             "Emulación RS232 ESP (Mame)",
+        "RS232 ESP Emulation (CSpect)":
+            "Emulación RS232 ESP (CSpect)",
         "RS232 ESP Emulation verbose mode":
             "Modo detallado de la emulación RS232 ESP",
         "IP address shown to the emulated Next:":
@@ -1735,6 +1757,24 @@ CATALOGS = {
             "OpenAL 1.1 detectado — el sonido de CSpect está listo.",
         "Install OpenAL?":
             "¿Instalar OpenAL?",
+        "Install the UARTRS232 plugin?":
+            "¿Instalar el plugin UARTRS232?",
+        "ZX Next Unite can give the ZX Spectrum Next emulated by CSpect a working <b>ESP (Wi-Fi module)</b> without any hardware: its <b>UARTRS232</b> plugin connects the emulated Next to the app's RS232 ESP emulation, so .sync5, ZX Next Remote and the NextZXOS WiFi tools reach your network through this PC.<br><br>Install the plugin (UARTRS232.dll) into the CSpect that was just installed?<br><br>{folder}":
+            "ZX Next Unite puede dar al ZX Spectrum Next emulado por CSpect un <b>ESP (módulo Wi-Fi)</b> operativo sin ningún hardware: su plugin <b>UARTRS232</b> conecta el Next emulado con la emulación RS232 ESP de la aplicación, de modo que .sync5, ZX Next Remote y las herramientas WiFi de NextZXOS llegan a tu red a través de este PC.<br><br>¿Instalar el plugin (UARTRS232.dll) en el CSpect que se acaba de instalar?<br><br>{folder}",
+        "Install the UARTRS232 plugin":
+            "Instalar el plugin UARTRS232",
+        "Not now":
+            "Ahora no",
+        "UARTRS232 plugin not installed":
+            "Plugin UARTRS232 no instalado",
+        "Enable the RS232 ESP emulation for CSpect?":
+            "¿Activar la emulación RS232 ESP para CSpect?",
+        "The UARTRS232 plugin is installed. It is used while <b>RS232 ESP Emulation (CSpect)</b> is ticked in Settings - and that box is not ticked yet.<br><br>Enable it now? A CSpect launched from the app then gives the emulated Next network access. Untick the box in Settings at any time to launch without it.":
+            "El plugin UARTRS232 está instalado. Se usa mientras <b>Emulación RS232 ESP (CSpect)</b> esté marcada en Ajustes, y esa casilla aún no lo está.<br><br>¿Activarla ahora? Un CSpect lanzado desde la aplicación dará entonces acceso a la red al Next emulado. Desmarca la casilla en Ajustes en cualquier momento para lanzarlo sin ella.",
+        "Enable it now":
+            "Activarla ahora",
+        "RS232 ESP: the emulation is now enabled for CSpect - the next CSpect launched from the app gives the emulated Next network access.":
+            "RS232 ESP: la emulación está ahora activada para CSpect: el próximo CSpect lanzado desde la aplicación dará acceso a la red al Next emulado.",
         ("On Windows CSpect needs the <b>OpenAL 1.1</b> audio library "
          "for sound, and it was not detected on this machine — without "
          "it CSpect runs silent.<br><br>"
@@ -2005,6 +2045,22 @@ CATALOGS = {
             "Emulação RS232 ESP: {count} emuladores estão agora a partilhá-la (porta {port}).",
         "RS232 ESP emulation could not start (port {port} in use?). MAME starts without it.":
             "A emulação RS232 ESP não pôde iniciar (porta {port} em uso?). O MAME inicia sem ela.",
+        "RS232 ESP emulation is already running on port {port} for another emulator; this CSpect joins it. The new port applies once every emulator using it has exited.":
+            "A emulação RS232 ESP já está a correr na porta {port} para outro emulador; este CSpect junta-se a ela. A nova porta aplica-se assim que todos os emuladores que a usam tiverem saído.",
+        "RS232 ESP emulation could not start (port {port} in use?). CSpect starts without it.":
+            "A emulação RS232 ESP não pôde iniciar (porta {port} em uso?). O CSpect inicia sem ela.",
+        "RS232 ESP: the CSpect launch parameters contain -com (a real ESP on a serial port), so the RS232 ESP emulation is not used for this launch.":
+            "RS232 ESP: os parâmetros de arranque do CSpect contêm -com (um ESP real numa porta série), por isso a emulação RS232 ESP não é usada neste arranque.",
+        "RS232 ESP: CSpect's folder could not be found, so the UARTRS232 plugin was not installed; CSpect starts without the RS232 ESP emulation.":
+            "RS232 ESP: a pasta do CSpect não foi encontrada, por isso o plugin UARTRS232 não foi instalado; o CSpect inicia sem a emulação RS232 ESP.",
+        "RS232 ESP: the UARTRS232 plugin could not be copied into {folder} ({error}); CSpect starts without the RS232 ESP emulation.":
+            "RS232 ESP: não foi possível copiar o plugin UARTRS232 para {folder} ({error}); o CSpect inicia sem a emulação RS232 ESP.",
+        "RS232 ESP: the UARTRS232 plugin {version} was installed in the CSpect folder {folder}.":
+            "RS232 ESP: o plugin UARTRS232 {version} foi instalado na pasta do CSpect {folder}.",
+        "RS232 ESP: CSpect uses the RS232 ESP emulation on port {port} through the UARTRS232 plugin. That link has no baud rate, so .sync5 and ZX Next Remote connect at every speed (slow, default and fast).":
+            "RS232 ESP: o CSpect usa a emulação RS232 ESP na porta {port} através do plugin UARTRS232. Essa ligação não tem velocidade em baud, por isso o .sync5 e o ZX Next Remote ligam-se a qualquer velocidade (slow, default e fast).",
+        "RS232 ESP: the UARTReplacement plugin is installed in this CSpect folder too. UARTRS232 takes the UART for this launch; untick the CSpect RS232 ESP emulation in Settings to use the real ESP instead.":
+            "RS232 ESP: o plugin UARTReplacement também está instalado nesta pasta do CSpect. O UARTRS232 fica com o UART neste arranque; desmarque a emulação RS232 ESP do CSpect nas Definições para usar o ESP real.",
         "RS232 ESP: MAME's built-in ESP8266 card is in use ('-rs232_esp esp8266_at'). It follows the Next's UART speed, so .sync5 and ZX Next Remote connect at every speed (slow, default and fast); the RS232 ESP emulation is not started.":
             "RS232 ESP: está em uso a placa ESP8266 integrada do MAME ('-rs232_esp esp8266_at'). Segue a velocidade UART do Next, por isso o .sync5 e o ZX Next Remote ligam-se a qualquer velocidade (slow, default e fast); a emulação RS232 ESP não é iniciada.",
         "RS232 ESP: the MAME parameters name the '{card}' card, so that one is used.":
@@ -2023,6 +2079,8 @@ CATALOGS = {
             "A Emulação RS232 ESP opcional para o MAME (Definições) é uma reimplementação completa e limpa em Python de uma ideia do jesperl, de Janko Stamenović: um emulador ESP-AT que liga o módulo Wi-Fi emulado do MAME à rede real. Muito obrigado pela ideia inspiradora - ver https://sourceforge.net/projects/jesperl/.",
         "One RS232 ESP emulation serves every running MAME: launch a second MAME on another disk image and it joins the same emulation with its own separate session, so several emulated Nexts can be on the network at once. The emulation stops when the last MAME exits. When two of them ask for the same server port (a Next listening for incoming connections), the second one is moved to the next free port and the log says which port to connect to.":
             "Uma única emulação RS232 ESP serve todos os MAME em execução: inicie um segundo MAME com outra imagem de disco e ele junta-se à mesma emulação com a sua própria sessão separada, de modo que vários Next emulados podem estar na rede ao mesmo tempo. A emulação para quando o último MAME sai. Quando dois deles pedem a mesma porta de servidor (um Next à escuta de ligações de entrada), o segundo é movido para a porta livre seguinte e o registo indica a que porta ligar.",
+        "CSpect can use the same RS232 ESP emulation: tick 'RS232 ESP Emulation (CSpect)' in Settings and every CSpect launch installs the UARTRS232 plugin (UARTRS232.dll) beside CSpect.exe and connects the emulated Next's ESP to the emulation - no USB ESP module needed. That link has no baud rate, so '.sync5' and ZX Next Remote connect at every speed. If the UARTReplacement plugin (a real ESP on a serial port) is installed in the same CSpect folder, the box switches between the emulated ESP (ticked) and the real one (unticked). The plugin's source is in extra/UARTRS232.":
+            "O CSpect pode usar a mesma emulação RS232 ESP: marque 'RS232 ESP Emulation (CSpect)' nas Definições e cada arranque do CSpect instala o plugin UARTRS232 (UARTRS232.dll) junto de CSpect.exe e liga o ESP do Next emulado à emulação; não é preciso um módulo ESP USB. Essa ligação não tem velocidade em baud, por isso o '.sync5' e o ZX Next Remote ligam-se a qualquer velocidade. Se o plugin UARTReplacement (um ESP real numa porta série) estiver instalado na mesma pasta do CSpect, a caixa alterna entre o ESP emulado (marcada) e o real (desmarcada). O código-fonte do plugin está em extra/UARTRS232.",
         "The IP address the RS232 ESP emulation reports to the emulated Next - what ZX Next Remote's listener screen and the NextZXOS WiFi wizard show, and what someone on another PC types to reach it - is this PC's primary address. A PC with several addresses (VPN, virtual machines, WSL) can pick another one in Settings, under 'IP address shown to the emulated Next', or type one; a running emulation takes the change live.":
             "O endereço IP que a emulação RS232 ESP apresenta ao Next emulado - o que o ecrã do listener do ZX Next Remote e o assistente WiFi do NextZXOS mostram, e o que alguém escreve noutro PC para o alcançar - é o endereço principal deste PC. Um PC com vários endereços (VPN, máquinas virtuais, WSL) pode escolher outro nas Definições, em 'IP address shown to the emulated Next', ou escrever um; uma emulação em curso aplica a alteração de imediato.",
         "A MAME build that carries the built-in ESP8266 card (esp8266_at, in the ZX Spectrum Next MAME fork since October 2026) is launched with that card instead of the RS232 ESP emulation: it follows the Next's UART speed, so '.sync5' and ZX Next Remote connect at every speed (slow, default and fast). Through the RS232 ESP emulation (older MAME builds, the null_modem card) transfers need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings.":
@@ -2861,6 +2919,8 @@ CATALOGS = {
             "Alien Floyd's — mostrar o separador «Alien Floyd's» em janela completa (Retro/pygame)",
         "Check for CSpect update on itch.io on startup":
             "Procurar atualizações do CSpect no itch.io ao arrancar",
+        "CSpect - Discard Beta or Patrons, Builders updates":
+            "CSpect - Ignorar atualizações Beta, Patrons ou Builders",
         "Check for ZX Next Unite updates at startup on Github":
             "Procurar atualizações do ZX Next Unite no GitHub ao arrancar",
         "Offer to update an older .sync5 / ZX Next Remote when a Next connects": "Propor atualizar um .sync5 / ZX Next Remote antigo quando um Next se liga",
@@ -2933,6 +2993,8 @@ CATALOGS = {
             "Caminho das ROMs do Flatpak:",
         "RS232 ESP Emulation (Mame)":
             "Emulação RS232 ESP (Mame)",
+        "RS232 ESP Emulation (CSpect)":
+            "Emulação RS232 ESP (CSpect)",
         "RS232 ESP Emulation verbose mode":
             "Modo detalhado da emulação RS232 ESP",
         "IP address shown to the emulated Next:":
@@ -3316,6 +3378,24 @@ CATALOGS = {
             "OpenAL 1.1 detetado — o som do CSpect está pronto.",
         "Install OpenAL?":
             "Instalar o OpenAL?",
+        "Install the UARTRS232 plugin?":
+            "Instalar o plugin UARTRS232?",
+        "ZX Next Unite can give the ZX Spectrum Next emulated by CSpect a working <b>ESP (Wi-Fi module)</b> without any hardware: its <b>UARTRS232</b> plugin connects the emulated Next to the app's RS232 ESP emulation, so .sync5, ZX Next Remote and the NextZXOS WiFi tools reach your network through this PC.<br><br>Install the plugin (UARTRS232.dll) into the CSpect that was just installed?<br><br>{folder}":
+            "O ZX Next Unite pode dar ao ZX Spectrum Next emulado pelo CSpect um <b>ESP (módulo Wi-Fi)</b> funcional sem qualquer hardware: o seu plugin <b>UARTRS232</b> liga o Next emulado à emulação RS232 ESP da aplicação, para que o .sync5, o ZX Next Remote e as ferramentas WiFi do NextZXOS cheguem à sua rede através deste PC.<br><br>Instalar o plugin (UARTRS232.dll) no CSpect que acabou de ser instalado?<br><br>{folder}",
+        "Install the UARTRS232 plugin":
+            "Instalar o plugin UARTRS232",
+        "Not now":
+            "Agora não",
+        "UARTRS232 plugin not installed":
+            "Plugin UARTRS232 não instalado",
+        "Enable the RS232 ESP emulation for CSpect?":
+            "Ativar a emulação RS232 ESP para o CSpect?",
+        "The UARTRS232 plugin is installed. It is used while <b>RS232 ESP Emulation (CSpect)</b> is ticked in Settings - and that box is not ticked yet.<br><br>Enable it now? A CSpect launched from the app then gives the emulated Next network access. Untick the box in Settings at any time to launch without it.":
+            "O plugin UARTRS232 está instalado. É usado enquanto <b>Emulação RS232 ESP (CSpect)</b> estiver marcada nas Definições, e essa caixa ainda não está.<br><br>Ativá-la agora? Um CSpect iniciado a partir da aplicação dará então acesso à rede ao Next emulado. Desmarque a caixa nas Definições a qualquer momento para o iniciar sem ela.",
+        "Enable it now":
+            "Ativar agora",
+        "RS232 ESP: the emulation is now enabled for CSpect - the next CSpect launched from the app gives the emulated Next network access.":
+            "RS232 ESP: a emulação está agora ativada para o CSpect: o próximo CSpect iniciado a partir da aplicação dará acesso à rede ao Next emulado.",
         ("On Windows CSpect needs the <b>OpenAL 1.1</b> audio library "
          "for sound, and it was not detected on this machine — without "
          "it CSpect runs silent.<br><br>"
@@ -3584,6 +3664,22 @@ CATALOGS = {
             "Emulacja RS232 ESP: korzysta z niej teraz {count} emulatorów (port {port}).",
         "RS232 ESP emulation could not start (port {port} in use?). MAME starts without it.":
             "Emulacja RS232 ESP nie mogła wystartować (port {port} zajęty?). MAME uruchamia się bez niej.",
+        "RS232 ESP emulation is already running on port {port} for another emulator; this CSpect joins it. The new port applies once every emulator using it has exited.":
+            "Emulacja RS232 ESP działa już na porcie {port} dla innego emulatora; ten CSpect do niej dołącza. Nowy port zostanie użyty, gdy wszystkie korzystające z niej emulatory zostaną zamknięte.",
+        "RS232 ESP emulation could not start (port {port} in use?). CSpect starts without it.":
+            "Emulacja RS232 ESP nie mogła wystartować (port {port} zajęty?). CSpect uruchamia się bez niej.",
+        "RS232 ESP: the CSpect launch parameters contain -com (a real ESP on a serial port), so the RS232 ESP emulation is not used for this launch.":
+            "RS232 ESP: parametry uruchamiania CSpect zawierają -com (prawdziwy ESP na porcie szeregowym), więc emulacja RS232 ESP nie jest używana przy tym uruchomieniu.",
+        "RS232 ESP: CSpect's folder could not be found, so the UARTRS232 plugin was not installed; CSpect starts without the RS232 ESP emulation.":
+            "RS232 ESP: nie znaleziono folderu CSpect, więc wtyczka UARTRS232 nie została zainstalowana; CSpect uruchamia się bez emulacji RS232 ESP.",
+        "RS232 ESP: the UARTRS232 plugin could not be copied into {folder} ({error}); CSpect starts without the RS232 ESP emulation.":
+            "RS232 ESP: nie udało się skopiować wtyczki UARTRS232 do {folder} ({error}); CSpect uruchamia się bez emulacji RS232 ESP.",
+        "RS232 ESP: the UARTRS232 plugin {version} was installed in the CSpect folder {folder}.":
+            "RS232 ESP: wtyczka UARTRS232 {version} została zainstalowana w folderze CSpect {folder}.",
+        "RS232 ESP: CSpect uses the RS232 ESP emulation on port {port} through the UARTRS232 plugin. That link has no baud rate, so .sync5 and ZX Next Remote connect at every speed (slow, default and fast).":
+            "RS232 ESP: CSpect korzysta z emulacji RS232 ESP na porcie {port} przez wtyczkę UARTRS232. To połączenie nie ma prędkości transmisji, więc .sync5 i ZX Next Remote łączą się z każdą prędkością (slow, default i fast).",
+        "RS232 ESP: the UARTReplacement plugin is installed in this CSpect folder too. UARTRS232 takes the UART for this launch; untick the CSpect RS232 ESP emulation in Settings to use the real ESP instead.":
+            "RS232 ESP: wtyczka UARTReplacement też jest zainstalowana w tym folderze CSpect. UARTRS232 przejmuje UART przy tym uruchomieniu; odznacz emulację RS232 ESP dla CSpect w Ustawieniach, aby użyć prawdziwego ESP.",
         "RS232 ESP: MAME's built-in ESP8266 card is in use ('-rs232_esp esp8266_at'). It follows the Next's UART speed, so .sync5 and ZX Next Remote connect at every speed (slow, default and fast); the RS232 ESP emulation is not started.":
             "RS232 ESP: używana jest wbudowana karta ESP8266 MAME ('-rs232_esp esp8266_at'). Podąża za prędkością UART Nexta, więc .sync5 i ZX Next Remote łączą się z każdą prędkością (slow, default i fast); emulacja RS232 ESP nie jest uruchamiana.",
         "RS232 ESP: the MAME parameters name the '{card}' card, so that one is used.":
@@ -3602,6 +3698,8 @@ CATALOGS = {
             "Opcjonalna emulacja RS232 ESP dla MAME (Ustawienia) to czysta, pełna reimplementacja w Pythonie pomysłu z projektu jesperl Janko Stamenovića - emulatora ESP-AT łączącego emulowany moduł Wi-Fi MAME z prawdziwą siecią. Wielkie dzięki za inspirujący pomysł - zobacz https://sourceforge.net/projects/jesperl/.",
         "One RS232 ESP emulation serves every running MAME: launch a second MAME on another disk image and it joins the same emulation with its own separate session, so several emulated Nexts can be on the network at once. The emulation stops when the last MAME exits. When two of them ask for the same server port (a Next listening for incoming connections), the second one is moved to the next free port and the log says which port to connect to.":
             "Jedna emulacja RS232 ESP obsługuje wszystkie uruchomione MAME: uruchom drugi MAME z inną obrazową kopią dysku, a dołączy on do tej samej emulacji z własną, oddzielną sesją, dzięki czemu kilka emulowanych Nextów może być jednocześnie w sieci. Emulacja zatrzymuje się, gdy zamknięty zostanie ostatni MAME. Gdy dwa z nich poproszą o ten sam port serwera (Next nasłuchujący połączeń przychodzących), drugi zostanie przeniesiony na następny wolny port, a dziennik poda, do którego portu się podłączyć.",
+        "CSpect can use the same RS232 ESP emulation: tick 'RS232 ESP Emulation (CSpect)' in Settings and every CSpect launch installs the UARTRS232 plugin (UARTRS232.dll) beside CSpect.exe and connects the emulated Next's ESP to the emulation - no USB ESP module needed. That link has no baud rate, so '.sync5' and ZX Next Remote connect at every speed. If the UARTReplacement plugin (a real ESP on a serial port) is installed in the same CSpect folder, the box switches between the emulated ESP (ticked) and the real one (unticked). The plugin's source is in extra/UARTRS232.":
+            "CSpect może korzystać z tej samej emulacji RS232 ESP: zaznacz 'RS232 ESP Emulation (CSpect)' w Ustawieniach, a każde uruchomienie CSpect zainstaluje wtyczkę UARTRS232 (UARTRS232.dll) obok CSpect.exe i połączy ESP emulowanego Nexta z emulacją; moduł ESP na USB nie jest potrzebny. To połączenie nie ma prędkości transmisji, więc '.sync5' i ZX Next Remote łączą się z każdą prędkością. Jeśli w tym samym folderze CSpect zainstalowana jest wtyczka UARTReplacement (prawdziwy ESP na porcie szeregowym), pole przełącza między emulowanym ESP (zaznaczone) a prawdziwym (odznaczone). Kod źródłowy wtyczki znajduje się w extra/UARTRS232.",
         "The IP address the RS232 ESP emulation reports to the emulated Next - what ZX Next Remote's listener screen and the NextZXOS WiFi wizard show, and what someone on another PC types to reach it - is this PC's primary address. A PC with several addresses (VPN, virtual machines, WSL) can pick another one in Settings, under 'IP address shown to the emulated Next', or type one; a running emulation takes the change live.":
             "Adres IP, który emulacja RS232 ESP podaje emulowanemu Nextowi - ten, który pokazują ekran listenera ZX Next Remote i kreator WiFi NextZXOS, i który ktoś wpisuje na innym PC, aby go osiągnąć - to główny adres tego PC. PC z kilkoma adresami (VPN, maszyny wirtualne, WSL) może wybrać inny w Ustawieniach, pod 'IP address shown to the emulated Next', albo wpisać własny; działająca emulacja przyjmuje zmianę na żywo.",
         "A MAME build that carries the built-in ESP8266 card (esp8266_at, in the ZX Spectrum Next MAME fork since October 2026) is launched with that card instead of the RS232 ESP emulation: it follows the Next's UART speed, so '.sync5' and ZX Next Remote connect at every speed (slow, default and fast). Through the RS232 ESP emulation (older MAME builds, the null_modem card) transfers need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings.":
@@ -4438,6 +4536,8 @@ CATALOGS = {
             "Alien Floyd's — pokaż pełnoekranową kartę «Alien Floyd's» (Retro/pygame)",
         "Check for CSpect update on itch.io on startup":
             "Sprawdzaj aktualizacje CSpect na itch.io przy starcie",
+        "CSpect - Discard Beta or Patrons, Builders updates":
+            "CSpect - Pomijaj aktualizacje Beta, Patrons i Builders",
         "Check for ZX Next Unite updates at startup on Github":
             "Sprawdzaj aktualizacje ZX Next Unite na GitHubie przy starcie",
         "Offer to update an older .sync5 / ZX Next Remote when a Next connects": "Proponuj aktualizację starszego .sync5 / ZX Next Remote, gdy Next się połączy",
@@ -4510,6 +4610,8 @@ CATALOGS = {
             "Ścieżka ROM-ów (Flatpak):",
         "RS232 ESP Emulation (Mame)":
             "Emulacja RS232 ESP (Mame)",
+        "RS232 ESP Emulation (CSpect)":
+            "Emulacja RS232 ESP (CSpect)",
         "RS232 ESP Emulation verbose mode":
             "Tryb szczegółowy emulacji RS232 ESP",
         "IP address shown to the emulated Next:":
@@ -4893,6 +4995,24 @@ CATALOGS = {
             "Wykryto OpenAL 1.1 — dźwięk CSpect jest gotowy.",
         "Install OpenAL?":
             "Zainstalować OpenAL?",
+        "Install the UARTRS232 plugin?":
+            "Zainstalować wtyczkę UARTRS232?",
+        "ZX Next Unite can give the ZX Spectrum Next emulated by CSpect a working <b>ESP (Wi-Fi module)</b> without any hardware: its <b>UARTRS232</b> plugin connects the emulated Next to the app's RS232 ESP emulation, so .sync5, ZX Next Remote and the NextZXOS WiFi tools reach your network through this PC.<br><br>Install the plugin (UARTRS232.dll) into the CSpect that was just installed?<br><br>{folder}":
+            "ZX Next Unite może dać ZX Spectrum Next emulowanemu przez CSpect działający <b>ESP (moduł Wi-Fi)</b> bez żadnego sprzętu: jego wtyczka <b>UARTRS232</b> łączy emulowanego Nexta z emulacją RS232 ESP aplikacji, dzięki czemu .sync5, ZX Next Remote i narzędzia WiFi NextZXOS docierają do Twojej sieci przez ten PC.<br><br>Zainstalować wtyczkę (UARTRS232.dll) we właśnie zainstalowanym CSpect?<br><br>{folder}",
+        "Install the UARTRS232 plugin":
+            "Zainstaluj wtyczkę UARTRS232",
+        "Not now":
+            "Nie teraz",
+        "UARTRS232 plugin not installed":
+            "Wtyczka UARTRS232 nie została zainstalowana",
+        "Enable the RS232 ESP emulation for CSpect?":
+            "Włączyć emulację RS232 ESP dla CSpect?",
+        "The UARTRS232 plugin is installed. It is used while <b>RS232 ESP Emulation (CSpect)</b> is ticked in Settings - and that box is not ticked yet.<br><br>Enable it now? A CSpect launched from the app then gives the emulated Next network access. Untick the box in Settings at any time to launch without it.":
+            "Wtyczka UARTRS232 jest zainstalowana. Jest używana, gdy w Ustawieniach zaznaczone jest <b>Emulacja RS232 ESP (CSpect)</b>, a to pole nie jest jeszcze zaznaczone.<br><br>Włączyć ją teraz? CSpect uruchomiony z aplikacji da wtedy emulowanemu Nextowi dostęp do sieci. W każdej chwili możesz odznaczyć to pole w Ustawieniach, aby uruchamiać bez niej.",
+        "Enable it now":
+            "Włącz teraz",
+        "RS232 ESP: the emulation is now enabled for CSpect - the next CSpect launched from the app gives the emulated Next network access.":
+            "RS232 ESP: emulacja jest teraz włączona dla CSpect: następny CSpect uruchomiony z aplikacji da emulowanemu Nextowi dostęp do sieci.",
         ("On Windows CSpect needs the <b>OpenAL 1.1</b> audio library "
          "for sound, and it was not detected on this machine — without "
          "it CSpect runs silent.<br><br>"
@@ -5163,6 +5283,22 @@ CATALOGS = {
             "Эмуляция RS232 ESP: её сейчас совместно используют {count} эмуляторов (порт {port}).",
         "RS232 ESP emulation could not start (port {port} in use?). MAME starts without it.":
             "Эмуляция RS232 ESP не смогла запуститься (порт {port} занят?). MAME запускается без неё.",
+        "RS232 ESP emulation is already running on port {port} for another emulator; this CSpect joins it. The new port applies once every emulator using it has exited.":
+            "Эмуляция RS232 ESP уже работает на порту {port} для другого эмулятора; этот CSpect подключается к ней. Новый порт будет использован после закрытия всех эмуляторов, которые её используют.",
+        "RS232 ESP emulation could not start (port {port} in use?). CSpect starts without it.":
+            "Эмуляция RS232 ESP не смогла запуститься (порт {port} занят?). CSpect запускается без неё.",
+        "RS232 ESP: the CSpect launch parameters contain -com (a real ESP on a serial port), so the RS232 ESP emulation is not used for this launch.":
+            "RS232 ESP: параметры запуска CSpect содержат -com (настоящий ESP на последовательном порту), поэтому эмуляция RS232 ESP при этом запуске не используется.",
+        "RS232 ESP: CSpect's folder could not be found, so the UARTRS232 plugin was not installed; CSpect starts without the RS232 ESP emulation.":
+            "RS232 ESP: папка CSpect не найдена, поэтому плагин UARTRS232 не установлен; CSpect запускается без эмуляции RS232 ESP.",
+        "RS232 ESP: the UARTRS232 plugin could not be copied into {folder} ({error}); CSpect starts without the RS232 ESP emulation.":
+            "RS232 ESP: не удалось скопировать плагин UARTRS232 в {folder} ({error}); CSpect запускается без эмуляции RS232 ESP.",
+        "RS232 ESP: the UARTRS232 plugin {version} was installed in the CSpect folder {folder}.":
+            "RS232 ESP: плагин UARTRS232 {version} установлен в папку CSpect {folder}.",
+        "RS232 ESP: CSpect uses the RS232 ESP emulation on port {port} through the UARTRS232 plugin. That link has no baud rate, so .sync5 and ZX Next Remote connect at every speed (slow, default and fast).":
+            "RS232 ESP: CSpect использует эмуляцию RS232 ESP на порту {port} через плагин UARTRS232. У этого соединения нет скорости в бодах, поэтому .sync5 и ZX Next Remote подключаются на любой скорости (slow, default и fast).",
+        "RS232 ESP: the UARTReplacement plugin is installed in this CSpect folder too. UARTRS232 takes the UART for this launch; untick the CSpect RS232 ESP emulation in Settings to use the real ESP instead.":
+            "RS232 ESP: в этой папке CSpect установлен и плагин UARTReplacement. При этом запуске UART достаётся UARTRS232; снимите флажок эмуляции RS232 ESP для CSpect в Настройках, чтобы использовать настоящий ESP.",
         "RS232 ESP: MAME's built-in ESP8266 card is in use ('-rs232_esp esp8266_at'). It follows the Next's UART speed, so .sync5 and ZX Next Remote connect at every speed (slow, default and fast); the RS232 ESP emulation is not started.":
             "RS232 ESP: используется встроенная карта ESP8266 MAME ('-rs232_esp esp8266_at'). Она следует за скоростью UART Next, поэтому .sync5 и ZX Next Remote подключаются на любой скорости (slow, default и fast); эмуляция RS232 ESP не запускается.",
         "RS232 ESP: the MAME parameters name the '{card}' card, so that one is used.":
@@ -5181,6 +5317,8 @@ CATALOGS = {
             "Необязательная эмуляция RS232 ESP для MAME (Настройки) - это чистая полная реализация на Python идеи из проекта jesperl Janko Stamenović - эмулятора ESP-AT, соединяющего эмулируемый Wi-Fi модуль MAME с реальной сетью. Большое спасибо за вдохновляющую идею - см. https://sourceforge.net/projects/jesperl/.",
         "One RS232 ESP emulation serves every running MAME: launch a second MAME on another disk image and it joins the same emulation with its own separate session, so several emulated Nexts can be on the network at once. The emulation stops when the last MAME exits. When two of them ask for the same server port (a Next listening for incoming connections), the second one is moved to the next free port and the log says which port to connect to.":
             "Одна эмуляция RS232 ESP обслуживает все запущенные MAME: запустите второй MAME с другим образом диска, и он подключится к той же эмуляции со своим отдельным сеансом, так что несколько эмулируемых Next могут быть в сети одновременно. Эмуляция останавливается, когда закрывается последний MAME. Если два из них запросят один и тот же серверный порт (Next, ожидающий входящих подключений), второй будет перенесён на следующий свободный порт, и в журнале будет указано, к какому порту подключаться.",
+        "CSpect can use the same RS232 ESP emulation: tick 'RS232 ESP Emulation (CSpect)' in Settings and every CSpect launch installs the UARTRS232 plugin (UARTRS232.dll) beside CSpect.exe and connects the emulated Next's ESP to the emulation - no USB ESP module needed. That link has no baud rate, so '.sync5' and ZX Next Remote connect at every speed. If the UARTReplacement plugin (a real ESP on a serial port) is installed in the same CSpect folder, the box switches between the emulated ESP (ticked) and the real one (unticked). The plugin's source is in extra/UARTRS232.":
+            "CSpect может использовать ту же эмуляцию RS232 ESP: отметьте 'RS232 ESP Emulation (CSpect)' в Настройках, и при каждом запуске CSpect плагин UARTRS232 (UARTRS232.dll) устанавливается рядом с CSpect.exe и подключает ESP эмулируемого Next к эмуляции; USB-модуль ESP не нужен. У этого соединения нет скорости в бодах, поэтому '.sync5' и ZX Next Remote подключаются на любой скорости. Если в той же папке CSpect установлен плагин UARTReplacement (настоящий ESP на последовательном порту), флажок переключает между эмулируемым ESP (отмечен) и настоящим (снят). Исходный код плагина находится в extra/UARTRS232.",
         "The IP address the RS232 ESP emulation reports to the emulated Next - what ZX Next Remote's listener screen and the NextZXOS WiFi wizard show, and what someone on another PC types to reach it - is this PC's primary address. A PC with several addresses (VPN, virtual machines, WSL) can pick another one in Settings, under 'IP address shown to the emulated Next', or type one; a running emulation takes the change live.":
             "IP-адрес, который эмуляция RS232 ESP сообщает эмулируемому Next — тот, что показывают экран слушателя ZX Next Remote и мастер WiFi NextZXOS и который кто-то вводит на другом ПК, чтобы до него добраться, — это основной адрес этого ПК. ПК с несколькими адресами (VPN, виртуальные машины, WSL) может выбрать другой в Настройках, в 'IP address shown to the emulated Next', или ввести свой; работающая эмуляция применяет изменение сразу.",
         "A MAME build that carries the built-in ESP8266 card (esp8266_at, in the ZX Spectrum Next MAME fork since October 2026) is launched with that card instead of the RS232 ESP emulation: it follows the Next's UART speed, so '.sync5' and ZX Next Remote connect at every speed (slow, default and fast). Through the RS232 ESP emulation (older MAME builds, the null_modem card) transfers need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings.":
@@ -6017,6 +6155,8 @@ CATALOGS = {
             "Alien Floyd's — показывать полноэкранную вкладку «Alien Floyd's» (Retro/pygame)",
         "Check for CSpect update on itch.io on startup":
             "Проверять обновления CSpect на itch.io при запуске",
+        "CSpect - Discard Beta or Patrons, Builders updates":
+            "CSpect - Пропускать обновления Beta, Patrons и Builders",
         "Check for ZX Next Unite updates at startup on Github":
             "Проверять обновления ZX Next Unite на GitHub при запуске",
         "Offer to update an older .sync5 / ZX Next Remote when a Next connects": "Предлагать обновить устаревший .sync5 / ZX Next Remote при подключении Next",
@@ -6089,6 +6229,8 @@ CATALOGS = {
             "Путь к ROM для Flatpak:",
         "RS232 ESP Emulation (Mame)":
             "Эмуляция RS232 ESP (Mame)",
+        "RS232 ESP Emulation (CSpect)":
+            "Эмуляция RS232 ESP (CSpect)",
         "RS232 ESP Emulation verbose mode":
             "Подробный режим эмуляции RS232 ESP",
         "IP address shown to the emulated Next:":
@@ -6472,6 +6614,24 @@ CATALOGS = {
             "OpenAL 1.1 обнаружен — звук CSpect готов.",
         "Install OpenAL?":
             "Установить OpenAL?",
+        "Install the UARTRS232 plugin?":
+            "Установить плагин UARTRS232?",
+        "ZX Next Unite can give the ZX Spectrum Next emulated by CSpect a working <b>ESP (Wi-Fi module)</b> without any hardware: its <b>UARTRS232</b> plugin connects the emulated Next to the app's RS232 ESP emulation, so .sync5, ZX Next Remote and the NextZXOS WiFi tools reach your network through this PC.<br><br>Install the plugin (UARTRS232.dll) into the CSpect that was just installed?<br><br>{folder}":
+            "ZX Next Unite может дать ZX Spectrum Next, эмулируемому CSpect, работающий <b>ESP (модуль Wi-Fi)</b> без какого-либо оборудования: его плагин <b>UARTRS232</b> соединяет эмулируемый Next с эмуляцией RS232 ESP приложения, так что .sync5, ZX Next Remote и инструменты WiFi NextZXOS выходят в вашу сеть через этот ПК.<br><br>Установить плагин (UARTRS232.dll) в только что установленный CSpect?<br><br>{folder}",
+        "Install the UARTRS232 plugin":
+            "Установить плагин UARTRS232",
+        "Not now":
+            "Не сейчас",
+        "UARTRS232 plugin not installed":
+            "Плагин UARTRS232 не установлен",
+        "Enable the RS232 ESP emulation for CSpect?":
+            "Включить эмуляцию RS232 ESP для CSpect?",
+        "The UARTRS232 plugin is installed. It is used while <b>RS232 ESP Emulation (CSpect)</b> is ticked in Settings - and that box is not ticked yet.<br><br>Enable it now? A CSpect launched from the app then gives the emulated Next network access. Untick the box in Settings at any time to launch without it.":
+            "Плагин UARTRS232 установлен. Он используется, пока в Настройках отмечен флажок <b>Эмуляция RS232 ESP (CSpect)</b>, а этот флажок ещё не отмечен.<br><br>Включить сейчас? Тогда CSpect, запущенный из приложения, даст эмулируемому Next доступ к сети. Флажок можно снять в Настройках в любой момент, чтобы запускать без неё.",
+        "Enable it now":
+            "Включить сейчас",
+        "RS232 ESP: the emulation is now enabled for CSpect - the next CSpect launched from the app gives the emulated Next network access.":
+            "RS232 ESP: эмуляция теперь включена для CSpect: следующий CSpect, запущенный из приложения, даст эмулируемому Next доступ к сети.",
         ("On Windows CSpect needs the <b>OpenAL 1.1</b> audio library "
          "for sound, and it was not detected on this machine — without "
          "it CSpect runs silent.<br><br>"
@@ -6741,6 +6901,22 @@ CATALOGS = {
             "Emulace RS232 ESP: sdílí ji nyní {count} emulátorů (port {port}).",
         "RS232 ESP emulation could not start (port {port} in use?). MAME starts without it.":
             "Emulaci RS232 ESP se nepodařilo spustit (port {port} obsazen?). MAME se spouští bez ní.",
+        "RS232 ESP emulation is already running on port {port} for another emulator; this CSpect joins it. The new port applies once every emulator using it has exited.":
+            "Emulace RS232 ESP už běží na portu {port} pro jiný emulátor; tento CSpect se k ní připojuje. Nový port se použije, až se ukončí všechny emulátory, které ji používají.",
+        "RS232 ESP emulation could not start (port {port} in use?). CSpect starts without it.":
+            "Emulaci RS232 ESP se nepodařilo spustit (port {port} obsazen?). CSpect se spouští bez ní.",
+        "RS232 ESP: the CSpect launch parameters contain -com (a real ESP on a serial port), so the RS232 ESP emulation is not used for this launch.":
+            "RS232 ESP: parametry spuštění CSpectu obsahují -com (skutečný ESP na sériovém portu), takže emulace RS232 ESP se při tomto spuštění nepoužije.",
+        "RS232 ESP: CSpect's folder could not be found, so the UARTRS232 plugin was not installed; CSpect starts without the RS232 ESP emulation.":
+            "RS232 ESP: složku CSpectu se nepodařilo najít, takže plugin UARTRS232 nebyl nainstalován; CSpect se spouští bez emulace RS232 ESP.",
+        "RS232 ESP: the UARTRS232 plugin could not be copied into {folder} ({error}); CSpect starts without the RS232 ESP emulation.":
+            "RS232 ESP: plugin UARTRS232 se nepodařilo zkopírovat do {folder} ({error}); CSpect se spouští bez emulace RS232 ESP.",
+        "RS232 ESP: the UARTRS232 plugin {version} was installed in the CSpect folder {folder}.":
+            "RS232 ESP: plugin UARTRS232 {version} byl nainstalován do složky CSpectu {folder}.",
+        "RS232 ESP: CSpect uses the RS232 ESP emulation on port {port} through the UARTRS232 plugin. That link has no baud rate, so .sync5 and ZX Next Remote connect at every speed (slow, default and fast).":
+            "RS232 ESP: CSpect používá emulaci RS232 ESP na portu {port} přes plugin UARTRS232. Toto spojení nemá přenosovou rychlost, takže .sync5 i ZX Next Remote se připojí při každé rychlosti (slow, default i fast).",
+        "RS232 ESP: the UARTReplacement plugin is installed in this CSpect folder too. UARTRS232 takes the UART for this launch; untick the CSpect RS232 ESP emulation in Settings to use the real ESP instead.":
+            "RS232 ESP: v této složce CSpectu je nainstalován i plugin UARTReplacement. UARTRS232 si při tomto spuštění bere UART; pro použití skutečného ESP zrušte v Nastavení zaškrtnutí emulace RS232 ESP pro CSpect.",
         "RS232 ESP: MAME's built-in ESP8266 card is in use ('-rs232_esp esp8266_at'). It follows the Next's UART speed, so .sync5 and ZX Next Remote connect at every speed (slow, default and fast); the RS232 ESP emulation is not started.":
             "RS232 ESP: používá se vestavěná karta ESP8266 v MAME ('-rs232_esp esp8266_at'). Sleduje rychlost UART Nextu, takže .sync5 i ZX Next Remote se připojí při každé rychlosti (slow, default i fast); emulace RS232 ESP se nespouští.",
         "RS232 ESP: the MAME parameters name the '{card}' card, so that one is used.":
@@ -6759,6 +6935,8 @@ CATALOGS = {
             "Volitelná emulace RS232 ESP pro MAME (Nastavení) je čistá úplná reimplementace nápadu z projektu jesperl Janko Stamenoviće v Pythonu - emulátoru ESP-AT propojujícího emulovaný Wi-Fi modul MAME se skutečnou sítí. Velké díky za inspirativní nápad - viz https://sourceforge.net/projects/jesperl/.",
         "One RS232 ESP emulation serves every running MAME: launch a second MAME on another disk image and it joins the same emulation with its own separate session, so several emulated Nexts can be on the network at once. The emulation stops when the last MAME exits. When two of them ask for the same server port (a Next listening for incoming connections), the second one is moved to the next free port and the log says which port to connect to.":
             "Jedna emulace RS232 ESP obsluhuje všechny běžící MAME: spusťte druhý MAME s jiným obrazem disku a připojí se ke stejné emulaci s vlastní samostatnou relací, takže několik emulovaných Nextů může být v síti současně. Emulace se zastaví, když skončí poslední MAME. Když si dva z nich vyžádají stejný serverový port (Next naslouchající příchozím spojením), druhý se přesune na další volný port a protokol uvede, ke kterému portu se připojit.",
+        "CSpect can use the same RS232 ESP emulation: tick 'RS232 ESP Emulation (CSpect)' in Settings and every CSpect launch installs the UARTRS232 plugin (UARTRS232.dll) beside CSpect.exe and connects the emulated Next's ESP to the emulation - no USB ESP module needed. That link has no baud rate, so '.sync5' and ZX Next Remote connect at every speed. If the UARTReplacement plugin (a real ESP on a serial port) is installed in the same CSpect folder, the box switches between the emulated ESP (ticked) and the real one (unticked). The plugin's source is in extra/UARTRS232.":
+            "CSpect může používat stejnou emulaci RS232 ESP: zaškrtněte 'RS232 ESP Emulation (CSpect)' v Nastavení a každé spuštění CSpectu nainstaluje plugin UARTRS232 (UARTRS232.dll) vedle CSpect.exe a připojí ESP emulovaného Nextu k emulaci; USB modul ESP není potřeba. Toto spojení nemá přenosovou rychlost, takže '.sync5' i ZX Next Remote se připojí při každé rychlosti. Pokud je ve stejné složce CSpectu nainstalován plugin UARTReplacement (skutečný ESP na sériovém portu), políčko přepíná mezi emulovaným ESP (zaškrtnuto) a skutečným (nezaškrtnuto). Zdrojový kód pluginu je v extra/UARTRS232.",
         "The IP address the RS232 ESP emulation reports to the emulated Next - what ZX Next Remote's listener screen and the NextZXOS WiFi wizard show, and what someone on another PC types to reach it - is this PC's primary address. A PC with several addresses (VPN, virtual machines, WSL) can pick another one in Settings, under 'IP address shown to the emulated Next', or type one; a running emulation takes the change live.":
             "IP adresa, kterou emulace RS232 ESP hlásí emulovanému Nextu - ta, kterou ukazují obrazovka listeneru ZX Next Remote a průvodce WiFi v NextZXOS a kterou někdo zadává na jiném PC, aby se k němu dostal - je hlavní adresa tohoto PC. PC s více adresami (VPN, virtuální stroje, WSL) může v Nastavení pod 'IP address shown to the emulated Next' zvolit jinou nebo ji zadat; běžící emulace změnu převezme za chodu.",
         "A MAME build that carries the built-in ESP8266 card (esp8266_at, in the ZX Spectrum Next MAME fork since October 2026) is launched with that card instead of the RS232 ESP emulation: it follows the Next's UART speed, so '.sync5' and ZX Next Remote connect at every speed (slow, default and fast). Through the RS232 ESP emulation (older MAME builds, the null_modem card) transfers need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings.":
@@ -7592,6 +7770,8 @@ CATALOGS = {
             "Alien Floyd's — zobrazit celookennou kartu «Alien Floyd's» (Retro/pygame)",
         "Check for CSpect update on itch.io on startup":
             "Při startu hledat aktualizace CSpect na itch.io",
+        "CSpect - Discard Beta or Patrons, Builders updates":
+            "CSpect - Přeskakovat aktualizace Beta, Patrons a Builders",
         "Check for ZX Next Unite updates at startup on Github":
             "Při startu hledat aktualizace ZX Next Unite na GitHubu",
         "Offer to update an older .sync5 / ZX Next Remote when a Next connects": "Nabídnout aktualizaci staršího .sync5 / ZX Next Remote, když se Next připojí",
@@ -7664,6 +7844,8 @@ CATALOGS = {
             "Cesta k ROM pro Flatpak:",
         "RS232 ESP Emulation (Mame)":
             "Emulace RS232 ESP (Mame)",
+        "RS232 ESP Emulation (CSpect)":
+            "Emulace RS232 ESP (CSpect)",
         "RS232 ESP Emulation verbose mode":
             "Podrobný režim emulace RS232 ESP",
         "IP address shown to the emulated Next:":
@@ -8047,6 +8229,24 @@ CATALOGS = {
             "OpenAL 1.1 nalezen — zvuk CSpectu je připraven.",
         "Install OpenAL?":
             "Nainstalovat OpenAL?",
+        "Install the UARTRS232 plugin?":
+            "Nainstalovat plugin UARTRS232?",
+        "ZX Next Unite can give the ZX Spectrum Next emulated by CSpect a working <b>ESP (Wi-Fi module)</b> without any hardware: its <b>UARTRS232</b> plugin connects the emulated Next to the app's RS232 ESP emulation, so .sync5, ZX Next Remote and the NextZXOS WiFi tools reach your network through this PC.<br><br>Install the plugin (UARTRS232.dll) into the CSpect that was just installed?<br><br>{folder}":
+            "ZX Next Unite může dát ZX Spectrum Nextu emulovanému v CSpectu funkční <b>ESP (modul Wi-Fi)</b> bez jakéhokoli hardwaru: jeho plugin <b>UARTRS232</b> propojí emulovaný Next s emulací RS232 ESP v aplikaci, takže .sync5, ZX Next Remote a nástroje WiFi v NextZXOS se dostanou do vaší sítě přes tento PC.<br><br>Nainstalovat plugin (UARTRS232.dll) do právě nainstalovaného CSpectu?<br><br>{folder}",
+        "Install the UARTRS232 plugin":
+            "Nainstalovat plugin UARTRS232",
+        "Not now":
+            "Teď ne",
+        "UARTRS232 plugin not installed":
+            "Plugin UARTRS232 nebyl nainstalován",
+        "Enable the RS232 ESP emulation for CSpect?":
+            "Zapnout emulaci RS232 ESP pro CSpect?",
+        "The UARTRS232 plugin is installed. It is used while <b>RS232 ESP Emulation (CSpect)</b> is ticked in Settings - and that box is not ticked yet.<br><br>Enable it now? A CSpect launched from the app then gives the emulated Next network access. Untick the box in Settings at any time to launch without it.":
+            "Plugin UARTRS232 je nainstalován. Používá se, dokud je v Nastavení zaškrtnuto <b>Emulace RS232 ESP (CSpect)</b>, a toto políčko zatím zaškrtnuto není.<br><br>Zapnout ji nyní? CSpect spuštěný z aplikace pak dá emulovanému Nextu přístup k síti. Políčko můžete v Nastavení kdykoli odškrtnout a spouštět bez ní.",
+        "Enable it now":
+            "Zapnout nyní",
+        "RS232 ESP: the emulation is now enabled for CSpect - the next CSpect launched from the app gives the emulated Next network access.":
+            "RS232 ESP: emulace je nyní pro CSpect zapnutá: příští CSpect spuštěný z aplikace dá emulovanému Nextu přístup k síti.",
         ("On Windows CSpect needs the <b>OpenAL 1.1</b> audio library "
          "for sound, and it was not detected on this machine — without "
          "it CSpect runs silent.<br><br>"
@@ -8318,6 +8518,22 @@ CATALOGS = {
             "Émulation RS232 ESP : {count} émulateurs la partagent maintenant (port {port}).",
         "RS232 ESP emulation could not start (port {port} in use?). MAME starts without it.":
             "L'émulation RS232 ESP n'a pas pu démarrer (port {port} occupé ?). MAME démarre sans elle.",
+        "RS232 ESP emulation is already running on port {port} for another emulator; this CSpect joins it. The new port applies once every emulator using it has exited.":
+            "L'émulation RS232 ESP tourne déjà sur le port {port} pour un autre émulateur ; ce CSpect la rejoint. Le nouveau port s'appliquera quand tous les émulateurs qui l'utilisent seront fermés.",
+        "RS232 ESP emulation could not start (port {port} in use?). CSpect starts without it.":
+            "L'émulation RS232 ESP n'a pas pu démarrer (port {port} occupé ?). CSpect démarre sans elle.",
+        "RS232 ESP: the CSpect launch parameters contain -com (a real ESP on a serial port), so the RS232 ESP emulation is not used for this launch.":
+            "RS232 ESP : les paramètres de lancement de CSpect contiennent -com (un vrai ESP sur un port série), donc l'émulation RS232 ESP n'est pas utilisée pour ce lancement.",
+        "RS232 ESP: CSpect's folder could not be found, so the UARTRS232 plugin was not installed; CSpect starts without the RS232 ESP emulation.":
+            "RS232 ESP : le dossier de CSpect est introuvable, donc le plugin UARTRS232 n'a pas été installé ; CSpect démarre sans l'émulation RS232 ESP.",
+        "RS232 ESP: the UARTRS232 plugin could not be copied into {folder} ({error}); CSpect starts without the RS232 ESP emulation.":
+            "RS232 ESP : le plugin UARTRS232 n'a pas pu être copié dans {folder} ({error}) ; CSpect démarre sans l'émulation RS232 ESP.",
+        "RS232 ESP: the UARTRS232 plugin {version} was installed in the CSpect folder {folder}.":
+            "RS232 ESP : le plugin UARTRS232 {version} a été installé dans le dossier de CSpect {folder}.",
+        "RS232 ESP: CSpect uses the RS232 ESP emulation on port {port} through the UARTRS232 plugin. That link has no baud rate, so .sync5 and ZX Next Remote connect at every speed (slow, default and fast).":
+            "RS232 ESP : CSpect utilise l'émulation RS232 ESP sur le port {port} via le plugin UARTRS232. Ce lien n'a pas de débit en bauds, donc .sync5 et ZX Next Remote se connectent à toutes les vitesses (slow, default et fast).",
+        "RS232 ESP: the UARTReplacement plugin is installed in this CSpect folder too. UARTRS232 takes the UART for this launch; untick the CSpect RS232 ESP emulation in Settings to use the real ESP instead.":
+            "RS232 ESP : le plugin UARTReplacement est aussi installé dans ce dossier de CSpect. UARTRS232 prend l'UART pour ce lancement ; décochez l'émulation RS232 ESP de CSpect dans les Réglages pour utiliser le vrai ESP.",
         "RS232 ESP: MAME's built-in ESP8266 card is in use ('-rs232_esp esp8266_at'). It follows the Next's UART speed, so .sync5 and ZX Next Remote connect at every speed (slow, default and fast); the RS232 ESP emulation is not started.":
             "RS232 ESP : la carte ESP8266 intégrée de MAME est utilisée ('-rs232_esp esp8266_at'). Elle suit la vitesse UART du Next, donc .sync5 et ZX Next Remote se connectent à toutes les vitesses (slow, default et fast) ; l'émulation RS232 ESP n'est pas démarrée.",
         "RS232 ESP: the MAME parameters name the '{card}' card, so that one is used.":
@@ -8336,6 +8552,8 @@ CATALOGS = {
             "L'émulation RS232 ESP optionnelle pour MAME (Réglages) est une réimplémentation complète et propre en Python d'une idée de jesperl, de Janko Stamenović : un émulateur ESP-AT reliant le module Wi-Fi émulé de MAME au réseau réel. Un grand merci pour l'idée inspirante - voir https://sourceforge.net/projects/jesperl/.",
         "One RS232 ESP emulation serves every running MAME: launch a second MAME on another disk image and it joins the same emulation with its own separate session, so several emulated Nexts can be on the network at once. The emulation stops when the last MAME exits. When two of them ask for the same server port (a Next listening for incoming connections), the second one is moved to the next free port and the log says which port to connect to.":
             "Une seule émulation RS232 ESP sert tous les MAME en cours : lancez un deuxième MAME avec une autre image disque et il rejoint la même émulation avec sa propre session séparée, de sorte que plusieurs Next émulés peuvent être sur le réseau en même temps. L'émulation s'arrête à la sortie du dernier MAME. Quand deux d'entre eux demandent le même port serveur (un Next à l'écoute de connexions entrantes), le second est déplacé sur le port libre suivant et le journal indique à quel port se connecter.",
+        "CSpect can use the same RS232 ESP emulation: tick 'RS232 ESP Emulation (CSpect)' in Settings and every CSpect launch installs the UARTRS232 plugin (UARTRS232.dll) beside CSpect.exe and connects the emulated Next's ESP to the emulation - no USB ESP module needed. That link has no baud rate, so '.sync5' and ZX Next Remote connect at every speed. If the UARTReplacement plugin (a real ESP on a serial port) is installed in the same CSpect folder, the box switches between the emulated ESP (ticked) and the real one (unticked). The plugin's source is in extra/UARTRS232.":
+            "CSpect peut utiliser la même émulation RS232 ESP : cochez 'RS232 ESP Emulation (CSpect)' dans les Réglages et chaque lancement de CSpect installe le plugin UARTRS232 (UARTRS232.dll) à côté de CSpect.exe et relie l'ESP du Next émulé à l'émulation ; aucun module ESP USB n'est nécessaire. Ce lien n'a pas de débit en bauds, donc '.sync5' et ZX Next Remote se connectent à toutes les vitesses. Si le plugin UARTReplacement (un vrai ESP sur un port série) est installé dans le même dossier de CSpect, la case bascule entre l'ESP émulé (cochée) et le vrai (décochée). Le code source du plugin se trouve dans extra/UARTRS232.",
         "The IP address the RS232 ESP emulation reports to the emulated Next - what ZX Next Remote's listener screen and the NextZXOS WiFi wizard show, and what someone on another PC types to reach it - is this PC's primary address. A PC with several addresses (VPN, virtual machines, WSL) can pick another one in Settings, under 'IP address shown to the emulated Next', or type one; a running emulation takes the change live.":
             "L'adresse IP que l'émulation RS232 ESP présente au Next émulé - celle qu'affichent l'écran du listener de ZX Next Remote et l'assistant WiFi de NextZXOS, et que l'on saisit sur un autre PC pour l'atteindre - est l'adresse principale de ce PC. Un PC qui a plusieurs adresses (VPN, machines virtuelles, WSL) peut en choisir une autre dans les Réglages, sous 'IP address shown to the emulated Next', ou en saisir une ; une émulation en cours applique le changement à chaud.",
         "A MAME build that carries the built-in ESP8266 card (esp8266_at, in the ZX Spectrum Next MAME fork since October 2026) is launched with that card instead of the RS232 ESP emulation: it follows the Next's UART speed, so '.sync5' and ZX Next Remote connect at every speed (slow, default and fast). Through the RS232 ESP emulation (older MAME builds, the null_modem card) transfers need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings.":
@@ -9176,6 +9394,8 @@ CATALOGS = {
             "Alien Floyd's — afficher l'onglet « Alien Floyd's » plein écran (Rétro/pygame)",
         "Check for CSpect update on itch.io on startup":
             "Vérifier les mises à jour de CSpect sur itch.io au démarrage",
+        "CSpect - Discard Beta or Patrons, Builders updates":
+            "CSpect - Ignorer les mises à jour Beta, Patrons ou Builders",
         "Check for ZX Next Unite updates at startup on Github":
             "Vérifier les mises à jour de ZX Next Unite sur GitHub au démarrage",
         "Offer to update an older .sync5 / ZX Next Remote when a Next connects": "Proposer de mettre à jour un .sync5 / ZX Next Remote ancien quand un Next se connecte",
@@ -9248,6 +9468,8 @@ CATALOGS = {
             "Chemin des ROM Flatpak :",
         "RS232 ESP Emulation (Mame)":
             "Émulation RS232 ESP (Mame)",
+        "RS232 ESP Emulation (CSpect)":
+            "Émulation RS232 ESP (CSpect)",
         "RS232 ESP Emulation verbose mode":
             "Mode verbeux de l'émulation RS232 ESP",
         "IP address shown to the emulated Next:":
@@ -9631,6 +9853,24 @@ CATALOGS = {
             "OpenAL 1.1 détecté — le son de CSpect est prêt.",
         "Install OpenAL?":
             "Installer OpenAL ?",
+        "Install the UARTRS232 plugin?":
+            "Installer le plugin UARTRS232 ?",
+        "ZX Next Unite can give the ZX Spectrum Next emulated by CSpect a working <b>ESP (Wi-Fi module)</b> without any hardware: its <b>UARTRS232</b> plugin connects the emulated Next to the app's RS232 ESP emulation, so .sync5, ZX Next Remote and the NextZXOS WiFi tools reach your network through this PC.<br><br>Install the plugin (UARTRS232.dll) into the CSpect that was just installed?<br><br>{folder}":
+            "ZX Next Unite peut donner au ZX Spectrum Next émulé par CSpect un <b>ESP (module Wi-Fi)</b> fonctionnel sans aucun matériel : son plugin <b>UARTRS232</b> relie le Next émulé à l'émulation RS232 ESP de l'application, de sorte que .sync5, ZX Next Remote et les outils WiFi de NextZXOS atteignent votre réseau à travers ce PC.<br><br>Installer le plugin (UARTRS232.dll) dans le CSpect qui vient d'être installé ?<br><br>{folder}",
+        "Install the UARTRS232 plugin":
+            "Installer le plugin UARTRS232",
+        "Not now":
+            "Pas maintenant",
+        "UARTRS232 plugin not installed":
+            "Plugin UARTRS232 non installé",
+        "Enable the RS232 ESP emulation for CSpect?":
+            "Activer l'émulation RS232 ESP pour CSpect ?",
+        "The UARTRS232 plugin is installed. It is used while <b>RS232 ESP Emulation (CSpect)</b> is ticked in Settings - and that box is not ticked yet.<br><br>Enable it now? A CSpect launched from the app then gives the emulated Next network access. Untick the box in Settings at any time to launch without it.":
+            "Le plugin UARTRS232 est installé. Il sert tant que <b>Émulation RS232 ESP (CSpect)</b> est cochée dans les Réglages, et cette case ne l'est pas encore.<br><br>L'activer maintenant ? Un CSpect lancé depuis l'application donnera alors l'accès au réseau au Next émulé. Décochez la case dans les Réglages à tout moment pour le lancer sans elle.",
+        "Enable it now":
+            "L'activer maintenant",
+        "RS232 ESP: the emulation is now enabled for CSpect - the next CSpect launched from the app gives the emulated Next network access.":
+            "RS232 ESP : l'émulation est maintenant activée pour CSpect : le prochain CSpect lancé depuis l'application donnera l'accès au réseau au Next émulé.",
         ("On Windows CSpect needs the <b>OpenAL 1.1</b> audio library "
          "for sound, and it was not detected on this machine — without "
          "it CSpect runs silent.<br><br>"
@@ -9723,6 +9963,7 @@ _TOAST_CATALOGS = {
         "✅  MAME installed": "✅  MAME installé",
         "⚠  MAME install failed": "⚠  Échec de l'installation de MAME",
         "✅  CSpect updated": "✅  CSpect mis à jour",
+        "✅  UARTRS232 plugin installed": "✅  Plugin UARTRS232 installé",
         "⚠  No disk image selected/found for your emulator": "⚠  Aucune image disque sélectionnée/trouvée pour votre émulateur",
         "Classic NextSync server not started": "Serveur NextSync classique non démarré",
         "NextSync HTTP bridge started": "Passerelle HTTP NextSync démarrée",
@@ -9847,6 +10088,7 @@ _TOAST_CATALOGS = {
         "✅  MAME installed": "✅  MAME instalado",
         "⚠  MAME install failed": "⚠  Falló la instalación de MAME",
         "✅  CSpect updated": "✅  CSpect actualizado",
+        "✅  UARTRS232 plugin installed": "✅  Plugin UARTRS232 instalado",
         "⚠  No disk image selected/found for your emulator": "⚠  No hay imagen de disco seleccionada/encontrada para su emulador",
         "Classic NextSync server not started": "Servidor NextSync clásico no iniciado",
         "NextSync HTTP bridge started": "Puente HTTP de NextSync iniciado",
@@ -9971,6 +10213,7 @@ _TOAST_CATALOGS = {
         "✅  MAME installed": "✅  MAME instalado",
         "⚠  MAME install failed": "⚠  Falha na instalação do MAME",
         "✅  CSpect updated": "✅  CSpect atualizado",
+        "✅  UARTRS232 plugin installed": "✅  Plugin UARTRS232 instalado",
         "⚠  No disk image selected/found for your emulator": "⚠  Nenhuma imagem de disco selecionada/encontrada para o seu emulador",
         "Classic NextSync server not started": "Servidor NextSync clássico não iniciado",
         "NextSync HTTP bridge started": "Ponte HTTP NextSync iniciada",
@@ -10095,6 +10338,7 @@ _TOAST_CATALOGS = {
         "✅  MAME installed": "✅  MAME zainstalowany",
         "⚠  MAME install failed": "⚠  Instalacja MAME nie powiodła się",
         "✅  CSpect updated": "✅  CSpect zaktualizowany",
+        "✅  UARTRS232 plugin installed": "✅  Wtyczka UARTRS232 zainstalowana",
         "⚠  No disk image selected/found for your emulator": "⚠  Nie wybrano/znaleziono obrazu dysku dla emulatora",
         "Classic NextSync server not started": "Klasyczny serwer NextSync nie został uruchomiony",
         "NextSync HTTP bridge started": "Mostek HTTP NextSync uruchomiony",
@@ -10219,6 +10463,7 @@ _TOAST_CATALOGS = {
         "✅  MAME installed": "✅  MAME установлен",
         "⚠  MAME install failed": "⚠  Не удалось установить MAME",
         "✅  CSpect updated": "✅  CSpect обновлён",
+        "✅  UARTRS232 plugin installed": "✅  Плагин UARTRS232 установлен",
         "⚠  No disk image selected/found for your emulator": "⚠  Образ диска для эмулятора не выбран/не найден",
         "Classic NextSync server not started": "Классический сервер NextSync не запущен",
         "NextSync HTTP bridge started": "HTTP-мост NextSync запущен",
@@ -10343,6 +10588,7 @@ _TOAST_CATALOGS = {
         "✅  MAME installed": "✅  MAME nainstalován",
         "⚠  MAME install failed": "⚠  Instalace MAME selhala",
         "✅  CSpect updated": "✅  CSpect aktualizován",
+        "✅  UARTRS232 plugin installed": "✅  Plugin UARTRS232 nainstalován",
         "⚠  No disk image selected/found for your emulator": "⚠  Nebyl vybrán/nalezen obraz disku pro emulátor",
         "Classic NextSync server not started": "Klasický server NextSync nebyl spuštěn",
         "NextSync HTTP bridge started": "HTTP most NextSync spuštěn",

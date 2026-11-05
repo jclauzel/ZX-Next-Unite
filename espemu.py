@@ -1602,9 +1602,10 @@ class EspAtServer:
         self._log(f"RS232 ESP emulation listening on {self.host}:{self.port}"
                   " (MAME: -rs232_esp null_modem -bitb "
                   f"socket.{self.host}:{self.port})")
-        self._log("RS232 ESP emulation: transfers need the Next side on "
-                  "SLOW pacing ('.sync5 -s', or UART speed 'Slow' in "
-                  "ZX Next Remote).")
+        self._log("RS232 ESP emulation: through MAME's null_modem card "
+                  "transfers need the Next side on SLOW pacing ('.sync5 -s', "
+                  "or UART speed 'Slow' in ZX Next Remote); CSpect with the "
+                  "UARTRS232 plugin has no baud rate and runs at every speed.")
         return self
 
     def stop(self):

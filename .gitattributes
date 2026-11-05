@@ -4,3 +4,6 @@
 # .bas files are tokenised NextBASIC binaries.
 samples/sample-*.txt -text
 *.bas -text
+# The CSpect UARTRS232 plugin as built: tests/test_cspect_esp_plugin.py
+# compares it byte for byte with the copy the app carries.
+extra/UARTRS232/UARTRS232.dll binary

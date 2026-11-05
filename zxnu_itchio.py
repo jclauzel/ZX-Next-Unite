@@ -852,8 +852,18 @@ def install_via_api(game, api_key, dest_dir, log_cb=None, progress_cb=None,
 
 # ── CSpect startup update check (itch.io) ──────────────────────────────────
 
-def latest_cspect_upload(api_key, game=None):
+def latest_cspect_upload(api_key, game=None, discard_words=(), discarded=None):
     """Look up the newest CSpect build available to this itch.io account.
+
+    *discard_words* (9.7.58, Settings -> "CSpect - Discard Beta or Patrons,
+    Builders updates") drops, exactly as the beta rule below does, every
+    upload whose file or version name carries one of the words - the
+    password-protected Patrons / Builders builds most accounts cannot
+    install. Dropped from the LIST, so the newest build left is what the
+    caller compares and what the install downloads. *discarded*, when a
+    list, receives the version names dropped for that reason (newest
+    first), so the caller can say what it skipped; the always-on beta rule
+    reports nothing, as before.
 
     Builds a minimal game dict from :data:`CSPECT_ITCH_URL` (unless *game* is
     supplied) and reuses :func:`list_owned_uploads` — CSpect exposes several
@@ -883,8 +893,21 @@ def latest_cspect_upload(api_key, game=None):
     uploads = [u for u in uploads
                if "beta" not in (u.get("filename") or "").lower()
                and "beta" not in (u.get("version_name") or "").lower()]
+    words = [str(w).lower() for w in (discard_words or ()) if w]
+    if words:
+        kept = []
+        for u in uploads:
+            names = ((u.get("filename") or "").lower(),
+                     (u.get("version_name") or "").lower())
+            if any(w in n for w in words for n in names):
+                if discarded is not None:
+                    discarded.append(u.get("version_name")
+                                     or u.get("filename") or "")
+            else:
+                kept.append(u)
+        uploads = kept
     if not uploads:
-        return None  # only BETA builds listed — nothing the updater may offer
+        return None  # only BETA (or discarded) builds listed — nothing to offer
     newest = uploads[0]
     return {
         "game": game,

@@ -42,6 +42,13 @@ SUITES = [
     # -listslots parser, the chooser, the launch tokens; its live probe
     # skips without a MAME under downloads/, as on CI.
     ("test_mame_esp_card.py",    120, None),
+    # The CSpect UARTRS232 plugin and the app's half of it (9.7.58): the
+    # carried binary is whole, checked in, and built from the source as it
+    # stands; deploy, the launch environment, the -com refusal.
+    ("test_cspect_esp_plugin.py", 120, None),
+    # "CSpect - Discard Beta or Patrons, Builders updates" (9.7.58): the
+    # startup update check leaves the password-protected builds out.
+    ("test_cspect_update_filter.py", 120, None),
     ("test_openal_install.py",   120, None),
     ("test_startup_tab_activation.py", 120, None),
     ("test_transfer_tab.py",     120, None),
