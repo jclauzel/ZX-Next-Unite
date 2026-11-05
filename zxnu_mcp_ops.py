@@ -106,15 +106,17 @@ class _UiInvoker(QObject):
 
 
 def _emulator_label(proc):
-    """"MAME" / "CSpect" from a recorded Popen's own command line."""
-    args = getattr(proc, "args", "")
-    text = " ".join(args) if isinstance(args, (list, tuple)) else str(args)
-    low = text.lower()
-    if "cspect" in low:
-        return "CSpect"
-    if "mame" in low:
-        return "MAME"
-    return "emulator"
+    """"MAME" / "CSpect": which emulator a recorded process is.
+
+    The word of the launcher that started it (``zxnu_emulator``, stamped by
+    launch_mame and launch_cspect), never a guess from the command line. The
+    guess was wrong for the commonest launch there is: the stock NextZXOS
+    images are named cspect-next-*.img, so a MAME booting one has "cspect" in
+    its own arguments and was listed as CSpect (found 2026-11-05). A process
+    nobody stamped is an "emulator": unknown, and said to be.
+    """
+    label = getattr(proc, "zxnu_emulator", "")
+    return label if label and isinstance(label, str) else "emulator"
 
 
 def build_mcp_ops(host, *, configuration_dictionary, save_configuration_file,

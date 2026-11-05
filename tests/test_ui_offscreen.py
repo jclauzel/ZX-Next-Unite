@@ -3511,6 +3511,7 @@ def _phase12_cspect_in_background(win, toasts):
             self._code = _FakePopen.next_code
             self.stdout = _FakeOut(_FakePopen.next_lines, self.gate)
             _FakePopen.made.append(self)
+            self.pid = 40000 + len(_FakePopen.made)
 
         def poll(self):
             if self.gate.is_set():
@@ -3583,6 +3584,33 @@ def _phase12_cspect_in_background(win, toasts):
               and os.path.basename(cs_img) in proc.cmd, proc.cmd)
         check("the card is recorded as held by THAT process",
               proc in win._images_held_by_us.get(key, []))
+        # The MCP server's emulator_processes names the emulator from the
+        # launcher's own stamp. It used to search the whole command line
+        # for "cspect" first, so a MAME booting a stock cspect-next-*.img
+        # was listed as CSpect (found 2026-11-05).
+        check("the launcher says which emulator the process is",
+              getattr(proc, "zxnu_emulator", "") == "CSpect")
+        _mcp_adapter = getattr(win, "_mcp_host_adapter", None)
+        if _mcp_adapter is not None:
+            _mcp_rows = [r for r in _mcp_adapter._processes_ui()
+                         if r.get("pid") == proc.pid]
+            check("MCP emulator_processes lists it as CSpect, on its card",
+                  [(r.get("emulator"), r.get("image")) for r in _mcp_rows]
+                  == [("CSpect", key)], str(_mcp_rows))
+            # The same record with MAME's stamp and the very command line
+            # that was mislabelled: "cspect" is in the image's name.
+            _mame_like = _FakePopen(
+                ["mame.exe", "specnext_ks2", "-hard1",
+                 os.path.join(SCRATCH, "cspect-next-4gb.img")])
+            _mame_like.zxnu_emulator = "MAME"
+            win._images_held_by_us.setdefault(key, []).append(_mame_like)
+            try:
+                check("...and a MAME whose card is named cspect-next-*.img as MAME",
+                      [r.get("emulator") for r in _mcp_adapter._processes_ui()
+                       if r.get("pid") == _mame_like.pid] == ["MAME"])
+            finally:
+                win._images_held_by_us[key].remove(_mame_like)
+                _FakePopen.made.remove(_mame_like)
         check("the SD Card tab is not locked while CSpect runs",
               not getattr(win, "_sdcard_controls_locked", False))
         check("every launch surface sees the card as busy",

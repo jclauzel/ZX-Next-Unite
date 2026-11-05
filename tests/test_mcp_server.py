@@ -1320,6 +1320,60 @@ def test_catalog():
         host.put_corrupt = False
 
 
+def test_emulator_label():
+    """emulator_processes names the emulator the LAUNCHER said it started.
+
+    Found 2026-11-05 through the server itself: a MAME started on a freshly
+    downloaded stock image was listed as CSpect. The label was guessed from
+    the whole command line, "cspect" first - and the stock NextZXOS images
+    are named cspect-next-*.img, so a MAME booting one has the word in its
+    own arguments. The fake host above answers `processes` itself, so the
+    adapter's real rule had no test at all."""
+    print("-- emulator_processes: which emulator a process is")
+    from zxnu_mcp_ops import _emulator_label
+
+    class Proc:
+        def __init__(self, args, stamp=None):
+            self.args = args
+            if stamp is not None:
+                self.zxnu_emulator = stamp
+
+    mame_argv = [r"C:\zxnu\downloads\mame\mame.exe", "specnext_ks2", "-window",
+                 "-hard1", r"C:\temp\cspect-next-4gb.img",
+                 "-rs232_esp", "null_modem", "-bitb", "socket.127.0.0.1:2220"]
+    cspect_cmd = r'"C:\zxnu\cspect\CSpect.exe" -zxnext -mmc=C:\mame\next.img'
+    check("the reported launch: MAME on cspect-next-4gb.img is MAME",
+          _emulator_label(Proc(mame_argv, "MAME")) == "MAME")
+    check("a CSpect whose card sits in a mame folder is CSpect",
+          _emulator_label(Proc(cspect_cmd, "CSpect")) == "CSpect")
+    check("a process nobody stamped is unknown, never guessed from its arguments",
+          _emulator_label(Proc(mame_argv)) == "emulator"
+          and _emulator_label(Proc(cspect_cmd)) == "emulator"
+          and _emulator_label(object()) == "emulator")
+    check("a stamp that is not a name is not passed on",
+          _emulator_label(Proc(mame_argv, "")) == "emulator"
+          and _emulator_label(Proc(mame_argv, 7)) == "emulator"
+          and _emulator_label(Proc(mame_argv, None)) == "emulator")
+
+    # Both launchers stamp the process, and do it before the process joins
+    # the record emulator_processes reads.
+    emu = _src("zxnu_emulator_ops.py")
+    stamps = {}
+    for var in ("mame_proc", "cspect_proc"):
+        found = re.findall(r'\b%s\.zxnu_emulator = "([^"]+)"' % var, emu)
+        stamps[var] = found
+        stamp_at = emu.find("%s.zxnu_emulator = " % var)
+        record_at = emu.find("_images_held_by_us.setdefault(_held_key, []).append(%s)" % var)
+        check(f"{var} is stamped once, before it is recorded as holding the image",
+              len(found) == 1 and 0 <= stamp_at < record_at, f"{found} {stamp_at} {record_at}")
+    _, srv = make_server()
+    tools = {t["name"]: t for t in srv.handle_message(rpc("tools/list"))["result"]["tools"]}
+    names = tools["emulator_start"]["inputSchema"]["properties"]["emulator"]["enum"]
+    check("the stamps are the names emulator_start takes",
+          stamps["mame_proc"] + stamps["cspect_proc"] == names == ["MAME", "CSpect"],
+          f"{stamps} {names}")
+
+
 def main():
     test_dispatcher()
     test_http()
@@ -1328,6 +1382,7 @@ def main():
     test_catalog()
     test_parse_ls()
     test_wiring()
+    test_emulator_label()
     print("ALL PASSED" if ok else "SOME CHECKS FAILED")
     return 0 if ok else 1
 
