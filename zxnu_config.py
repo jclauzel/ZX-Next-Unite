@@ -28,7 +28,7 @@ from PySide6.QtGui import QColor
 from zxnu_mcp import MCP_DEFAULT_PORT  # noqa: F401  (re-exported by the star import)
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.58"
+ZX_NEXT_UNITE_VERSION = "9.7.59"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
