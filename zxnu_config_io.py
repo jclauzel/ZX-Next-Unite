@@ -613,7 +613,18 @@ def build_config_io(
                     host._rs232_esp_ip_show(esp_station_ip_setting(
                         configuration_dictionary.get(
                             SETTING_MAME_RS232_ESP_IP, "")))
-                host._rs232_esp_widgets_set_enabled(_rs232_on)
+                # The CSpect twin (9.7.58): its own toggle over the same
+                # worker, so the shared port / verbose / address widgets
+                # are live while EITHER is on.
+                _cspect_rs232_on = cspect_rs232_esp_enabled(
+                    configuration_dictionary)
+                if hasattr(host, "settings_cspect_rs232_esp_checkbox"):
+                    host.settings_cspect_rs232_esp_checkbox.blockSignals(True)
+                    host.settings_cspect_rs232_esp_checkbox.setChecked(
+                        _cspect_rs232_on)
+                    host.settings_cspect_rs232_esp_checkbox.blockSignals(False)
+                host._rs232_esp_widgets_set_enabled(
+                    _rs232_on or _cspect_rs232_on)
 
             # ZX Next Unite "check for updates at startup on Github" toggle
             # (default on). Always present as a widget.
@@ -694,6 +705,13 @@ def build_config_io(
                 host.settings_cspect_update_check_checkbox.blockSignals(True)
                 host.settings_cspect_update_check_checkbox.setChecked(_cspect_upd_on)
                 host.settings_cspect_update_check_checkbox.blockSignals(False)
+            # ...and its filter (9.7.58): leave beta / patron / builder
+            # builds out of that check. Default off.
+            if hasattr(host, "settings_cspect_discard_restricted_checkbox"):
+                host.settings_cspect_discard_restricted_checkbox.blockSignals(True)
+                host.settings_cspect_discard_restricted_checkbox.setChecked(
+                    cspect_discard_restricted_updates(configuration_dictionary))
+                host.settings_cspect_discard_restricted_checkbox.blockSignals(False)
 
             # CSpect default launch parameters (editable text). Empty falls
             # back to the built-in default, mirroring the MAME params handling.

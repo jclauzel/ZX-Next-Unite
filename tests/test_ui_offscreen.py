@@ -505,7 +505,14 @@ elif PHASE in (6, 7):
                     "{MAME_EXECUTABLE_NAME} -window -phase7\n"
                     # The RS232 ESP station address (9.7.54): one the
                     # PC's list cannot carry, so the restore must ADD it.
-                    "mame_rs232_esp_ip=10.77.0.1\n")
+                    "mame_rs232_esp_ip=10.77.0.1\n"
+                    # The CSpect twin of the RS232 ESP toggle (9.7.58), ON
+                    # with the MAME one left off: the shared port / verbose
+                    # / address widgets must be live for it alone.
+                    "cspect_rs232_esp=true\n"
+                    # "CSpect - Discard Beta or Patrons, Builders updates"
+                    # (9.7.58), default off: saved ON here.
+                    "cspect_discard_restricted_updates=true\n")
     if PHASE == 7:
         # No MAME for this phase (9.7.53): the junction to the repo's
         # downloads/, where a dev box keeps its downloads/mame/mame.exe, is
@@ -2757,8 +2764,65 @@ def inspect_phase7():
               all(sys.modules["espemu"].is_ipv4(ipc.itemData(i))
                   for i in range(1, ipc.count())),
               [ipc.itemData(i) for i in range(ipc.count())])
-        check("...greyed with the master toggle",
-              ipc.isEnabled() == win.settings_rs232_esp_checkbox.isChecked())
+        # ---- the CSpect twin of the toggle (9.7.58): ONE worker serves
+        # both emulators, so the port, the verbose switch and this address
+        # belong to both and are live while EITHER box is ticked.
+        cs_esp = getattr(win, "settings_cspect_rs232_esp_checkbox", None)
+        mame_esp = win.settings_rs232_esp_checkbox
+        check("CSpect RS232 ESP checkbox built", cs_esp is not None)
+        if cs_esp is not None:
+            check("...restored ON from the cfg, the MAME one left off",
+                  cs_esp.isChecked() and not mame_esp.isChecked())
+            check("...not hidden, labelled for CSpect",
+                  not cs_esp.isHidden() and "CSpect" in cs_esp.text(),
+                  cs_esp.text())
+            check("...the shared widgets are live for CSpect alone",
+                  ipc.isEnabled()
+                  and win.settings_rs232_esp_port_spinbox.isEnabled()
+                  and win.settings_rs232_esp_verbose_checkbox.isEnabled())
+            cs_esp.setChecked(False)           # a user's click: both off now
+            check("...greyed once neither box is ticked",
+                  not ipc.isEnabled()
+                  and not win.settings_rs232_esp_port_spinbox.isEnabled()
+                  and not win.settings_rs232_esp_verbose_checkbox.isEnabled())
+            check("...and the click was saved",
+                  win._wizard._cfg.get("cspect_rs232_esp") == "false",
+                  repr(win._wizard._cfg.get("cspect_rs232_esp")))
+            mame_esp.setChecked(True)
+            check("...the MAME box alone lights them again",
+                  ipc.isEnabled()
+                  and win.settings_rs232_esp_port_spinbox.isEnabled())
+            mame_esp.setChecked(False)
+            cs_esp.setChecked(True)
+            check("...and back to the restored state",
+                  ipc.isEnabled() and cs_esp.isChecked()
+                  and win._wizard._cfg.get("cspect_rs232_esp") == "true")
+        check("...greyed with the master toggles",
+              ipc.isEnabled() == (mame_esp.isChecked()
+                                  or bool(cs_esp is not None and cs_esp.isChecked())))
+    # ---- "CSpect - Discard Beta or Patrons, Builders updates" (9.7.58):
+    # the startup CSpect update check leaves the password-protected builds
+    # out. Its own row right under the check it filters; off by default.
+    discard = getattr(win, "settings_cspect_discard_restricted_checkbox", None)
+    check("CSpect 'discard beta/patron/builder updates' checkbox built",
+          discard is not None)
+    if discard is not None:
+        check("...at its named row, right under the update check",
+              spos(discard) == (settings_row("cspect_discard_restricted_updates"), 0)
+              and settings_row("cspect_discard_restricted_updates")
+              == settings_row("cspect_update_check") + 1, str(spos(discard)))
+        check("...restored ON from the cfg (off is the default)",
+              discard.isChecked())
+        check("...labelled as asked",
+              discard.text() == "CSpect - Discard Beta or Patrons, Builders updates",
+              discard.text())
+        discard.setChecked(False)
+        check("...a click is saved",
+              win._wizard._cfg.get("cspect_discard_restricted_updates") == "false",
+              repr(win._wizard._cfg.get("cspect_discard_restricted_updates")))
+        discard.setChecked(True)
+        check("...and back",
+              win._wizard._cfg.get("cspect_discard_restricted_updates") == "true")
         check("...editable, never inserting a typed row on Return",
               ipc.isEditable() and ipc.insertPolicy() == type(ipc).NoInsert)
     if sys.modules["zxnu_config"].mame_auto_install_supported():
@@ -3670,6 +3734,369 @@ def _phase12_cspect_in_background(win, toasts):
                 check("...and that re-probe gives the Launch button back by itself",
                       win.button_start_cspect.isEnabled())
 
+        # ---- RS232 ESP emulation for CSpect (9.7.58): the UARTRS232 plugin.
+        # Settings -> "RS232 ESP Emulation (CSpect)" makes the launch put
+        # the plugin beside CSpect.exe, reuse or start the SAME espemu
+        # worker MAME uses, and hand the plugin its endpoint in the
+        # environment; unticked, the plugin is told "off" - a DLL left in
+        # the folder must not decide for itself. The worker here is the
+        # real one, really listening; only CSpect is the fake.
+        import socket as _socket
+        import zxnu_cspect_esp as _zce
+        from zxnu_config import (SETTING_CSPECT_RS232_ESP, SETTING_CUSTOM,
+                                 SETTING_MAME_RS232_ESP_PORT)
+        cfgd = win._wizard._cfg          # MainWindow's configuration_dictionary
+        plug_dir = os.path.dirname(fake_exe)
+        plug_file = os.path.join(plug_dir, _zce.CSPECT_ESP_PLUGIN_FILE)
+        ur_file = os.path.join(plug_dir, _zce.CSPECT_UART_REPLACEMENT_FILE)
+        esp_keys = (SETTING_CSPECT_RS232_ESP, SETTING_CUSTOM,
+                    SETTING_MAME_RS232_ESP_PORT)
+        esp_saved = {k: cfgd.get(k) for k in esp_keys}
+        with _socket.socket() as _probe:
+            _probe.bind(("127.0.0.1", 0))
+            esp_port = _probe.getsockname()[1]
+        endpoint = f"127.0.0.1:{esp_port}"
+
+        def _esp_launch(what):
+            """One launch on the free card; the fake CSpect it made."""
+            win.right_disk_image_path = cs_img
+            win._images_held_by_us.pop(key, None)
+            win._image_write_state.pop(key, None)
+            before = len(_FakePopen.made)
+            win._launch_cspect_fn()
+            check(f"{what}: CSpect was launched",
+                  len(_FakePopen.made) == before + 1,
+                  f"{len(_FakePopen.made) - before} launch(es)")
+            return _FakePopen.made[-1]
+
+        def _esp_env_of(proc):
+            return (proc.kw.get("env") or {}).get(_zce.CSPECT_ESP_ENV)
+
+        try:
+            win._cspect_executable_path = fake_exe
+            win._cspect_from_downloads = True
+            _FakePopen.next_code = 0
+            _FakePopen.next_lines = [b"fake CSpect up\r\n"]
+            check("with the box unticked the earlier launches told the "
+                  "plugin to stay out",
+                  _esp_env_of(proc2) == "off" and _esp_env_of(proc) == "off",
+                  repr((_esp_env_of(proc), _esp_env_of(proc2))))
+            check("...and put no plugin in the CSpect folder",
+                  not os.path.exists(plug_file))
+
+            cfgd[SETTING_MAME_RS232_ESP_PORT] = str(esp_port)
+            cfgd[SETTING_CSPECT_RS232_ESP] = "true"
+            p_on = _esp_launch("box ticked")
+            check("ticked: the plugin is handed the worker's endpoint",
+                  _esp_env_of(p_on) == endpoint, repr(_esp_env_of(p_on)))
+            check("...in a full environment, not a bare one",
+                  "PATH" in {k.upper() for k in (p_on.kw.get("env") or {})})
+            check("the UARTRS232 plugin was put beside CSpect.exe, byte "
+                  "for byte",
+                  os.path.isfile(plug_file)
+                  and open(plug_file, "rb").read() == _zce.plugin_bytes())
+            srv = getattr(win, "_esp_emu", None)
+            check("the RS232 ESP worker is running and this CSpect holds it",
+                  srv is not None and srv.running and srv.port == esp_port
+                  and win._esp_emu_users == 1,
+                  f"{srv} users={getattr(win, '_esp_emu_users', None)}")
+            try:
+                _socket.create_connection(("127.0.0.1", esp_port), 3).close()
+                listening = True
+            except OSError:
+                listening = False
+            check("...and really listens where the plugin was told", listening)
+            check("the log says how this launch reaches the network",
+                  recent_log(win, _tr(
+                      "RS232 ESP: CSpect uses the RS232 ESP emulation on "
+                      "port {port} through the UARTRS232 plugin. That link "
+                      "has no baud rate, so .sync5 and ZX Next Remote "
+                      "connect at every speed (slow, default and "
+                      "fast).").format(port=esp_port), n=30))
+            check("...and that the plugin was installed",
+                  recent_log(win, _tr(
+                      "RS232 ESP: the UARTRS232 plugin {version} was "
+                      "installed in the CSpect folder {folder}.").format(
+                          version=_zce.plugin_version(), folder=plug_dir), n=30))
+            check("the process says which port its ESP worker is on",
+                  getattr(p_on, "zxnu_esp_port", None) == esp_port)
+            _finished(p_on, "CSpect with the ESP emulation")
+            check("the last emulator out stops the worker",
+                  getattr(win, "_esp_emu", None) is None
+                  and win._esp_emu_users == 0)
+
+            # UARTReplacement (a REAL ESP on a serial port) installed in
+            # the same folder: the emulation still takes the UART - the
+            # plugin answers first - and the log says the real one rests.
+            with open(ur_file, "wb") as fh:
+                fh.write(b"MZ")
+            p_ur = _esp_launch("UARTReplacement beside it")
+            check("with UARTReplacement installed the emulation is still "
+                  "used", _esp_env_of(p_ur) == endpoint, repr(_esp_env_of(p_ur)))
+            check("...and the log says the real ESP is not used",
+                  recent_log(win, _tr(
+                      "RS232 ESP: the UARTReplacement plugin is installed "
+                      "in this CSpect folder too. UARTRS232 takes the UART "
+                      "for this launch; untick the CSpect RS232 ESP "
+                      "emulation in Settings to use the real ESP instead."),
+                      n=30))
+            check("the plugin was already there: not announced again",
+                  not recent_log(win, _tr(
+                      "RS232 ESP: the UARTRS232 plugin {version} was "
+                      "installed in the CSpect folder {folder}.").format(
+                          version=_zce.plugin_version(), folder=plug_dir), n=6))
+            _finished(p_ur, "CSpect beside UARTReplacement")
+            os.remove(ur_file)
+
+            # -com typed in the parameters: the user's real serial port.
+            cfgd[SETTING_CUSTOM] = '-basickeys -zxnext -com="COM9:115200"'
+            p_com = _esp_launch("-com typed")
+            check("-com typed in the parameters keeps the emulation out",
+                  _esp_env_of(p_com) == "off"
+                  and getattr(win, "_esp_emu", None) is None,
+                  repr(_esp_env_of(p_com)))
+            check("...and the log says why",
+                  recent_log(win, _tr(
+                      "RS232 ESP: the CSpect launch parameters contain -com "
+                      "(a real ESP on a serial port), so the RS232 ESP "
+                      "emulation is not used for this launch."), n=30))
+            _finished(p_com, "CSpect with -com")
+            cfgd[SETTING_CUSTOM] = esp_saved[SETTING_CUSTOM] or ""
+
+            # Two CSpects on the worker (the second launch is a file launch
+            # with no card, so the image gate is not in its way): the first
+            # one out must leave the worker to the other.
+            p_a = _esp_launch("first of two")
+            win.right_disk_image_path = ""
+            win._launch_cspect_fn(fake_exe)
+            p_b = _FakePopen.made[-1]
+            check("a second CSpect joins the running worker",
+                  p_b is not p_a and _esp_env_of(p_b) == endpoint
+                  and win._esp_emu_users == 2 and win._esp_emu is not None
+                  and win._esp_emu.port == esp_port,
+                  f"users={win._esp_emu_users} env={_esp_env_of(p_b)!r}")
+            p_a.finish()
+            check("the first one out leaves the worker running for the other",
+                  wait_until(lambda: win._esp_emu_users == 1, 10,
+                             "one ESP reference dropped")
+                  and win._esp_emu is not None and win._esp_emu.running)
+            p_b.finish()
+            check("...and the last one out stops it",
+                  wait_until(lambda: getattr(win, "_esp_emu", None) is None, 10,
+                             "the ESP worker to stop"))
+            wait_until(lambda: not getattr(win, "_cspect_signals_live", set()),
+                       10, "both CSpects to report")
+
+            # Unticked again: "off", and the DLL stays where it is - the
+            # toggle is the switch, nothing has to be deleted.
+            cfgd[SETTING_CSPECT_RS232_ESP] = "false"
+            p_off = _esp_launch("box unticked again")
+            check("unticked again: the plugin is told off, the DLL is left "
+                  "in the folder and no worker runs",
+                  _esp_env_of(p_off) == "off" and os.path.isfile(plug_file)
+                  and getattr(win, "_esp_emu", None) is None,
+                  repr(_esp_env_of(p_off)))
+            _finished(p_off, "CSpect with the box unticked")
+        finally:
+            for _k, _v in esp_saved.items():
+                if _v is None:
+                    cfgd.pop(_k, None)
+                else:
+                    cfgd[_k] = _v
+            win._stop_esp_emulation()
+            for _stale in (plug_file, ur_file):
+                try:
+                    os.remove(_stale)
+                except OSError:
+                    pass
+
+        # ---- The UARTRS232 offer after an itch.io CSpect install / update
+        # (9.7.58). A new build lands in its own version folder, without
+        # the plugin: ask to install it there, then - only once it is there
+        # and the Settings box is off - ask to tick the box. Nothing is
+        # asked when there is nothing to do. The dialogs are faked (their
+        # answers scripted); the deploy and the Settings checkbox are real.
+        class _FakeButton:
+            def __init__(self, text):
+                self.text = text
+
+        class _FakeBox:
+            Question = Warning = AcceptRole = RejectRole = ActionRole = 0
+            shown, answers, warnings = [], [], []
+
+            def __init__(self, parent=None):
+                self.title, self.text, self.buttons = "", "", []
+                self._clicked = None
+
+            def setIcon(self, _icon):
+                pass
+
+            def setTextFormat(self, _fmt):
+                pass
+
+            def setDefaultButton(self, _button):
+                pass
+
+            def setWindowTitle(self, title):
+                self.title = title
+
+            def setText(self, text):
+                self.text = text
+
+            def addButton(self, text, _role):
+                self.buttons.append(_FakeButton(text))
+                return self.buttons[-1]
+
+            def exec(self):
+                # True = the first button (accept), False = the last (not now).
+                yes = _FakeBox.answers.pop(0) if _FakeBox.answers else False
+                self._clicked = self.buttons[0] if yes else self.buttons[-1]
+                _FakeBox.shown.append(
+                    (self.title, self.text, [b.text for b in self.buttons]))
+
+            def clickedButton(self):
+                return self._clicked
+
+            @staticmethod
+            def warning(_parent, title, text):
+                _FakeBox.warnings.append((title, text))
+
+        class _FakeApp:
+            busy = 0            # how many times a modal is "already up"
+
+            @staticmethod
+            def activeModalWidget():
+                if _FakeApp.busy > 0:
+                    _FakeApp.busy -= 1
+                    return object()
+                return None
+
+        offer_title = _tr("Install the UARTRS232 plugin?")
+        enable_title = _tr("Enable the RS232 ESP emulation for CSpect?")
+        done_toast = _tr("✅  UARTRS232 plugin installed")
+        cs_box = win.settings_cspect_rs232_esp_checkbox
+        box_was = cs_box.isChecked()
+        offer_saved = (_zeo.QMessageBox, _zeo.QApplication, _zeo.deploy_plugin)
+
+        def _offer(answers, *, plugin, ticked):
+            """One run of the offer from a known state; the dialogs shown."""
+            if plugin:
+                _zce.deploy_plugin(plug_dir)
+            else:
+                try:
+                    os.remove(plug_file)
+                except OSError:
+                    pass
+            cs_box.setChecked(ticked)
+            _FakeBox.shown, _FakeBox.warnings = [], []
+            _FakeBox.answers = list(answers)
+            toasts.clear()
+            result = win._offer_cspect_esp_plugin()
+            return result, [s[0] for s in _FakeBox.shown]
+
+        _zeo.QMessageBox, _zeo.QApplication = _FakeBox, _FakeApp
+        try:
+            win._cspect_executable_path = fake_exe
+            win._cspect_from_downloads = True
+
+            res, titles = _offer([True, True], plugin=False, ticked=False)
+            check("a new CSpect: the plugin is offered first, then the "
+                  "Settings box", titles == [offer_title, enable_title], str(titles))
+            check("...the first question names the plugin, the folder and "
+                  "offers a way out",
+                  "UARTRS232.dll" in _FakeBox.shown[0][1]
+                  and os.path.basename(plug_dir) in _FakeBox.shown[0][1]
+                  and _FakeBox.shown[0][2] == [
+                      _tr("Install the UARTRS232 plugin"), _tr("Not now")],
+                  str(_FakeBox.shown[0]))
+            check("yes: the plugin lands beside CSpect.exe, byte for byte",
+                  res is True and os.path.isfile(plug_file)
+                  and open(plug_file, "rb").read() == _zce.plugin_bytes())
+            check("yes again: the Settings box is ticked and saved",
+                  cs_box.isChecked()
+                  and cfgd.get(SETTING_CSPECT_RS232_ESP) == "true",
+                  repr(cfgd.get(SETTING_CSPECT_RS232_ESP)))
+            check("...and one green toast says what was done",
+                  any(t[0] == done_toast and t[2] == "green" for t in toasts),
+                  str(toasts))
+
+            res, titles = _offer([], plugin=True, ticked=True)
+            check("nothing to do (plugin there, box ticked): nothing is asked",
+                  res is True and titles == [] and not toasts, str(titles))
+
+            res, titles = _offer([False], plugin=True, ticked=False)
+            check("plugin already there, box off: only the box is offered",
+                  titles == [enable_title], str(titles))
+            check("...'not now' leaves it off",
+                  not cs_box.isChecked()
+                  and cfgd.get(SETTING_CSPECT_RS232_ESP) == "false")
+
+            res, titles = _offer([False], plugin=False, ticked=False)
+            check("'not now' to the plugin: nothing is installed",
+                  res is False and not os.path.exists(plug_file))
+            check("...and the Settings box is NOT offered (ticking it would "
+                  "install the plugin at the next launch behind that answer)",
+                  titles == [offer_title], str(titles))
+
+            res, titles = _offer([True], plugin=False, ticked=True)
+            check("box already ticked: the plugin is offered, the box is not",
+                  res is True and titles == [offer_title]
+                  and os.path.isfile(plug_file), str(titles))
+
+            _zeo.deploy_plugin = lambda _folder: (_zce.DEPLOY_FAILED, "boom")
+            res, titles = _offer([True], plugin=False, ticked=False)
+            _zeo.deploy_plugin = offer_saved[2]
+            check("a folder that cannot be written: a warning with the "
+                  "reason, and no second question",
+                  res is False and titles == [offer_title]
+                  and len(_FakeBox.warnings) == 1
+                  and _FakeBox.warnings[0][0] == _tr("UARTRS232 plugin not installed")
+                  and "boom" in _FakeBox.warnings[0][1]
+                  and not cs_box.isChecked(), str(_FakeBox.warnings))
+
+            # Another dialog is up (the OpenAL offer opens 400 ms after the
+            # same toast): wait for the screen, never stack on it.
+            _FakeApp.busy = 2
+            res, titles = _offer([False], plugin=False, ticked=False)
+            check("with another dialog up the offer does not open",
+                  res is False and titles == [])
+            check("...and comes back once the screen is free",
+                  wait_until(lambda: [s[0] for s in _FakeBox.shown] == [offer_title],
+                             10, "the deferred UARTRS232 offer"))
+
+            # The plumbing: the install paths arm a one-shot flag, the
+            # detection toast consumes it and schedules the offer.
+            called = []
+            real_offer = win._offer_cspect_esp_plugin
+            win._offer_cspect_esp_plugin = lambda: called.append(1)
+            try:
+                win._cspect_esp_plugin_offer_pending = False
+                win._show_emulator_detection_toast()
+                QApplication.processEvents()
+                time.sleep(1.2)
+                QApplication.processEvents()
+                check("a plain detection toast offers nothing", called == [])
+                win._cspect_esp_plugin_offer_pending = True
+                win._show_emulator_detection_toast()
+                check("an armed detection toast consumes the flag",
+                      win._cspect_esp_plugin_offer_pending is False)
+                check("...and schedules the offer, once",
+                      wait_until(lambda: called == [1], 10, "the scheduled offer"))
+            finally:
+                win._offer_cspect_esp_plugin = real_offer
+        finally:
+            _zeo.QMessageBox, _zeo.QApplication, _zeo.deploy_plugin = offer_saved
+            cs_box.setChecked(box_was)
+            for _k, _v in esp_saved.items():
+                if _v is None:
+                    cfgd.pop(_k, None)
+                else:
+                    cfgd[_k] = _v
+            try:
+                os.remove(plug_file)
+            except OSError:
+                pass
+
         # With NO image loaded, running a file is never gated - whatever an
         # earlier launch held.
         win.right_disk_image_path = ""
@@ -3691,6 +4118,222 @@ def _phase12_cspect_in_background(win, toasts):
                 os.remove(_stale)
             except OSError:
                 pass
+
+
+def _phase12_mcp_catalog_adapter(win):
+    """The MCP server's catalogue adapter (9.7.58), in the real app.
+
+    catalog_search / catalog_latest / catalog_random do not query the
+    catalogues themselves: the adapter calls, on the UI thread, the handler
+    the tab's own button is wired to and hands back the list the tab then
+    shows. Checked here with those handlers replaced by scripted ones (no
+    network in the suite) and the adapter called from a worker thread - as
+    the MCP server's HTTP thread calls it - while this thread keeps the Qt
+    loop turning: which handler each (kind, source) reaches, the tagging and
+    trimming of the entries, the Unite! path reading the fan-out's end off
+    its bulk flag, and the three ways it must say no (a search that never
+    reports back, a Unite! search already running, a source that is not
+    available)."""
+    import threading as _th
+    from zxnu_mcp import McpToolError
+
+    adapter = getattr(win, "_mcp_host_adapter", None)
+    check("MCP: the host adapter exists whether or not the server is on",
+          adapter is not None)
+    if adapter is None:
+        return
+    names = ("_cross_search_getit", "_cross_search_zxdb", "_cross_search_zxart",
+             "_itchio_cross_search", "getit_on_latest", "zxdb_on_random",
+             "_allinone_on_search", "_allinone_on_latest", "_allinone_on_random",
+             "_getit_last_entries", "_zxdb_last_entries", "_zxart_last_entries",
+             "_itchio_last_entries", "_allinone_all_entries",
+             "_allinone_bulk_active", "_allinone_ac_block", "_itchio_connected")
+    missing = object()
+    saved = {n: getattr(win, n, missing) for n in names}
+    calls = []
+
+    def run(kind, source, query="", timeout=5.0):
+        """adapter.catalog_query on a worker thread; {'r': ...} or {'e': ...}."""
+        box = {}
+
+        def job():
+            try:
+                box["r"] = adapter.catalog_query(kind, source, query, timeout)
+            except Exception as ex:                          # noqa: BLE001
+                box["e"] = ex
+        _th.Thread(target=job, daemon=True).start()
+        wait_until(lambda: "r" in box or "e" in box, timeout + 15,
+                   f"catalog_query {kind} {source}")
+        return box
+
+    def handler(source, kind, entries, answer=True):
+        """A tab handler that fills the pane's list, then calls back."""
+        def fn(*args):
+            cb = args[-1] if args and callable(args[-1]) else None
+            calls.append((source, kind) + tuple(a for a in args if not callable(a)))
+            setattr(win, f"_{source}_last_entries", list(entries))
+            if answer and cb:
+                QTimer.singleShot(30, cb)
+        return fn
+
+    getit_rows = [{"id": "a1", "title": "Alpha", "author": "x", "size": "1KB",
+                   "category": "Game"}]
+    zxdb_rows = [{"id": "0002259", "title": "Jet Set Willy", "year": 1984,
+                  "_kind": "game"}]
+    zxart_rows = [{"id": 9001, "title": "Some Demo", "_kind": "zxart_prod",
+                   "_source": {"a whole": "server payload"}}]
+    try:
+        win._allinone_bulk_active = False
+        win._itchio_connected = True
+        win._cross_search_getit = handler("getit", "search", getit_rows)
+        win._cross_search_zxdb = handler("zxdb", "search", zxdb_rows)
+        win._cross_search_zxart = handler("zxart", "search", zxart_rows)
+        win._itchio_cross_search = handler("itchio", "search", [
+            {"id": 777, "title": "Mine", "url": "https://me.itch.io/mine",
+             "_fav_source": "itchio", "source": "itchio"}])
+        win.getit_on_latest = handler("getit", "latest", getit_rows)
+        win.zxdb_on_random = handler("zxdb", "random", zxdb_rows)
+
+        rows = adapter.catalog_sources()
+        by = {r["source"]: r for r in rows}
+        check("MCP catalog_sources: the five sources, Unite! first",
+              [r["source"] for r in rows] == ["unite", "getit", "zxdb", "zxart", "itchio"],
+              [r["source"] for r in rows])
+        check("...GetIt downloads; ZXDB and zxArt do not (as in the app)",
+              by["getit"]["download"] is True and by["zxdb"]["download"] is False
+              and by["zxart"]["download"] is False, by)
+        check("...itch.io has a search but no Latest and no Random",
+              by["itchio"]["search"] and not by["itchio"]["latest"]
+              and not by["itchio"]["random"], by["itchio"])
+
+        out = run("search", "getit", "alp")
+        ok, msg, entries = out.get("r", (False, repr(out.get("e")), []))
+        check("MCP search getit: runs the tab's own cross-search with the query",
+              ok and calls[-1] == ("getit", "search", "alp"), f"{msg} {calls[-1:]}")
+        check("...returns the list the tab now shows, tagged with its source",
+              [e.get("title") for e in entries] == ["Alpha"]
+              and entries[0].get("_fav_source") == "getit", entries)
+        check("...as copies - the pane's own entries are not handed to another "
+              "thread", entries[0] is not win._getit_last_entries[0]
+              and "_fav_source" not in win._getit_last_entries[0])
+
+        out = run("latest", "getit")
+        check("MCP latest getit: the tab's Latest handler",
+              out.get("r", (False,))[0] and calls[-1] == ("getit", "latest"), calls[-1:])
+        out = run("random", "zxdb")
+        ok, msg, entries = out.get("r", (False, repr(out.get("e")), []))
+        check("MCP random zxdb: the tab's Random handler, each entry with its page",
+              ok and calls[-1] == ("zxdb", "random")
+              and str(entries[0].get("_url", "")).startswith("http"), entries)
+        out = run("search", "zxart", "demo")
+        ok, msg, entries = out.get("r", (False, repr(out.get("e")), []))
+        check("MCP search zxart: the server's whole payload is not passed on",
+              ok and "_source" not in entries[0]
+              and entries[0].get("_fav_source") == "zxart", entries)
+        out = run("search", "itchio", "mine")
+        ok, msg, entries = out.get("r", (False, repr(out.get("e")), []))
+        check("MCP search itchio: the library search",
+              ok and entries[0].get("url") == "https://me.itch.io/mine", entries)
+
+        out = run("latest", "itchio")
+        check("MCP: itch.io has no Latest - refused, not invented",
+              isinstance(out.get("e"), McpToolError)
+              and "no 'latest'" in str(out["e"]), repr(out))
+        win._itchio_connected = False
+        out = run("search", "itchio", "mine")
+        check("MCP: itch.io not connected is refused with the reason",
+              isinstance(out.get("e"), McpToolError) and "itchio" in str(out["e"]),
+              repr(out))
+        win._itchio_connected = True
+
+        # A run the user replaced never calls back (the panes drop a stale
+        # generation's callback): an error after the timeout, not a list.
+        win._cross_search_getit = handler("getit", "search", getit_rows, answer=False)
+        t0 = time.monotonic()
+        out = run("search", "getit", "alp", timeout=1.0)
+        ok, msg, entries = out.get("r", (True, "", ["?"]))
+        check("MCP: a search that never reports back is an error after the "
+              "timeout, never an empty success",
+              ok is False and "did not finish" in msg and entries == []
+              and 0.9 <= time.monotonic() - t0 < 8, f"{ok} {msg}")
+        win._cross_search_getit = handler("getit", "search", getit_rows)
+        out = run("search", "getit", "alp")
+        check("...and the next one is served (the lock was released)",
+              out.get("r", (False,))[0] is True, repr(out))
+
+        # Unite!: its handlers take no callback; the end of the fan-out is
+        # the bulk flag going down, after one merged rebuild.
+        merged = [dict(getit_rows[0], _fav_source="getit"),
+                  dict(zxdb_rows[0], _fav_source="zxdb"),
+                  dict(zxart_rows[0], _fav_source="zxart")]
+
+        def unite(kind):
+            def fn():
+                calls.append(("unite", kind, win.allinone_search_input.text()))
+                win._allinone_ac_block = True
+                win._allinone_bulk_active = True
+                win._allinone_all_entries = []          # mid-flight: nothing yet
+
+                def finish():
+                    win._allinone_all_entries = list(merged)
+                    win._allinone_bulk_active = False
+                QTimer.singleShot(450, finish)
+            return fn
+        win._allinone_on_search = unite("search")
+        win._allinone_on_latest = unite("latest")
+        win._allinone_on_random = unite("random")
+        out = run("search", "unite", "alpha")
+        ok, msg, entries = out.get("r", (False, repr(out.get("e")), []))
+        check("MCP search unite: the query goes into the Unite! box and its own "
+              "Search runs", ok and calls[-1] == ("unite", "search", "alpha"), calls[-1:])
+        check("...the answer waits for the fan-out to END, then is the merged list",
+              [e.get("_fav_source") for e in entries] == ["getit", "zxdb", "zxart"]
+              and "_source" not in entries[2], entries)
+        out = run("latest", "unite")
+        check("MCP latest unite: Unite!'s Latest",
+              out.get("r", (False,))[0] and calls[-1][:2] == ("unite", "latest")
+              and len(out["r"][2]) == 3, calls[-1:])
+        out = run("random", "unite")
+        check("MCP random unite: Unite!'s Random",
+              out.get("r", (False,))[0] and calls[-1][:2] == ("unite", "random"), calls[-1:])
+        win._allinone_bulk_active = True
+        before = len(calls)
+        out = run("latest", "unite")
+        check("MCP: a Unite! search already running in the app is not trampled",
+              isinstance(out.get("e"), McpToolError)
+              and "already running" in str(out["e"]) and len(calls) == before, repr(out))
+        win._allinone_bulk_active = False
+
+        # Downloads the app does not offer are refused before any network.
+        for source in ("zxdb", "zxart"):
+            try:
+                adapter.catalog_download(source, "1", None)
+                refused = ""
+            except McpToolError as ex:
+                refused = str(ex)
+            check(f"MCP: {source} downloads are refused, as in the app",
+                  "does not offer downloads" in refused, refused)
+        win._getit_last_entries = list(getit_rows)
+        known = adapter._catalog_known_entry("getit", "a1")
+        check("MCP: an entry the tabs listed is found again by its id",
+              known is not None and known.get("title") == "Alpha", known)
+        check("...and an id nobody listed is not",
+              adapter._catalog_known_entry("getit", "nope") is None)
+    finally:
+        for n, v in saved.items():
+            if v is missing:
+                try:
+                    delattr(win, n)
+                except AttributeError:
+                    pass
+            else:
+                setattr(win, n, v)
+        try:
+            win.allinone_search_input.blockSignals(True)
+            win.allinone_search_input.clear()
+            win.allinone_search_input.blockSignals(False)
+        except (AttributeError, RuntimeError):
+            pass
 
 
 def inspect_phase12():
@@ -4102,6 +4745,7 @@ def inspect_phase12():
                 except OSError:
                     pass
         _phase12_cspect_in_background(win, toasts)
+        _phase12_mcp_catalog_adapter(win)
     finally:
         win._show_toast = real_toast
     app.quit()

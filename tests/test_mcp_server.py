@@ -28,6 +28,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import zipfile
 import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -334,6 +335,122 @@ class FakeHost:
             self.connected = False
             return {"ok": True}
         return {"ok": False, "error": f"unknown op {op}"}
+
+    # ---- the online catalogues (9.7.58). Entries are shaped like the
+    # app's own: private keys and all, tagged with their source.
+    CATALOG = {
+        "getit": [
+            {"id": "52841c", "title": "Nemesis", "author": "Paul", "size": "61KB",
+             "category": "Game"},
+            {"id": "570b3c", "title": "Knight Lore Next", "author": "WhizzBang",
+             "size": "40KB", "category": "Game"},
+            {"id": "aa11bb", "title": "NextDAW", "author": "Gari", "size": "300KB",
+             "category": "Utility"},
+        ],
+        "zxdb": [
+            {"id": "0002259", "title": "Jet Set Willy", "year": 1984, "author": "M. Smith",
+             "machine": "ZX-Spectrum 48K", "genre": "Arcade Game: Platform",
+             "score": 8.6, "_kind": "game"},
+        ],
+        "zxart": [
+            {"id": 9001, "title": "Some Demo", "year": "2024", "author": "A Group",
+             "machine": "ZX Spectrum Next", "genre": "Demo", "_kind": "zxart_prod",
+             "_source": {"a whole": "server payload " * 200}},
+        ],
+        "itchio": [
+            {"id": 777, "title": "My Next Game", "url": "https://me.itch.io/my-next-game",
+             "author": "me", "short_text": "a game", "classification": "game",
+             "_fav_source": "itchio", "source": "itchio"},
+        ],
+    }
+    URLS = {"zxdb": "https://zxinfo.dk/details/0002259", "zxart": "https://zxart.ee/eng/x/"}
+
+    def catalog_sources(self):
+        itch = getattr(self, "itch_connected", True)
+        zxdb = "zxdb" not in getattr(self, "catalog_hidden", ())
+        return [
+            {"source": "unite", "available": True, "reason": "", "search": True,
+             "latest": True, "random": True, "download": False},
+            {"source": "getit", "available": True, "reason": "", "search": True,
+             "latest": True, "random": True, "download": True},
+            {"source": "zxdb", "available": zxdb,
+             "reason": "" if zxdb else "this tab is hidden in this build of the app",
+             "search": zxdb, "latest": zxdb, "random": zxdb, "download": False},
+            {"source": "zxart", "available": True, "reason": "", "search": True,
+             "latest": True, "random": True, "download": False},
+            {"source": "itchio", "available": itch,
+             "reason": "" if itch else "not connected", "search": itch,
+             "latest": False, "random": False, "download": itch},
+        ]
+
+    def catalog_query(self, kind, source, query, timeout):
+        self.calls.append(("catalog_query", kind, source, query))
+        if getattr(self, "catalog_stuck", False):
+            return False, f"the {source} {kind} did not finish within {int(timeout)} s", []
+        rows = {r["source"]: r for r in self.catalog_sources()}
+        if not rows[source]["available"]:
+            raise McpToolError(f"{source}: {rows[source]['reason']}")
+        if not rows[source].get(kind):
+            raise McpToolError(f"{source} has no '{kind}'")
+        names = list(self.CATALOG) if source == "unite" else [source]
+        out = []
+        for name in names:
+            if name == "itchio" and kind != "search":
+                continue
+            # A catalogue that did not answer, or whose tab is hidden: the
+            # Unite! fan-out carries on without it, as the tab does.
+            if name in getattr(self, "catalog_missing", ()) or (
+                    source == "unite" and not rows[name]["available"]):
+                continue
+            for e in self.CATALOG[name]:
+                if kind == "search" and query.lower() not in e["title"].lower():
+                    continue
+                row = dict(e, _fav_source=name)
+                if name in self.URLS:
+                    row["_url"] = self.URLS[name]
+                out.append(row)
+        return True, "", out
+
+    def catalog_detail(self, source, item_id):
+        self.calls.append(("catalog_detail", source, item_id))
+        for e in self.CATALOG.get(source, []):
+            if str(e["id"]) == str(item_id):
+                return {"source": source, "id": str(item_id), "title": e["title"],
+                        "download": source in ("getit", "itchio")}
+        raise McpToolError(f"{source} has no entry {item_id}")
+
+    def catalog_download(self, source, item_id, dest_dir):
+        self.calls.append(("catalog_download", source, item_id, dest_dir))
+        if source in ("zxdb", "zxart"):
+            raise McpToolError("the app does not offer downloads from "
+                               + ("ZXDB" if source == "zxdb" else "zxArt"))
+        for e in self.CATALOG.get(source, []):
+            if str(e["id"]) == str(item_id):
+                root = dest_dir or self.download_root
+                folder = os.path.join(root, e["title"])
+                os.makedirs(folder, exist_ok=True)
+                path = os.path.join(folder, "game.nex")
+                with open(path, "wb") as fh:
+                    fh.write(b"NEX!" + e["title"].encode())
+                if getattr(self, "download_empty", False):
+                    return {"source": source, "id": str(item_id), "title": e["title"],
+                            "folder": folder, "files": []}
+                if getattr(self, "download_zip", None):
+                    # What GetIt really serves: the game inside a zip. One
+                    # member tries to climb out of the folder.
+                    os.remove(path)
+                    path = os.path.join(folder, "Game r1.zip")
+                    if self.download_zip == "corrupt":
+                        with open(path, "wb") as fh:
+                            fh.write(b"PK this is not a zip")
+                    else:
+                        with zipfile.ZipFile(path, "w") as zf:
+                            zf.writestr("game.nex", b"NEX!zipped")
+                            zf.writestr("docs/readme.txt", b"read me")
+                            zf.writestr("../evil.txt", b"outside?")
+                return {"source": source, "id": str(item_id), "title": e["title"],
+                        "folder": folder, "files": [path]}
+        raise McpToolError(f"{source} has no entry {item_id}")
 
 
 def make_server(host=None, log=None):
@@ -940,11 +1057,275 @@ def test_wiring():
                   if "http://" in l else l in CATALOGS[lang])
 
 
+# =====================================================================
+#  the online catalogues (9.7.58)
+# =====================================================================
+def test_catalog():
+    """catalog_*: the tabs' Search / Latest / Random and their downloads.
+
+    The host runs the tab's own handler; what is checked here is the tool
+    layer over it - argument rules, the public shape of an entry, the
+    filters, and the two "send" tools being the download followed by the
+    SAME image_put / next_put the other tools are (CRC verification
+    included). The app's adapter is driven live against the real app."""
+    print("-- catalogue tools")
+    from zxnu_mcp import (CATALOG_MIN_QUERY, CATALOG_SOURCES,
+                          catalog_public_entry)
+    host, srv = make_server()
+    names = [t.name for t in srv.tools]
+    for name in ("catalog_sources", "catalog_search", "catalog_latest",
+                 "catalog_random", "catalog_detail", "catalog_download",
+                 "catalog_send_to_image", "catalog_send_to_next"):
+        check(f"{name} exists", name in names)
+    check("the five sources, Unite! first (it is the default)",
+          CATALOG_SOURCES == ("unite", "getit", "zxdb", "zxart", "itchio"))
+    check("the query floor is the tabs' own three characters", CATALOG_MIN_QUERY == 3)
+
+    # ---- the public shape of an entry
+    pub = catalog_public_entry(dict(FakeHost.CATALOG["zxart"][0], _fav_source="zxart",
+                                    _url="https://zxart.ee/x"))
+    check("an entry says where it comes from, its id and its title",
+          pub["source"] == "zxart" and pub["id"] == "9001" and pub["title"] == "Some Demo",
+          pub)
+    check("...its descriptive fields, its kind and its page",
+          pub.get("year") == "2024" and pub.get("genre") == "Demo"
+          and pub.get("kind") == "zxart_prod" and pub.get("url") == "https://zxart.ee/x", pub)
+    check("...and never the server's whole payload or a private key",
+          not any(k.startswith("_") for k in pub) and len(json.dumps(pub)) < 400, pub)
+    pub = catalog_public_entry(dict(FakeHost.CATALOG["zxdb"][0], _fav_source="zxdb"))
+    check("the plain 'game' kind is not repeated on every ZXDB row", "kind" not in pub, pub)
+    check("an id is always a string (ZXDB's are zero-padded)", pub["id"] == "0002259")
+    check("an empty entry does not raise", catalog_public_entry(None)["title"] == "")
+
+    # ---- sources
+    is_err, _, s = result_of(call(srv, "catalog_sources"))
+    check("catalog_sources lists every source with what it allows",
+          not is_err and [r["source"] for r in s["sources"]] == list(CATALOG_SOURCES)
+          and s["sources"][1]["download"] is True and s["sources"][2]["download"] is False, s)
+
+    # ---- latest
+    is_err, text, s = result_of(call(srv, "catalog_latest", {"source": "getit"}))
+    check("catalog_latest getit", not is_err and s["source"] == "getit"
+          and [e["title"] for e in s["entries"]] == ["Nemesis", "Knight Lore Next", "NextDAW"]
+          and s["found"] == 3 and s["matching"] == 3, text)
+    check("...ran the tab's Latest for that source",
+          host.calls[-1] == ("catalog_query", "latest", "getit", ""))
+    is_err, _, s = result_of(call(srv, "catalog_latest",
+                                  {"source": "getit", "category": "GAME", "limit": 1}))
+    check("category filters (any capitalisation), limit caps",
+          not is_err and s["found"] == 3 and s["matching"] == 2
+          and [e["title"] for e in s["entries"]] == ["Nemesis"] and s["category"] == "game", s)
+    is_err, _, s = result_of(call(srv, "catalog_latest"))
+    check("no source = Unite!: every catalogue at once, each entry tagged",
+          not is_err and s["source"] == "unite"
+          and {e["source"] for e in s["entries"]} == {"getit", "zxdb", "zxart"}
+          and host.calls[-1][2] == "unite", s)
+    check("...the genre counts for the category filter too",
+          result_of(call(srv, "catalog_latest", {"category": "platform"}))[2]["entries"][0]["title"]
+          == "Jet Set Willy")
+    check("by_source counts every source that answered, before any filter",
+          s["by_source"] == {"getit": 3, "zxdb": 1, "zxart": 1}, s.get("by_source"))
+    is_err, _, s = result_of(call(srv, "catalog_latest", {"category": "game"}))
+    check("...a filter narrows the entries, not that count",
+          not is_err and s["by_source"] == {"getit": 3, "zxdb": 1, "zxart": 1}
+          and s["matching"] < s["found"] == 5, s)
+    host.catalog_missing = {"zxart"}
+    is_err, _, s = result_of(call(srv, "catalog_latest"))
+    check("a catalogue that did not answer: the others still do, and it is "
+          "visibly absent from by_source",
+          not is_err and s["by_source"] == {"getit": 3, "zxdb": 1} and s["found"] == 4, s)
+    host.catalog_missing = set()
+    host.catalog_hidden = {"zxdb"}
+    is_err, text, _ = result_of(call(srv, "catalog_latest", {"source": "zxdb"}))
+    check("a hidden catalogue is refused with the reason, not queried",
+          is_err and "hidden" in text, text)
+    is_err, _, s = result_of(call(srv, "catalog_latest"))
+    check("...and the Unite! view simply goes on without it",
+          not is_err and s["by_source"] == {"getit": 3, "zxart": 1}, s)
+    is_err, _, s = result_of(call(srv, "catalog_sources"))
+    check("...catalog_sources says so",
+          not is_err and s["sources"][2]["available"] is False
+          and "hidden" in s["sources"][2]["reason"], s["sources"][2])
+    host.catalog_hidden = set()
+    is_err, text, _ = result_of(call(srv, "catalog_latest", {"source": "itchio"}))
+    check("itch.io has no 'latest': said, not invented",
+          is_err and "no 'latest'" in text, text)
+    is_err, text, _ = result_of(call(srv, "catalog_latest", {"source": "nope"}))
+    check("an unknown source is refused", is_err, text)
+    is_err, text, _ = result_of(call(srv, "catalog_latest", {"limit": 0}))
+    check("limit must be at least 1", is_err, text)
+
+    # ---- search
+    is_err, text, _ = result_of(call(srv, "catalog_search", {"query": "kn"}))
+    check("a query under three characters is refused before anything runs",
+          is_err and "3 characters" in text
+          and host.calls[-1][0:2] != ("catalog_query", "search"), text)
+    is_err, text, _ = result_of(call(srv, "catalog_search", {}))
+    check("catalog_search needs a query", is_err, text)
+    is_err, _, s = result_of(call(srv, "catalog_search", {"query": "  knight "}))
+    check("catalog_search: the Unite! global search, the query trimmed",
+          not is_err and s["query"] == "knight" and s["source"] == "unite"
+          and [e["title"] for e in s["entries"]] == ["Knight Lore Next"]
+          and host.calls[-1] == ("catalog_query", "search", "unite", "knight"), s)
+    is_err, _, s = result_of(call(srv, "catalog_search", {"query": "next", "source": "itchio"}))
+    check("itch.io can be searched (your library)",
+          not is_err and s["entries"][0]["source"] == "itchio"
+          and s["entries"][0]["url"] == "https://me.itch.io/my-next-game", s)
+    host.itch_connected = False
+    is_err, text, _ = result_of(call(srv, "catalog_search", {"query": "next", "source": "itchio"}))
+    check("itch.io not connected: the reason comes back as the error",
+          is_err and "not connected" in text, text)
+    host.itch_connected = True
+    host.catalog_stuck = True
+    is_err, text, _ = result_of(call(srv, "catalog_random", {"source": "zxdb"}))
+    check("a search that never reports back is an error, not an empty list",
+          is_err and "did not finish" in text, text)
+    host.catalog_stuck = False
+    is_err, _, s = result_of(call(srv, "catalog_random", {"source": "zxdb"}))
+    check("catalog_random", not is_err and s["entries"][0]["url"].startswith("https://zxinfo"), s)
+
+    # ---- detail
+    is_err, _, s = result_of(call(srv, "catalog_detail", {"source": "getit", "id": "570b3c"}))
+    check("catalog_detail", not is_err and s["title"] == "Knight Lore Next", s)
+    is_err, text, _ = result_of(call(srv, "catalog_detail", {"source": "unite", "id": "x"}))
+    check("'unite' is a view, not a source an entry belongs to", is_err, text)
+    is_err, text, _ = result_of(call(srv, "catalog_detail", {"source": "getit", "id": " "}))
+    check("an id is required", is_err and "id is required" in text, text)
+
+    # ---- download and the two sends
+    with tempfile.TemporaryDirectory() as tmp:
+        host.download_root = os.path.join(tmp, "downloads")
+        is_err, text, s = result_of(call(srv, "catalog_download",
+                                         {"source": "getit", "id": "570b3c"}))
+        check("catalog_download returns the folder and the files",
+              not is_err and s["ok"] and os.path.isfile(s["files"][0])
+              and os.path.basename(s["folder"]) == "Knight Lore Next", text)
+        other = os.path.join(tmp, "elsewhere")
+        is_err, _, s = result_of(call(srv, "catalog_download",
+                                      {"source": "getit", "id": "570b3c", "dest_dir": other}))
+        check("...under dest_dir when one is given",
+              not is_err and s["folder"].startswith(other), s)
+        for source, label in (("zxdb", "ZXDB"), ("zxart", "zxArt")):
+            is_err, text, _ = result_of(call(srv, "catalog_download",
+                                             {"source": source, "id": "1"}))
+            check(f"{label} downloads are refused, as in the app",
+                  is_err and "does not offer downloads" in text, text)
+        host.download_empty = True
+        is_err, text, _ = result_of(call(srv, "catalog_download",
+                                         {"source": "getit", "id": "570b3c"}))
+        check("a download that produced no file is an error",
+              is_err and "nothing was downloaded" in text, text)
+        host.download_empty = False
+
+        # GetIt serves most games zipped, and a Next cannot run a zip: by
+        # default the archive is unpacked into the entry's folder.
+        from zxnu_mcp import unpack_downloaded_archives
+        host.download_zip = "good"
+        zroot = os.path.join(tmp, "zipped")
+        is_err, text, s = result_of(call(srv, "catalog_download",
+                                         {"source": "getit", "id": "52841c", "dest_dir": zroot}))
+        got = sorted(os.path.relpath(f, s["folder"]).replace("\\", "/") for f in s["files"])
+        check("a downloaded zip is unpacked into the entry's folder",
+              not is_err and got == ["docs/readme.txt", "evil.txt", "game.nex"], got)
+        check("...the archive itself is gone (nothing is sent twice)",
+              not os.path.exists(os.path.join(s["folder"], "Game r1.zip")))
+        check("...and a member that tried to climb out stayed inside",
+              not os.path.exists(os.path.join(zroot, "evil.txt"))
+              and os.path.isfile(os.path.join(s["folder"], "evil.txt")))
+        is_err, _, s = result_of(call(srv, "catalog_download",
+                                      {"source": "getit", "id": "52841c", "dest_dir": zroot,
+                                       "unzip": False}))
+        check("unzip=false keeps the archive, as the tab's Send does",
+              not is_err and [os.path.basename(f) for f in s["files"]] == ["Game r1.zip"]
+              and os.path.isfile(s["files"][0]), s)
+        host.download_zip = "corrupt"
+        is_err, _, s = result_of(call(srv, "catalog_download",
+                                      {"source": "getit", "id": "52841c", "dest_dir": zroot}))
+        check("an archive that cannot be read is kept, with a note saying why",
+              not is_err and [os.path.basename(f) for f in s["files"]] == ["Game r1.zip"]
+              and "left as an archive" in s["notes"][0], s)
+        host.download_zip = "good"
+        big = os.path.join(tmp, "big")
+        os.makedirs(big)
+        bigzip = os.path.join(big, "many.zip")
+        with zipfile.ZipFile(bigzip, "w") as zf:
+            for i in range(6):
+                zf.writestr(f"f{i}.bin", b"x" * 100)
+        files, notes = unpack_downloaded_archives(big, [bigzip], max_files=5)
+        check("an archive with too many files is not unpacked",
+              files == [bigzip] and "6 files" in notes[0] and os.listdir(big) == ["many.zip"],
+              notes)
+        files, notes = unpack_downloaded_archives(big, [bigzip], max_bytes=599)
+        check("...nor one that would unpack too large",
+              files == [bigzip] and "more than" in notes[0], notes)
+        files, notes = unpack_downloaded_archives(big, [bigzip, os.path.join(big, "nope.zip")])
+        check("within the limits it unpacks; a path that is not there is passed through",
+              len(files) == 7 and notes == [] and not os.path.exists(bigzip), files)
+
+        # into the image: catalog_download + the SAME image_put
+        host.download_zip = None
+        is_err, text, _ = result_of(call(srv, "catalog_send_to_image",
+                                         {"source": "getit", "id": "570b3c"}))
+        check("catalog_send_to_image needs a loaded image (image_put's own refusal)",
+              is_err, text)
+        img = os.path.join(tmp, "card.img")
+        with open(img, "wb") as fh:
+            fh.write(b"x")
+        result_of(call(srv, "image_load", {"path": img}))
+        is_err, text, s = result_of(call(srv, "catalog_send_to_image",
+                                         {"source": "getit", "id": "570b3c"}))
+        check("catalog_send_to_image puts the entry's folder under /games",
+              not is_err and s["image_folder"] == "/games/Knight Lore Next"
+              and s["sent"] == ["/games/Knight Lore Next/game.nex"] and s["files"] == 1, text)
+        check("...the bytes are on the card",
+              host._node("/games/Knight Lore Next/game.nex") == b"NEX!Knight Lore Next",
+              repr(host._node("/games")))
+        is_err, _, s = result_of(call(srv, "catalog_send_to_image",
+                                      {"source": "getit", "id": "52841c", "image_dir": "/demos"}))
+        check("...or under another image_dir",
+              not is_err and s["image_folder"] == "/demos/Nemesis", s)
+
+        # to a Next: catalog_download + the SAME verified next_put
+        for label, roster in (("no listener", None), ("a listener but no Next", (None, [], 4))):
+            host.roster = roster
+            before = len(host.calls)
+            is_err, text, _ = result_of(call(srv, "catalog_send_to_next",
+                                             {"source": "getit", "id": "570b3c"}))
+            check(f"catalog_send_to_next with {label} says what to do",
+                  is_err and "no Next is seated" in text, text)
+            check("...before downloading anything",
+                  not any(c[0] == "catalog_download" for c in host.calls[before:]),
+                  host.calls[before:])
+        host.roster = (1, [(1, "10.0.0.9", "next")], 4)
+        host.connected = True
+        host.ndirs = {"/", "/home"}
+        host.nfs = {}
+        is_err, text, s = result_of(call(srv, "catalog_send_to_next",
+                                         {"source": "getit", "id": "570b3c"}))
+        check("catalog_send_to_next uploads the entry's folder under /games",
+              not is_err and s["remote_folder"] == "/games/Knight Lore Next"
+              and s["files"] == 1, text)
+        check("...created the folders on the Next",
+              "/games" in host.ndirs and "/games/Knight Lore Next" in host.ndirs,
+              sorted(host.ndirs))
+        check("...and verified the file by the Next's own CRC-32",
+              s["sent"][0]["verified"] is True and s["sent"][0]["method"] == "crc"
+              and host.nfs.get("/games/Knight Lore Next/game.nex") == b"NEX!Knight Lore Next",
+              s["sent"])
+        host.put_corrupt = True
+        is_err, text, _ = result_of(call(srv, "catalog_send_to_next",
+                                         {"source": "getit", "id": "52841c",
+                                          "remote_dir": "/home"}))
+        check("a file that lands damaged is an error here too", is_err, text)
+        host.put_corrupt = False
+
+
 def main():
     test_dispatcher()
     test_http()
     test_stdio()
     test_tools()
+    test_catalog()
     test_parse_ls()
     test_wiring()
     print("ALL PASSED" if ok else "SOME CHECKS FAILED")

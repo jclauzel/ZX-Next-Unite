@@ -73,6 +73,7 @@ with the tool names.
 | Emulators | `emulator_list`, `emulator_start` (MAME / CSpect on the loaded image, optionally starting a program file; CSpect optionally with its own MCP server), `emulator_processes`, `emulator_stop` |
 | RS232 ESP emulation | `esp_emulation_status`, `esp_emulation_start` (optionally on another port), `esp_emulation_stop` |
 | NextSync servers | `nextsync_status`, `nextsync_listener_start` / `_stop` (the Remote Explorer's `-listen` server), `nextsync_set_sync_root`, `nextsync_classic_start` / `_stop` (Jari Komppa's one-shot or continuous sync), `nextsync_http_bridge_start` / `_stop` |
+| Online catalogues *(9.7.58)* | `catalog_sources`, `catalog_search`, `catalog_latest`, `catalog_random` (GetIt, ZXDB, zxArt, your itch.io library, or `unite` = the Unite! global search), `catalog_detail`, `catalog_download`, `catalog_send_to_image`, `catalog_send_to_next` (download, unpack, then the same verified put as `image_put` / `next_put`) |
 | The seated Nexts | `next_sessions`, `next_select`, `next_version`, `next_drives`, `next_free`, `next_ls`, `next_get`, `next_put` (verified by the CRC-32 the Next computes, or a read-back on an older listener), `next_mkdir`, `next_rmdir`, `next_rm`, `next_rmtree`, `next_rename`, `next_copy`, `next_size`, `next_crc`, `next_exit`, **`next_deploy`** |
 
 A refused operation (no image loaded, no Next seated, hdfmonkey said no, the
@@ -127,7 +128,7 @@ the port in the command differs from the one in Settings — re-copy the command
 ### 3. Open a fresh Claude Code session in this folder
 
 Claude Code discovers a server's tools when a session **starts** (in a session
-that is already open, `/mcp` reconnects). The 46 tools appear as
+that is already open, `/mcp` reconnects). The 54 tools appear as
 `mcp__zx-next-unite__<name>`, and Claude picks them from plain requests — you
 never type a tool name unless you want to.
 
@@ -142,6 +143,10 @@ never type a tool name unless you want to.
 | *Start the NextSync listener with sync root C:\temp\sync and tell me when a Next connects* | `nextsync_listener_start`, then `next_sessions` |
 | *Deploy C:\projects\mygame\mygame.nex to the Next and run it* | `next_deploy` — upload, CRC-32 verify on the Next, leave listen mode; with `autoexec.bas` on the card the Next runs it |
 | *Show the last 20 lines of the NextSync console* | `app_log_tail console=nextsync lines=20` |
+| *What are the latest ZX Spectrum Next games?* | `catalog_latest source=getit category=game` |
+| *Search every catalogue for "knight"* | `catalog_search query=knight` — the Unite! global search |
+| *Put the three newest Next games on the card, in /games* | `catalog_latest`, then `catalog_send_to_image` for each |
+| *Send the newest Next game to the Next that is connected* | `catalog_latest`, then `catalog_send_to_next` (CRC-verified) |
 | *Stop the emulator you started* | `emulator_processes`, `emulator_stop` |
 
 To name a tool directly: *call the app_status tool of zx-next-unite*.
@@ -182,6 +187,24 @@ at `/home/incoming.nex`). Then:
 is put into the image, MAME boots the card and NextZXOS is typed the
 `.nexload` command (9.7.55). For CSpect: `emulator_start emulator=CSpect
 file=build/game.nex`.
+
+**Find software and put it on a Next** *(9.7.58)* — the `catalog_*` tools are the
+app's own catalogue tabs: `catalog_latest`, `catalog_search` and
+`catalog_random` run the tab's Latest / Search / Random (source `getit` =
+software written for the Next, `zxdb`, `zxart`, `itchio` = your own library,
+`unite` = the Unite! global search, all of them at once), and the result also
+appears in the app. Each entry carries a `source` and an `id`:
+
+1. `catalog_latest source=getit category=game limit=10` — the newest Next games;
+2. `catalog_send_to_image source=getit id=… image_dir=/games` — download,
+   unpack the zip, put the game's folder on the loaded card; or
+   `catalog_send_to_next source=getit id=… remote_dir=/games` — the same to a
+   Next seated on the listener, every file verified by the Next's CRC-32.
+
+`catalog_download` only fetches to this PC. GetIt entries always download;
+itch.io entries your account owns do too; ZXDB and zxArt can be searched but
+not downloaded — the app does not offer their downloads, so neither does an
+agent. Only download what you have the right to use.
 
 ## CSpect's own MCP server
 

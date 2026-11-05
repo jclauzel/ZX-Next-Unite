@@ -1635,29 +1635,16 @@ def build_getit_pane(
                                  title: str, post_action=None):
         """Download the GetIt entry into dest_root/{sanitized_title}/ on the local
         filesystem (used for NextSync sends)."""
-        safe_folder = re.sub(r'[<>:"/\\|?*]', "", title or default_name or eid).strip() or eid
+        safe_folder = getit_safe_folder_name(title or default_name, eid)
         folder      = os.path.join(dest_root, safe_folder)
         os.makedirs(folder, exist_ok=True)
         fname       = os.path.basename(default_name) if default_name else f"{eid}.bin"
-        save_path   = os.path.join(folder, fname or f"{eid}.bin")
-        url         = f"{GETIT_BASE_URL}/nx/{eid}/"
         getit_set_status(f"Sending {eid} → {folder}…")
 
         def _dl_fn():
-            cd, data = _http_fetch_with_cd_retry(
-                url, headers={"User-Agent": GETIT_USER_AGENT}, timeout=60
-            )
-            real = ""
-            for part in cd.split(";"):
-                part = part.strip()
-                if part.lower().startswith("filename="):
-                    real = part[len("filename="):].strip().strip('"').strip("'")
-                    break
-            use_fname = real or fname
-            dest = os.path.join(folder, use_fname)
-            with open(dest, "wb") as fh:
-                fh.write(data)
-            return dest
+            # The one GetIt download rule (zxnu_api), shared with the MCP
+            # server's catalog_download since 9.7.58.
+            return getit_download_entry(eid, folder, fname)
 
         def _on_done(p):
             getit_set_status(f"Sent → {p}")

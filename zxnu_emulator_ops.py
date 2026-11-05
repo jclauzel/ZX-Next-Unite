@@ -28,11 +28,13 @@ getter hook. See CLAUDE.md and the memory ``strangler-extraction-pattern``.
 from __future__ import annotations
 
 import collections
+import html
 import json
 import logging
 import os
 import platform
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -44,13 +46,18 @@ import webbrowser
 import zipfile
 
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer
-from PySide6.QtWidgets import QInputDialog, QMessageBox
+from PySide6.QtWidgets import QApplication, QInputDialog, QMessageBox
 
 from zxnu_config import *
 from zxnu_i18n import ui_tr_now
 from zxnu_workers import *
 import espemu
 import zxnu_itchio
+from zxnu_cspect_esp import (
+    BLOCKED_BY_COM, DEPLOY_FAILED, DEPLOY_INSTALLED, DEPLOY_UPDATED,
+    cspect_esp_blocker, cspect_esp_endpoint, cspect_esp_environment,
+    cspect_esp_flatpak_env_args, deploy_plugin, plugin_installed,
+    plugin_is_current, plugin_version, uart_replacement_installed)
 
 
 def mame_slot_options(launch_prefix, machine, cwd=None,
@@ -260,8 +267,11 @@ def build_emulator_ops(
 ):
     """Define the emulator/self-update closures (no widgets built here)."""
     # ---- RS232 ESP emulation (espemu) worker lifecycle -------------------
-    # ONE background AT-proxy SHARED by every running MAME, owned by the
-    # launch flow. The proxy listens once and gives each emulator that
+    # ONE background AT-proxy SHARED by every running emulator - every MAME
+    # on the null_modem path and, since 9.7.58, every CSpect launched with
+    # the UARTRS232 plugin (launch_cspect), which connects to the same
+    # listener as one more session - owned by the launch flow.
+    # The proxy listens once and gives each emulator that
     # connects its own session (engine, links, CIPSERVER), so launching a
     # second MAME on another disk image joins the running proxy instead of
     # replacing it - the old stop-then-start-on-every-launch rule bought
@@ -365,8 +375,10 @@ def build_emulator_ops(
         _esp_announce_station_ip(server)
     host._esp_emulation_apply_ip = _esp_emulation_apply_ip
 
-    def _start_esp_emulation():
-        """The espemu worker to wire this MAME launch to, or None.
+    def _start_esp_emulation(emulator="MAME"):
+        """The espemu worker to wire this launch to, or None. *emulator*
+        ("MAME", the default, or "CSpect") only words the two lines a user
+        may read: the worker itself does not know who connects to it.
 
         REUSES the running worker when there is one - several emulators
         share it, each getting its own session on connect - and otherwise
@@ -392,10 +404,14 @@ def build_emulator_ops(
                 _stop_esp_emulation()
                 server = None
             elif server.port != want_port:
-                add_main_log_window(ui_tr_now(
+                add_main_log_window((ui_tr_now(
+                    "RS232 ESP emulation is already running on port {port} "
+                    "for another emulator; this CSpect joins it. The new "
+                    "port applies once every emulator using it has exited.")
+                    if emulator == "CSpect" else ui_tr_now(
                     "RS232 ESP emulation is already running on port {port} "
                     "for another emulator; this MAME joins it. The new port "
-                    "applies once every MAME has exited.").format(
+                    "applies once every MAME has exited.")).format(
                         port=server.port))
         elif server is not None:
             # A worker that died on its own (its loop thread is gone):
@@ -440,9 +456,12 @@ def build_emulator_ops(
             server.start()
         except OSError as ex:
             logging.error(f"RS232 ESP emulation failed to start: {ex}")
-            _emulator_launch_failed("MAME", ui_tr_now(
+            _emulator_launch_failed(emulator, (ui_tr_now(
                 "RS232 ESP emulation could not start (port {port} in "
-                "use?). MAME starts without it.").format(port=want_port))
+                "use?). CSpect starts without it.")
+                if emulator == "CSpect" else ui_tr_now(
+                "RS232 ESP emulation could not start (port {port} in "
+                "use?). MAME starts without it.")).format(port=want_port))
             return None
         host._esp_emu = server
         host._esp_emu_signals = signals      # keep the QObject alive
@@ -1373,6 +1392,89 @@ def build_emulator_ops(
             _auto = os.path.abspath(autostart_file.strip().strip('"'))
             cspect_arguments += f'"{_auto}" '
 
+        # ---- RS232 ESP emulation for CSpect (9.7.58) --------------------
+        # CSpect has no serial switch to point at the ESP emulation the way
+        # MAME's -bitb is, but it loads plugins: UARTRS232.dll (source in
+        # extra/UARTRS232/, carried by zxnu_cspect_esp) takes the Next's ESP
+        # UART ports and connects them to the SAME espemu worker MAME uses,
+        # as one more session of it. Settings -> "RS232 ESP Emulation
+        # (CSpect)" makes this launch (1) put the plugin beside CSpect.exe,
+        # (2) reuse or start the worker and (3) hand the plugin its endpoint
+        # in the environment.
+        #
+        # The environment variable is set on EVERY launch, "off" included:
+        # a plugin left in the folder by an earlier launch would otherwise
+        # decide for itself (it joins any emulation that answers), and the
+        # toggle would not mean what it says. That is also why the DLL is
+        # never removed again - and why an installed UARTReplacement (a
+        # REAL ESP on a serial port) needs no handling here: UARTRS232
+        # answers the UART first when told to be active and registers
+        # nothing when told "off", so the toggle switches between the two.
+        _esp_server = None
+        _esp_endpoint = ""
+        if cspect_rs232_esp_enabled(configuration_dictionary):
+            # The folder CSpect will be RUN from: the detected executable's,
+            # else - a bare "CSpect.exe" handed to the shell - the working
+            # directory when a copy sits there (where cmd.exe looks first,
+            # and the only place "mono CSpect.exe" looks), else the PATH's.
+            _plugin_dir = ""
+            if cspect_exe and os.path.isfile(cspect_exe):
+                _plugin_dir = os.path.dirname(os.path.abspath(cspect_exe))
+            elif os.path.isfile("CSpect.exe"):
+                _plugin_dir = os.getcwd()
+            else:
+                _found = shutil.which("CSpect.exe")
+                if _found:
+                    _plugin_dir = os.path.dirname(os.path.abspath(_found))
+            if cspect_esp_blocker(cspect_default_params) == BLOCKED_BY_COM:
+                add_main_log_window(ui_tr_now(
+                    "RS232 ESP: the CSpect launch parameters contain -com "
+                    "(a real ESP on a serial port), so the RS232 ESP "
+                    "emulation is not used for this launch."))
+            elif not _plugin_dir:
+                add_main_log_window(ui_tr_now(
+                    "RS232 ESP: CSpect's folder could not be found, so the "
+                    "UARTRS232 plugin was not installed; CSpect starts "
+                    "without the RS232 ESP emulation."))
+            else:
+                _verdict, _detail = deploy_plugin(_plugin_dir)
+                logging.info("UARTRS232 plugin in %s: %s (%s)",
+                             _plugin_dir, _verdict, _detail)
+                if _verdict == DEPLOY_FAILED and not plugin_installed(_plugin_dir):
+                    add_main_log_window(ui_tr_now(
+                        "RS232 ESP: the UARTRS232 plugin could not be "
+                        "copied into {folder} ({error}); CSpect starts "
+                        "without the RS232 ESP emulation.").format(
+                            folder=_plugin_dir, error=_detail))
+                else:
+                    # A DEPLOY_FAILED with a build already there (a folder
+                    # that became read-only) still launches: any build of
+                    # the plugin reads the same two variables.
+                    if _verdict in (DEPLOY_INSTALLED, DEPLOY_UPDATED):
+                        add_main_log_window(ui_tr_now(
+                            "RS232 ESP: the UARTRS232 plugin {version} was "
+                            "installed in the CSpect folder {folder}.").format(
+                                version=plugin_version(), folder=_plugin_dir))
+                    _esp_server = _start_esp_emulation("CSpect")
+                    if _esp_server is not None:
+                        _esp_endpoint = cspect_esp_endpoint(_esp_server.port)
+                        add_main_log_window(ui_tr_now(
+                            "RS232 ESP: CSpect uses the RS232 ESP emulation "
+                            "on port {port} through the UARTRS232 plugin. "
+                            "That link has no baud rate, so .sync5 and ZX "
+                            "Next Remote connect at every speed (slow, "
+                            "default and fast).").format(
+                                port=_esp_server.port))
+                        if uart_replacement_installed(_plugin_dir):
+                            add_main_log_window(ui_tr_now(
+                                "RS232 ESP: the UARTReplacement plugin is "
+                                "installed in this CSpect folder too. "
+                                "UARTRS232 takes the UART for this launch; "
+                                "untick the CSpect RS232 ESP emulation in "
+                                "Settings to use the real ESP instead."))
+        _esp_env = cspect_esp_environment(
+            _esp_endpoint, verbose=_esp_emulation_verbose())
+
         # The command that will actually be invoked: the bundled itch.io
         # copy by absolute path, otherwise the CSpect.exe resolved from the
         # app directory / PATH (prefixed with mono on macOS/Linux).
@@ -1386,7 +1488,12 @@ def build_emulator_ops(
             # (CSpect under ~/.var/app, the cwd, the -mmc image) is a real
             # host path, so the host-side mono resolves them unchanged.
             if os.environ.get("FLATPAK_ID"):
-                cspect_executable = "flatpak-spawn --host " + cspect_executable
+                # flatpak-spawn starts the host process with the HOST's
+                # environment, so the plugin's variables ride as --env.
+                _flatpak_env = cspect_esp_flatpak_env_args(_esp_env)
+                cspect_executable = ("flatpak-spawn --host "
+                                     + (_flatpak_env + " " if _flatpak_env else "")
+                                     + cspect_executable)
 
         logging.info(f"CSpect executable: {cspect_executable}")
         add_main_log_window(f"CSpect executable: {cspect_executable}")
@@ -1403,10 +1510,16 @@ def build_emulator_ops(
         # still splits the launch parameters and the Popen handle is the
         # shell, which waits for CSpect: see cspect_popen_kwargs.
         _cmd = cspect_executable + " " + cspect_arguments
+        _popen_kwargs = cspect_popen_kwargs(cspect_cwd)
+        _popen_kwargs["env"] = _esp_env
         try:
-            cspect_proc = subprocess.Popen(_cmd, **cspect_popen_kwargs(cspect_cwd))
+            cspect_proc = subprocess.Popen(_cmd, **_popen_kwargs)
         except (OSError, ValueError) as ex:
             logging.exception("could not start CSpect")
+            # This launch never took its reference on the ESP worker: take
+            # it down only when nothing else is using it (as launch_mame).
+            if _esp_server is not None and host._esp_emu_users == 0:
+                _stop_esp_emulation()
             _emulator_launch_failed("CSpect", ui_tr_now(
                 "ERROR: Failed to launch CSpect: {error}").format(error=ex))
             return
@@ -1427,6 +1540,17 @@ def build_emulator_ops(
         # The port CSpect's own MCP server was asked for (0 = none), read by
         # the app's MCP server when it lists the emulators it started.
         cspect_proc.zxnu_mcp_port = _mcp_port if _mcp_arg else 0
+        # This CSpect runs with the ESP worker wired in: take a reference,
+        # dropped when it exits (_on_cspect_finished). The LAST emulator out
+        # stops the worker - a MAME or another CSpect may share it.
+        cspect_proc.zxnu_esp_port = _esp_server.port if _esp_server is not None else 0
+        if _esp_server is not None:
+            host._esp_emu_users += 1
+            if host._esp_emu_users > 1:
+                add_main_log_window(ui_tr_now(
+                    "RS232 ESP emulation: {count} emulators are now sharing "
+                    "it (port {port}).").format(
+                        count=host._esp_emu_users, port=_esp_server.port))
         _refresh_emulator_launchability()
 
         cspect_signals = CSpectProcessSignals()
@@ -1435,6 +1559,11 @@ def build_emulator_ops(
 
         def _on_cspect_finished(return_code, _sig=cspect_signals):
             host._cspect_signals_live.discard(_sig)
+            # Done HERE, not in a second slot: this slot drops the last
+            # reference to the signals object, and a slot connected after
+            # it would be betting on that object outliving its own event.
+            if _esp_server is not None:
+                _release_esp_emulation(_esp_server)
             elapsed = _run.get("elapsed", 0.0)
             tail = list(_run.get("tail", ()))
             kind = cspect_exit_kind(return_code, elapsed,
@@ -3290,6 +3419,10 @@ def build_emulator_ops(
             # up the hdfmonkey bundled with the new CSpect.
             host._cspect_executable_path = None
             host._cspect_from_downloads = False
+            # The new build sits in its own version folder: the UARTRS232
+            # plugin the old one carried is not in it. Offer it (and the
+            # Settings toggle) once the rescan has adopted the build.
+            host._cspect_esp_plugin_offer_pending = True
             _rescan = getattr(host, "_rescan_emulators_after_install", None)
             if _rescan is not None:
                 try:
@@ -3388,13 +3521,31 @@ def build_emulator_ops(
             installed_name, installed_exe = find_installed_cspect_version(app_dir)
             if not installed_name:
                 return {"skip": "no itch.io CSpect install was found to update"}
-            info = zxnu_itchio.latest_cspect_upload(api_key)
+            # Settings -> "CSpect - Discard Beta or Patrons, Builders
+            # updates" (9.7.58): those uploads are password protected, so
+            # they are dropped before the newest is picked and the newest
+            # PUBLIC build is what gets compared - a newer public build
+            # hidden behind a Patrons one is still offered.
+            _discard = cspect_discard_restricted_updates(configuration_dictionary)
+            _dropped = []
+            info = zxnu_itchio.latest_cspect_upload(
+                api_key,
+                discard_words=CSPECT_RESTRICTED_BUILD_WORDS if _discard else (),
+                discarded=_dropped)
+            # Only the ones that WOULD have been an update are worth a line.
+            _dropped = [n for n in _dropped
+                        if n and cspect_version_newer(n, installed_name)]
             if not info:
+                if _dropped:
+                    return {"skip": "only beta / patron / builder builds "
+                                    "are newer (" + ", ".join(_dropped)
+                                    + ") and Settings discards them"}
                 return {"skip": "itch.io lists no CSpect download for this "
                                 "account (not owned, no download key, or "
                                 "only BETA builds — betas are never "
                                 "offered as updates)"}
             info = dict(info)
+            info["discarded"] = _dropped
             info["installed_name"] = installed_name
             info["installed_exe"] = installed_exe
             info["newer"] = cspect_version_newer(
@@ -3409,6 +3560,14 @@ def build_emulator_ops(
                     return
                 installed_name = info.get("installed_name")
                 latest_name = info.get("version_name")
+                if info.get("discarded"):
+                    # Said before the verdict, so "up to date" below is
+                    # read with the build that was left out in view.
+                    _log_update(ui_tr_now(
+                        "CSpect update check: {reason}.").format(
+                            reason="skipped " + ", ".join(info["discarded"])
+                            + " - Settings discards beta, patron and "
+                              "builder builds"))
                 if not info.get("newer"):
                     _log_update(ui_tr_now(
                         "CSpect is up to date (installed {installed}, "
@@ -4173,6 +4332,139 @@ def build_emulator_ops(
             f"OpenAL 1.1 is installed from {OPENAL_WEBSITE_URL}.")
         return False
     host._offer_openal_install = _offer_openal_install
+
+    # ── UARTRS232 plugin offer after an itch.io CSpect install / update ──
+    # (9.7.58) A CSpect build has just landed from itch.io - a first install,
+    # or the update chain's newer one. Each build lives in its OWN version
+    # folder, so the plugin an older build carried does not come along, and a
+    # user who has never heard of the plugin would only meet it by reading
+    # Settings. The install paths arm host._cspect_esp_plugin_offer_pending
+    # (the OpenAL notice's pattern), the detection toast in zxnu_main
+    # consumes it once the new build is ADOPTED and schedules this.
+    #
+    # Two questions, in this order: install the plugin into the CSpect now in
+    # use; then, when Settings -> "RS232 ESP Emulation (CSpect)" is off, turn
+    # it on - asked only once the plugin is there, since ticking the box
+    # after a "not now" would install it at the next launch behind the
+    # user's back. Nothing at all is asked when there is nothing to do.
+    def _offer_cspect_esp_plugin(_tries=0):
+        """UI thread only. Returns True when the CSpect in use ends up with
+        the app's build of the plugin."""
+        # Never on top of another dialog: the OpenAL offer opens 400 ms
+        # after the same toast, and a second modal over it is two questions
+        # at once. Wait for the screen to be free (bounded: five minutes).
+        if QApplication.activeModalWidget() is not None:
+            if _tries < 600:
+                QTimer.singleShot(
+                    500, lambda: _offer_cspect_esp_plugin(_tries + 1))
+            return False
+        cspect_exe = getattr(host, "_cspect_executable_path", None)
+        if not (cspect_exe and os.path.isfile(cspect_exe)):
+            return False
+        folder = os.path.dirname(os.path.abspath(cspect_exe))
+        enabled = cspect_rs232_esp_enabled(configuration_dictionary)
+        installed = plugin_is_current(folder)
+        installed_line = ""
+        if not installed:
+            box = QMessageBox(host)
+            box.setIcon(QMessageBox.Question)
+            box.setWindowTitle(ui_tr_now("Install the UARTRS232 plugin?"))
+            box.setTextFormat(Qt.RichText)
+            box.setText(ui_tr_now(
+                "ZX Next Unite can give the ZX Spectrum Next emulated by "
+                "CSpect a working <b>ESP (Wi-Fi module)</b> without any "
+                "hardware: its <b>UARTRS232</b> plugin connects the emulated "
+                "Next to the app's RS232 ESP emulation, so .sync5, ZX Next "
+                "Remote and the NextZXOS WiFi tools reach your network "
+                "through this PC.<br><br>"
+                "Install the plugin (UARTRS232.dll) into the CSpect that was "
+                "just installed?<br><br>{folder}").format(
+                    folder=html.escape(folder)))
+            install_btn = box.addButton(
+                ui_tr_now("Install the UARTRS232 plugin"),
+                QMessageBox.AcceptRole)
+            box.addButton(ui_tr_now("Not now"), QMessageBox.RejectRole)
+            box.setDefaultButton(install_btn)
+            box.exec()
+            if box.clickedButton() is not install_btn:
+                add_main_log_window(
+                    "UARTRS232: skipped - " + (
+                        "it is installed at the next CSpect launch while "
+                        "'RS232 ESP Emulation (CSpect)' stays ticked in "
+                        "Settings." if enabled else
+                        "tick 'RS232 ESP Emulation (CSpect)' in Settings and "
+                        "the next CSpect launch installs it."))
+                return False
+            verdict, detail = deploy_plugin(folder)
+            logging.info("UARTRS232 plugin offered after a CSpect install, "
+                         "%s: %s (%s)", folder, verdict, detail)
+            if verdict == DEPLOY_FAILED:
+                failed = ui_tr_now(
+                    "RS232 ESP: the UARTRS232 plugin could not be "
+                    "copied into {folder} ({error}); CSpect starts "
+                    "without the RS232 ESP emulation.").format(
+                        folder=folder, error=detail)
+                add_main_log_window(failed)
+                QMessageBox.warning(
+                    host, ui_tr_now("UARTRS232 plugin not installed"), failed)
+                return False
+            installed = True
+            installed_line = ui_tr_now(
+                "RS232 ESP: the UARTRS232 plugin {version} was "
+                "installed in the CSpect folder {folder}.").format(
+                    version=plugin_version(), folder=folder)
+            add_main_log_window(installed_line)
+
+        enabled_line = ""
+        if not enabled:
+            box = QMessageBox(host)
+            box.setIcon(QMessageBox.Question)
+            box.setWindowTitle(
+                ui_tr_now("Enable the RS232 ESP emulation for CSpect?"))
+            box.setTextFormat(Qt.RichText)
+            box.setText(ui_tr_now(
+                "The UARTRS232 plugin is installed. It is used while "
+                "<b>RS232 ESP Emulation (CSpect)</b> is ticked in Settings - "
+                "and that box is not ticked yet.<br><br>"
+                "Enable it now? A CSpect launched from the app then gives "
+                "the emulated Next network access. Untick the box in "
+                "Settings at any time to launch without it."))
+            enable_btn = box.addButton(
+                ui_tr_now("Enable it now"), QMessageBox.AcceptRole)
+            box.addButton(ui_tr_now("Not now"), QMessageBox.RejectRole)
+            box.setDefaultButton(enable_btn)
+            box.exec()
+            if box.clickedButton() is enable_btn:
+                checkbox = getattr(
+                    host, "settings_cspect_rs232_esp_checkbox", None)
+                if checkbox is not None:
+                    # Its own handler saves the setting and lights the
+                    # widgets the two toggles share.
+                    checkbox.setChecked(True)
+                else:
+                    configuration_dictionary[SETTING_CSPECT_RS232_ESP] = "true"
+                    save_configuration_file()
+                enabled_line = ui_tr_now(
+                    "RS232 ESP: the emulation is now enabled for CSpect - "
+                    "the next CSpect launched from the app gives the "
+                    "emulated Next network access.")
+                add_main_log_window(enabled_line)
+            else:
+                add_main_log_window(
+                    "UARTRS232: the plugin is installed; tick 'RS232 ESP "
+                    "Emulation (CSpect)' in Settings to use it.")
+
+        if installed_line or enabled_line:
+            try:
+                host._show_toast(
+                    "✅  UARTRS232 plugin installed",
+                    "\r\n".join(
+                        line for line in (installed_line, enabled_line) if line),
+                    variant="green", duration_ms=9000)
+            except (RuntimeError, AttributeError):
+                logging.exception("could not show the UARTRS232 toast")
+        return installed
+    host._offer_cspect_esp_plugin = _offer_cspect_esp_plugin
 
     # Expose the closures the rest of __init__ wires to widgets by bare name
     # (re-bound to bare locals at the call site). launch_cspect/launch_mame

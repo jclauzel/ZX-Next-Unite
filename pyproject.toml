@@ -11,7 +11,7 @@ build-backend = "setuptools.build_meta"
 name = "zx-next-unite"
 # MUST match ZX_NEXT_UNITE_VERSION in zxnu_config.py — the release workflow
 # gates on it (same rule as the git tag).
-version = "9.7.57"
+version = "9.7.58"
 description = "GUI toolbox for the ZX Spectrum Next: SD-card/HDF image explorer, NextSync Wi-Fi file sync + Remote Explorer & HTTP bridge, and built-in software browsing via GetIt, ZXDB and zxArt"
 readme = "README.md"
 license = "MIT"
@@ -57,6 +57,8 @@ zx-next-unite-mcp = "zxnu_mcp:main"
 # as-is. rc_backgrounds is the pyside6-rcc-generated Qt resource module.
 py-modules = [
     "zxnu_app",
+    "zxnu_cspect_esp",
+    "zxnu_cspect_esp_blob",
     "zxnu_main",
     "zxnu_config",
     "zxnu_api",

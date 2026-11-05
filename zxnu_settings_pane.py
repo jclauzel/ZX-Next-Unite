@@ -93,10 +93,11 @@ SETTINGS_TAB_ROWS = (
     "mame_rom",
     "mame_params",
     "mame_update_check",   # also the Flatpak options box — platform alternates
-    "mame_rs232_esp",      # checkbox + port + verbose sub-row, one packed row
+    "mame_rs232_esp",      # Mame checkbox + port, CSpect checkbox (9.7.58), verbose, IP: one packed row
     "cspect_params",
     "cspect_mcp",          # checkbox + port: launch CSpect with its own MCP server (9.7.57)
     "cspect_update_check",
+    "cspect_discard_restricted_updates",   # skip beta / patron / builder CSpect builds in that check (9.7.58)
     "sdcard_pygame_anim",
     "alien_floyd_bg",
     "alien_floyd_tab",
@@ -2183,18 +2184,63 @@ def build_settings_pane(
 
         grid_tab_Settings.addWidget(_flatpak_box, settings_grid_row("mame_update_check"), 0, 1, 2)
 
-    # ── RS232 ESP emulation for MAME (espemu) ──────────────────
+    # ── RS232 ESP emulation for MAME and CSpect (espemu) ───────
     # Unconditional like the CSpect box below (MAME can be installed in-app
     # mid-session; a gated row would only appear after a restart). Same
     # packed shape as the HTTP bridge row: master checkbox + "Port:" +
-    # spinbox on the first line, the verbose checkbox on a sub-row, all
-    # under ONE registrar name.
+    # spinbox on the first line, then sub-rows, all under ONE registrar
+    # name. TWO master checkboxes since 9.7.58 - one per emulator, because
+    # a user with a real ESP on CSpect's -com / UARTReplacement must be able
+    # to keep it there while MAME uses the emulation - over ONE worker, so
+    # the port, the verbose switch and the address below belong to both and
+    # are live while EITHER is ticked.
+    def _rs232_esp_any_on():
+        return (host.settings_rs232_esp_checkbox.isChecked()
+                or host.settings_cspect_rs232_esp_checkbox.isChecked())
+
     def settings_rs232_esp_changed():
         on = host.settings_rs232_esp_checkbox.isChecked()
         configuration_dictionary[SETTING_MAME_RS232_ESP] = (
             "true" if on else "false")
         save_configuration_file()
-        _rs232_esp_widgets_set_enabled(on)
+        _rs232_esp_widgets_set_enabled(_rs232_esp_any_on())
+
+    def settings_cspect_rs232_esp_changed():
+        on = host.settings_cspect_rs232_esp_checkbox.isChecked()
+        configuration_dictionary[SETTING_CSPECT_RS232_ESP] = (
+            "true" if on else "false")
+        save_configuration_file()
+        _rs232_esp_widgets_set_enabled(_rs232_esp_any_on())
+
+    host.settings_cspect_rs232_esp_checkbox = QCheckBox(
+        "RS232 ESP Emulation (CSpect)")
+    host.settings_cspect_rs232_esp_checkbox.setChecked(False)
+    host.settings_cspect_rs232_esp_checkbox.setToolTip(
+        "Give the emulated Next an ESP (Wi-Fi module) when launching CSpect,\n"
+        "so network software on it (.sync5, ZX Next Remote, ...) reaches the\n"
+        "real network through this PC - no USB ESP module needed.\n"
+        "At each CSpect launch the app:\n"
+        "- copies its UARTRS232 plugin (UARTRS232.dll) beside CSpect.exe -\n"
+        "  CSpect loads the plugins it finds in its own folder;\n"
+        "- starts the RS232 ESP emulation, the same one MAME uses (one worker\n"
+        "  serves every running emulator, each with its own session, and\n"
+        "  stops when the last one exits);\n"
+        "- tells the plugin where it listens. The plugin then connects the\n"
+        "  Next's ESP UART to it.\n"
+        "That link has no baud rate, so EVERY speed works - '.sync5 -f',\n"
+        "'-default' and '-s', ZX Next Remote 'Fast', 'Medium' and 'Slow'.\n"
+        "Unticked, CSpect is launched with the plugin told to stay out, so\n"
+        "the DLL can stay where it is: this box is the switch.\n"
+        "If Robin Verhagen-Guest's UARTReplacement plugin (a REAL ESP on a\n"
+        "serial port) is installed in the same CSpect folder, ticking this\n"
+        "box uses the emulated ESP and unticking it uses the real one. A\n"
+        "'-com=...' typed in the CSpect parameters box is an explicit choice\n"
+        "of the real serial port and wins. The log says what each launch got.\n"
+        "A CSpect started by hand joins the emulation only when one is\n"
+        "already listening on port 2222 (or the port in UARTRS232.cfg).\n"
+        "Off by default. Saved to the configuration file.")
+    host.settings_cspect_rs232_esp_checkbox.stateChanged.connect(
+        lambda _s: settings_cspect_rs232_esp_changed())
 
     host.settings_rs232_esp_checkbox = QCheckBox("RS232 ESP Emulation (Mame)")
     host.settings_rs232_esp_checkbox.setChecked(False)
@@ -2228,10 +2274,11 @@ def build_settings_pane(
     host.settings_rs232_esp_port_spinbox.setValue(2222)
     _rs232_port_tip = (
         "TCP port the RS232 ESP emulation listens on for MAME's -bitb\n"
-        "socket (default 2222). Saved to hdfg.cfg\n"
-        f"({SETTING_MAME_RS232_ESP_PORT}) and applied at the next MAME\n"
-        "launch that STARTS the worker - a launch made while another MAME\n"
-        "is still running joins the worker already listening.")
+        "socket and CSpect's UARTRS232 plugin (default 2222). Saved to\n"
+        f"hdfg.cfg ({SETTING_MAME_RS232_ESP_PORT}) and applied at the next\n"
+        "emulator launch that STARTS the worker - a launch made while\n"
+        "another emulator is still running joins the worker already\n"
+        "listening.")
     host.settings_rs232_esp_port_label.setToolTip(_rs232_port_tip)
     host.settings_rs232_esp_port_spinbox.setToolTip(_rs232_port_tip)
 
@@ -2343,6 +2390,9 @@ def build_settings_pane(
     _rs232_esp_row.addWidget(host.settings_rs232_esp_port_label)
     _rs232_esp_row.addWidget(host.settings_rs232_esp_port_spinbox)
     _rs232_esp_row.addStretch(1)
+    _rs232_esp_cspect_row = QHBoxLayout()
+    _rs232_esp_cspect_row.addWidget(host.settings_cspect_rs232_esp_checkbox)
+    _rs232_esp_cspect_row.addStretch(1)
     _rs232_esp_verbose_row = QHBoxLayout()
     _rs232_esp_verbose_row.addWidget(host.settings_rs232_esp_verbose_checkbox)
     _rs232_esp_verbose_row.addStretch(1)
@@ -2352,6 +2402,7 @@ def build_settings_pane(
     _rs232_esp_ip_row.addStretch(1)
     _rs232_esp_vbox = QVBoxLayout()
     _rs232_esp_vbox.addLayout(_rs232_esp_row)
+    _rs232_esp_vbox.addLayout(_rs232_esp_cspect_row)
     _rs232_esp_vbox.addLayout(_rs232_esp_verbose_row)
     _rs232_esp_vbox.addLayout(_rs232_esp_ip_row)
     grid_tab_Settings.addLayout(
@@ -2721,6 +2772,38 @@ def build_settings_pane(
         lambda _s: settings_cspect_update_check_changed())
     grid_tab_Settings.addWidget(
         host.settings_cspect_update_check_checkbox, settings_grid_row("cspect_update_check"), 0, 1, 2)
+
+    # ── CSpect: leave the builds most accounts cannot install out of that
+    # check (9.7.58). CSpect's itch.io page also lists Beta, Patrons and
+    # Builders uploads; they are password protected, and the check offered
+    # them to everybody. Read by the check itself at startup, so there is
+    # nothing to apply here beyond saving the choice.
+    def settings_cspect_discard_restricted_changed():
+        on = host.settings_cspect_discard_restricted_checkbox.isChecked()
+        configuration_dictionary[SETTING_CSPECT_DISCARD_RESTRICTED_UPDATES] = (
+            "true" if on else "false")
+        save_configuration_file()
+
+    host.settings_cspect_discard_restricted_checkbox = QCheckBox(
+        "CSpect - Discard Beta or Patrons, Builders updates")
+    host.settings_cspect_discard_restricted_checkbox.setChecked(
+        cspect_discard_restricted_updates(configuration_dictionary))
+    host.settings_cspect_discard_restricted_checkbox.setToolTip(
+        "CSpect's itch.io page also lists Beta, Patrons and Builders builds.\n"
+        "They are password protected - only a few people can install them -\n"
+        "yet the startup update check offers them like any other build.\n"
+        "Ticked, an upload whose file name contains 'beta', 'patron' or\n"
+        "'builder' (any capitalisation) is left out of the check: no update\n"
+        "prompt for it, and the newest PUBLIC build is the one compared with\n"
+        "the installed CSpect. The log says which build was skipped.\n"
+        "Beta builds are never offered, ticked or not.\n"
+        "Off by default. Saved to the configuration file; read at the next\n"
+        "startup check.")
+    host.settings_cspect_discard_restricted_checkbox.stateChanged.connect(
+        lambda _s: settings_cspect_discard_restricted_changed())
+    grid_tab_Settings.addWidget(
+        host.settings_cspect_discard_restricted_checkbox,
+        settings_grid_row("cspect_discard_restricted_updates"), 0, 1, 2)
 
     # ── NextSync: start the Remote Explorer '.sync5 -listen' server at startup ──
     # The actual start rides the same deferred path as the

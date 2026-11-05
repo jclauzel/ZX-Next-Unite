@@ -71,6 +71,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 MCP_DEFAULT_PORT = 2050          # loopback only; 2048 is NextSync, 2222 espemu
@@ -821,6 +822,15 @@ def stdio_main(argv=None, stdin=None, stdout=None, environ=None):
 #   next_sessions() -> (active, [(sid, addr, name)], max_peers) | None
 #   next_cmd(op, a1, a2, session, timeout) -> dict    the worker's reply dict
 #   next_select(sid) -> (ok, message)
+#   catalog_sources() -> [dict{source, available, reason, search, latest,
+#                              random, download}]
+#   catalog_query(kind, source, query, timeout) -> (ok, message, [entry])
+#       kind "search" | "latest" | "random"; source "unite" | "getit" |
+#       "zxdb" | "zxart" | "itchio". The app's own entries, each tagged
+#       "_fav_source" (and "_url" when the source has a page for it) - the
+#       host runs the tab's own handler and waits for it.
+#   catalog_detail(source, item_id) -> dict
+#   catalog_download(source, item_id, dest_dir) -> dict{folder, files, title}
 
 from zxnu_http_bridge import DEFAULT_TIMEOUT, LONG_TIMEOUT, peer_lacks_crc  # noqa: E402
 
@@ -843,11 +853,92 @@ extra/autoexec.bas on the card the Next then runs it.
 - Emulator: image_load (or image_download_nextzxos), image_put to place \
 files on the card, emulator_start("MAME", file=...) / \
 emulator_start("CSpect", file=...) to boot the image and start a .nex.
+- Software: catalog_latest / catalog_search / catalog_random list what \
+the app's tabs list (source "getit" = software written for the Next, \
+"unite" = every catalogue at once); catalog_send_to_image puts an entry \
+on the loaded card, catalog_send_to_next uploads it to a seated Next, \
+catalog_download just fetches it to this PC.
 - app_status says what is loaded, running, connected and installed; \
 app_log_tail shows the consoles.
 Paths on the Next and inside an image use forward slashes: /games/a.nex, \
 c:/dot, m:/. Tool failures come back as isError results with the reason.
 """
+
+
+# ---- the online catalogues (9.7.58) -----------------------------------------
+CATALOG_SOURCES = ("unite", "getit", "zxdb", "zxart", "itchio")
+CATALOG_MAX_LIMIT = 200
+CATALOG_MIN_QUERY = 3          # the tabs' own SEARCH_MIN_CHARS
+CATALOG_TIMEOUT = 75.0         # Unite!'s own fan-out watchdog is 30 s
+# What an agent is shown of an entry. The app's entries also carry whole
+# server payloads (zxArt's "_source") and rendering hints; none of that helps
+# pick a game, and some of it is large.
+_CATALOG_FIELDS = ("author", "year", "machine", "genre", "category", "size",
+                   "score", "short_text", "classification", "min_price")
+
+
+def catalog_public_entry(entry):
+    """One of the app's catalogue entries as a tool answers it: where it
+    comes from, its id (the pair the other catalog_* tools take), its title,
+    whatever descriptive fields that source has, and its web page."""
+    entry = entry or {}
+    out = {"source": str(entry.get("_fav_source") or entry.get("source") or ""),
+           "id": str(entry.get("id") if entry.get("id") is not None else ""),
+           "title": str(entry.get("title") or "")}
+    for key in _CATALOG_FIELDS:
+        value = entry.get(key)
+        if value not in (None, "", [], {}):
+            out[key] = value
+    kind = str(entry.get("_kind") or "")
+    if kind and kind != "game":
+        out["kind"] = kind
+    url = entry.get("_url") or entry.get("url")
+    if url:
+        out["url"] = str(url)
+    return out
+
+
+CATALOG_UNZIP_MAX_BYTES = 512 * 1024 * 1024   # what one archive may unpack to
+CATALOG_UNZIP_MAX_FILES = 5000
+
+
+def unpack_downloaded_archives(folder, files,
+                               max_bytes=CATALOG_UNZIP_MAX_BYTES,
+                               max_files=CATALOG_UNZIP_MAX_FILES):
+    """Unpack every ``.zip`` among *files* into *folder* and return
+    ``(files_now, notes)``.
+
+    GetIt serves most games as a zip, and a Next cannot run a zip: what
+    belongs on the card is what is inside. Each archive is unpacked beside
+    itself and then removed, so the folder holds the game and nothing is
+    sent twice. An archive is left as it is - with a note saying why - when
+    it is not a readable zip, is encrypted, or would unpack to more than
+    *max_bytes* / *max_files* (a download is untrusted input; zipfile itself
+    already keeps member names inside the target folder).
+    """
+    out, notes = [], []
+    for path in files:
+        if not str(path).lower().endswith(".zip") or not os.path.isfile(path):
+            out.append(path)
+            continue
+        name = os.path.basename(path)
+        try:
+            with zipfile.ZipFile(path) as zf:
+                infos = [i for i in zf.infolist() if not i.is_dir()]
+                if any(i.flag_bits & 0x1 for i in infos):
+                    raise ValueError("it is password protected")
+                if len(infos) > max_files:
+                    raise ValueError(f"it holds {len(infos)} files")
+                if sum(i.file_size for i in infos) > max_bytes:
+                    raise ValueError("it would unpack to more than "
+                                     f"{max_bytes // (1024 * 1024)} MB")
+                for info in infos:
+                    out.append(zf.extract(info, folder))
+            os.remove(path)
+        except (OSError, ValueError, zipfile.BadZipFile, RuntimeError) as ex:
+            out.append(path)
+            notes.append(f"{name} was left as an archive: {ex}")
+    return out, notes
 
 
 def parse_hdfmonkey_ls(stdout):
@@ -1732,6 +1823,225 @@ def build_mcp_tools(host):
                                    + str(res.get("error") or ""))
             out["note"] = ("the Next left listen mode; with extra/autoexec.bas on the "
                            "card it now runs the pushed file")
+        return out
+
+    # ---- the online catalogues (9.7.58) ---------------------------------------
+    # GetIt, ZXDB, zxArt, the user's itch.io library and the Unite! tab's
+    # global search. A search here IS the tab's own Search / Latest / Random
+    # button (the host calls the very handlers the buttons are wired to), so
+    # an agent sees what the user would see - and the user sees the agent's
+    # search arrive in the tabs. A download is the tab's own download; a
+    # source whose downloads the app does not offer is refused here too.
+    source_param = param(
+        "string", "which catalogue: 'unite' (the Unite! tab: every source at "
+        "once), 'getit' (zxnext.uk - software written for the Spectrum "
+        "Next), 'zxdb' (the historical ZX Spectrum archive), 'zxart' "
+        "(zxart.ee - demos, music, pictures) or 'itchio' (your own itch.io "
+        "library)", enum=list(CATALOG_SOURCES), default="unite")
+    limit_param = param("integer", "how many entries to return", default=20,
+                        minimum=1, maximum=CATALOG_MAX_LIMIT)
+    category_param = param(
+        "string", "keep only entries whose category / genre / kind contains "
+        "this text, e.g. 'game' (case-insensitive)")
+    item_source_param = param(
+        "string", "the entry's source, as catalog_search reported it",
+        enum=[s for s in CATALOG_SOURCES if s != "unite"])
+    item_id_param = param("string", "the entry's id, as catalog_search reported it")
+    unzip_param = param(
+        "boolean", "unpack a downloaded .zip into the entry's folder (GetIt "
+        "serves most games zipped, and a Next cannot run a zip); false keeps "
+        "the archive, as the tab's own Send does", default=True)
+
+    def _catalog(kind, args, query=""):
+        source = str(args.get("source") or "unite").strip().lower()
+        if source not in CATALOG_SOURCES:
+            raise McpToolError("unknown source %r (one of: %s)"
+                               % (source, ", ".join(CATALOG_SOURCES)))
+        limit = args.get("limit")
+        limit = 20 if limit is None else int(limit)
+        if not 1 <= limit <= CATALOG_MAX_LIMIT:
+            raise McpToolError("limit must be between 1 and %d" % CATALOG_MAX_LIMIT)
+        category = str(args.get("category") or "").strip().lower()
+        ok, message, raw = host.catalog_query(kind, source, query, CATALOG_TIMEOUT)
+        if not ok:
+            raise McpToolError(message or f"the {source} {kind} failed")
+        entries = [catalog_public_entry(e) for e in (raw or [])]
+        found = len(entries)
+        # Per source, before any filter: a catalogue that did not answer
+        # (the fan-out carries on without it, as the tab does) shows here
+        # as a source that is simply absent.
+        by_source = {}
+        for e in entries:
+            by_source[e["source"]] = by_source.get(e["source"], 0) + 1
+        if category:
+            entries = [e for e in entries
+                       if any(category in str(e.get(k) or "").lower()
+                              for k in ("category", "genre", "kind", "classification"))]
+        out = {"source": source, "found": found, "by_source": by_source,
+               "matching": len(entries), "entries": entries[:limit]}
+        if query:
+            out["query"] = query
+        if category:
+            out["category"] = category
+        if message:
+            out["note"] = message
+        return out
+
+    @tool("catalog_sources",
+          "Which online catalogues the app can reach right now and what each "
+          "allows: search, latest, random, download. itch.io needs the "
+          "optional itch-dl package and your API key entered in the itch.io "
+          "tab; ZXDB and zxArt can be searched but the app does not offer "
+          "their downloads.")
+    def catalog_sources(args):
+        return {"sources": host.catalog_sources()}
+
+    @tool("catalog_search",
+          "Search the online catalogues by title, exactly as the Search "
+          "button of the tab does (source 'unite' = the Unite! global search "
+          "across GetIt, ZXDB, zxArt and - when connected - your itch.io "
+          "library). The result also appears in the app's tabs. Each entry "
+          "carries its `source` and `id`: pass them to catalog_detail, "
+          "catalog_download, catalog_send_to_image or catalog_send_to_next. "
+          "itch.io searches YOUR library (collections, purchases, your own "
+          "projects), not the whole site.",
+          {"query": param("string", "the text to search for (3 characters or more)"),
+           "source": source_param, "limit": limit_param, "category": category_param},
+          required=("query",))
+    def catalog_search(args):
+        query = str(args.get("query") or "").strip()
+        if len(query) < CATALOG_MIN_QUERY:
+            raise McpToolError("the query needs at least %d characters" % CATALOG_MIN_QUERY)
+        return _catalog("search", args, query)
+
+    @tool("catalog_latest",
+          "The latest entries of a catalogue, as the tab's Latest button "
+          "lists them (source 'unite' = Unite!'s Latest: GetIt, ZXDB and "
+          "zxArt together, GetIt first by default). 'getit' is the list of "
+          "software written for the ZX Spectrum Next. Order: ZXDB and zxArt "
+          "are sorted newest first by their servers; GetIt returns its own "
+          "listing order and its entries carry no date (catalog_detail has "
+          "it). itch.io has no 'latest'.",
+          {"source": source_param, "limit": limit_param, "category": category_param})
+    def catalog_latest(args):
+        return _catalog("latest", args)
+
+    @tool("catalog_random",
+          "A random pick from a catalogue, as the tab's Random button gives "
+          "(source 'unite' = Unite!'s Random). itch.io has no 'random'.",
+          {"source": source_param, "limit": limit_param, "category": category_param})
+    def catalog_random(args):
+        return _catalog("random", args)
+
+    def _item(args):
+        source = str(args.get("source") or "").strip().lower()
+        item_id = str(args.get("id") or "").strip()
+        if source not in CATALOG_SOURCES or source == "unite":
+            raise McpToolError("source must be one of: "
+                               + ", ".join(s for s in CATALOG_SOURCES if s != "unite"))
+        if not item_id:
+            raise McpToolError("id is required (an entry's id from catalog_search)")
+        return source, item_id
+
+    @tool("catalog_detail",
+          "Everything the catalogue says about one entry: description, "
+          "author, date, version, size and the file(s) it offers. For an "
+          "itch.io entry: the uploads your account can download.",
+          {"source": item_source_param, "id": item_id_param},
+          required=("source", "id"))
+    def catalog_detail(args):
+        source, item_id = _item(args)
+        return host.catalog_detail(source, item_id)
+
+    def _download(args):
+        source, item_id = _item(args)
+        dest = str(args.get("dest_dir") or "").strip() or None
+        got = dict(host.catalog_download(source, item_id, dest))
+        files = [f for f in (got.get("files") or []) if f]
+        if not got.get("folder") or not files:
+            raise McpToolError(f"nothing was downloaded for {source} {item_id}")
+        if args.get("unzip", True):
+            files, notes = unpack_downloaded_archives(got["folder"], files)
+            if notes:
+                got["notes"] = notes
+        got["files"] = files
+        return got
+
+    @tool("catalog_download",
+          "Download an entry's file(s) to this PC, into a folder named after "
+          "the entry (by default under the app's downloads folder, where its "
+          "own Download and Send buttons put them). Returns the folder and "
+          "the files: hand the folder to image_put or next_put, or use "
+          "catalog_send_to_image / catalog_send_to_next to do both steps at "
+          "once. GetIt entries always download; itch.io entries your account "
+          "owns download through the itch.io API (archives are unpacked); "
+          "ZXDB and zxArt are refused - the app does not offer their "
+          "downloads. Only download what you have the right to use.",
+          {"source": item_source_param, "id": item_id_param,
+           "dest_dir": param("string", "local folder to download under (default: "
+                             "the app's downloads folder; ignored for itch.io, "
+                             "which has its own)"),
+           "unzip": unzip_param},
+          required=("source", "id"))
+    def catalog_download(args):
+        return dict(_download(args), ok=True)
+
+    @tool("catalog_send_to_image",
+          "Download an entry and put it INTO the loaded disk image, in a "
+          "folder named after it under `image_dir` - catalog_download then "
+          "image_put in one call. Refused while an emulator started from the "
+          "app holds the image.",
+          {"source": item_source_param, "id": item_id_param,
+           "image_dir": param("string", "folder inside the image to put the entry's "
+                              "folder in, e.g. /games (created if missing)",
+                              default="/games"),
+           "unzip": unzip_param},
+          required=("source", "id"))
+    def catalog_send_to_image(args):
+        got = _download(args)
+        put = image_put({"local_path": got["folder"],
+                         "image_dir": str(args.get("image_dir") or "/games")})
+        out = {"ok": True, "title": got.get("title"), "downloaded": got["files"],
+               "image_folder": put.get("root"), "sent": put.get("sent"),
+               "files": put.get("files")}
+        if got.get("notes"):
+            out["notes"] = got["notes"]
+        return out
+
+    @tool("catalog_send_to_next",
+          "Download an entry and upload it to a seated Next (real hardware or "
+          "an emulator connected to the Remote Explorer listener), in a "
+          "folder named after it under `remote_dir`, every file verified by "
+          "the CRC-32 the Next computes - catalog_download then next_put in "
+          "one call. Needs a Next seated on the listener (next_sessions).",
+          {"source": item_source_param, "id": item_id_param,
+           "remote_dir": param("string", "folder on the Next to put the entry's "
+                               "folder in (created if missing)", default="/games"),
+           "verify": param("boolean", "verify every file after it lands", default=True),
+           "unzip": unzip_param,
+           "session": session_param},
+          required=("source", "id"))
+    def catalog_send_to_next(args):
+        # Asked BEFORE the download: fetching a game only to find nobody
+        # to send it to is a wasted transfer and a misleading error.
+        if not _roster()["sessions"]:
+            raise McpToolError(
+                "no Next is seated on the listener: start it "
+                "(nextsync_listener_start) and run `.sync5 -L` or ZX Next "
+                "Remote's Listener on the Next first")
+        got = _download(args)
+        remote_dir = (str(args.get("remote_dir") or "/games").replace("\\", "/")
+                      .rstrip("/") or "/")
+        session = _session(args)
+        if remote_dir != "/":
+            _mkdir_tolerant(remote_dir, session)
+        put = next_put({"local_path": got["folder"], "remote_path": remote_dir,
+                        "verify": args.get("verify", True), "session": session})
+        out = {"ok": True, "title": got.get("title"), "downloaded": got["files"],
+               "remote_folder": put.get("root"), "files": put.get("files"),
+               "sent": put.get("sent")}
+        if got.get("notes"):
+            out["notes"] = got["notes"]
         return out
 
     return tools

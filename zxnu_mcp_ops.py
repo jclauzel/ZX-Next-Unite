@@ -37,9 +37,12 @@ import os
 import subprocess
 import sys
 import threading
+import time
 
-from PySide6.QtCore import QObject, Qt, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
 
+import zxnu_api
+import zxnu_itchio
 from zxnu_config import *                                   # noqa: F401,F403
 from zxnu_http_bridge import BridgeReply, flask_available
 from zxnu_i18n import ui_tr_now
@@ -135,6 +138,7 @@ def build_mcp_ops(host, *, configuration_dictionary, save_configuration_file,
         def __init__(self):
             self._cmd_lock = threading.Lock()
             self._img_lock = threading.Lock()
+            self._catalog_lock = threading.Lock()   # one catalogue query at a time
 
         # ---- app ---------------------------------------------------
         def version(self):
@@ -430,9 +434,16 @@ def build_mcp_ops(host, *, configuration_dictionary, save_configuration_file,
                      configuration_dictionary.get(SETTING_MAME_RS232_ESP_IP, "")),
                  "verbose": server.verbose if running else str(configuration_dictionary.get(
                      SETTING_MAME_RS232_ESP_VERBOSE, "")).strip().lower() in ("true", "1", "yes", "on"),
+                 # Every emulator holding the worker: MAMEs on the null_modem
+                 # path and, since 9.7.58, CSpects through the UARTRS232
+                 # plugin. The key keeps its name - agents read it.
                  "mame_users": int(getattr(host, "_esp_emu_users", 0) or 0),
                  "enabled_in_settings": str(configuration_dictionary.get(
-                     SETTING_MAME_RS232_ESP, "")).strip().lower() in ("true", "1", "yes", "on")}
+                     SETTING_MAME_RS232_ESP, "")).strip().lower() in ("true", "1", "yes", "on"),
+                 # The CSpect twin of that toggle (9.7.58): a CSpect launch
+                 # then installs the UARTRS232 plugin and joins this worker.
+                 "cspect_enabled_in_settings": cspect_rs232_esp_enabled(
+                     configuration_dictionary)}
             return d
 
         def esp_status(self):
@@ -677,6 +688,331 @@ def build_mcp_ops(host, *, configuration_dictionary, save_configuration_file,
             if not parts["enqueue"](("select_next", sid)):
                 return False, "the listener stopped"
             return True, f"session {sid} is now the active one"
+
+        # ---- the online catalogues (9.7.58) ---------------------------
+        # A search is the TAB'S OWN handler - the function its Search /
+        # Latest / Random button is wired to - run on the UI thread and
+        # waited for here, so an agent gets exactly the list the tab shows
+        # (and the user sees it arrive). Nothing about how a source is
+        # queried is re-derived at this layer. Two things the tabs do not
+        # give a caller are handled here: a search that the user replaces
+        # in the same moment never reports back (the panes drop a
+        # superseded run's callback), hence the timeout; and the Unite!
+        # handlers take no callback at all, so their end is read off the
+        # bulk flag they set and clear.
+        _CATALOG_LAST = {"getit": "_getit_last_entries",
+                         "zxdb": "_zxdb_last_entries",
+                         "zxart": "_zxart_last_entries",
+                         "itchio": "_itchio_last_entries"}
+
+        def _catalog_sources_ui(self):
+            getit = callable(getattr(host, "getit_run_search", None))
+            zxdb = bool(ZX_NEXT_UNITE_SHOW_ZXDB_PANE) and callable(
+                getattr(host, "zxdb_run_search", None))
+            zxart = bool(ZX_NEXT_UNITE_SHOW_ZXART_PANE) and callable(
+                getattr(host, "zxart_run_search", None))
+            itch_built = callable(getattr(host, "_itchio_cross_search", None))
+            itch_on = itch_built and bool(getattr(host, "_itchio_connected", False))
+            unite = getit and callable(getattr(host, "_allinone_on_search", None))
+            hidden = "this tab is hidden in this build of the app"
+            no_dl = ("the app does not offer downloads from this catalogue "
+                     "(they are switched off in this build); open the entry's "
+                     "page instead")
+            return [
+                {"source": "unite", "available": unite,
+                 "reason": "" if unite else "the Unite! tab is not available",
+                 "search": unite, "latest": unite, "random": unite,
+                 "download": False,
+                 "note": "a view over the sources below: download an entry "
+                         "through the source it came from"},
+                {"source": "getit", "available": getit,
+                 "reason": "" if getit else "the GetIt tab is not available",
+                 "search": getit, "latest": getit, "random": getit,
+                 "download": getit},
+                {"source": "zxdb", "available": zxdb,
+                 "reason": "" if zxdb else hidden,
+                 "search": zxdb, "latest": zxdb, "random": zxdb,
+                 "download": False, "note": no_dl},
+                {"source": "zxart", "available": zxart,
+                 "reason": "" if zxart else hidden,
+                 "search": zxart, "latest": zxart, "random": zxart,
+                 "download": False, "note": no_dl},
+                {"source": "itchio", "available": itch_on,
+                 "reason": "" if itch_on else (
+                     "not connected: enter your itch.io API key in the "
+                     "itch.io tab" if itch_built else
+                     "the optional itch-dl package is not installed, so the "
+                     "itch.io tab is not built"),
+                 "search": itch_on, "latest": False, "random": False,
+                 "download": itch_on,
+                 "note": "your own library (collections, purchases, your "
+                         "projects), not the whole site"},
+            ]
+
+        def catalog_sources(self):
+            return ui.call(self._catalog_sources_ui)
+
+        @staticmethod
+        def _catalog_copy(entries, source):
+            """The tab's entries, safe to hand to another thread: copies,
+            without zxArt's whole server payload, tagged with their source
+            and - where the source has one - their web page."""
+            out = []
+            for e in entries or []:
+                if not isinstance(e, dict):
+                    continue
+                src = e.get("_fav_source") or source or e.get("source") or ""
+                row = {k: v for k, v in e.items() if k != "_source"}
+                row["_fav_source"] = src
+                try:
+                    if src == "zxdb":
+                        row["_url"] = zxnu_api.zxdb_entry_website_url(e.get("id"))
+                    elif src == "zxart":
+                        row["_url"] = zxnu_api.zxart_entry_website_url(e)
+                except Exception:                              # noqa: BLE001
+                    pass
+                out.append(row)
+            return out
+
+        def catalog_query(self, kind, source, query, timeout):
+            if not self._catalog_lock.acquire(timeout=timeout):
+                return False, "another catalogue request is still running", []
+            try:
+                done = threading.Event()
+                box = {}
+
+                def on_ui():
+                    rows = {r["source"]: r for r in self._catalog_sources_ui()}
+                    row = rows.get(source)
+                    if row is None:
+                        raise McpToolError(f"unknown catalogue: {source}")
+                    if not row["available"]:
+                        raise McpToolError(f"{source}: {row['reason']}")
+                    if not row.get(kind):
+                        raise McpToolError(f"{source} has no '{kind}'")
+                    if source == "unite":
+                        if getattr(host, "_allinone_bulk_active", False):
+                            raise McpToolError(
+                                "a Unite! search is already running in the "
+                                "app - retry in a moment")
+                        if kind == "search":
+                            host.allinone_search_input.setText(query)
+                            host._allinone_on_search()
+                        elif kind == "latest":
+                            host._allinone_on_latest()
+                        else:
+                            host._allinone_on_random()
+                        deadline = time.monotonic() + timeout
+
+                        def poll():
+                            # The fan-out raises this flag when it starts
+                            # and clears it - after one merged rebuild -
+                            # when every source has answered.
+                            if not getattr(host, "_allinone_bulk_active", False):
+                                box["entries"] = self._catalog_copy(
+                                    getattr(host, "_allinone_all_entries", None), None)
+                                done.set()
+                            elif time.monotonic() < deadline:
+                                QTimer.singleShot(150, poll)
+                        QTimer.singleShot(150, poll)
+                        return
+
+                    def finished():
+                        # The pane fills its list BEFORE it calls back.
+                        box["entries"] = self._catalog_copy(
+                            getattr(host, self._CATALOG_LAST[source], None), source)
+                        done.set()
+                    if kind == "search":
+                        if source == "itchio":
+                            host._itchio_cross_search(query, finished)
+                        else:
+                            getattr(host, "_cross_search_" + source)(query, finished)
+                    else:
+                        getattr(host, f"{source}_on_{kind}")(finished)
+
+                ui.call(on_ui)
+                if not done.wait(timeout):
+                    return False, (
+                        f"the {source} {kind} did not finish within "
+                        f"{int(timeout)} s: the catalogue did not answer, or "
+                        "a search started in the app at the same moment "
+                        "replaced this one"), []
+                return True, "", box.get("entries") or []
+            finally:
+                self._catalog_lock.release()
+
+        def _catalog_known_entry(self, source, item_id):
+            """The entry the tabs last listed under this id - its title, and
+            for itch.io the whole game record the API calls need."""
+            def on_ui():
+                pools = [getattr(host, self._CATALOG_LAST.get(source, ""), None) or [],
+                         getattr(host, "_allinone_all_entries", None) or []]
+                if source == "itchio":
+                    pools.append(getattr(host, "_itchio_library", None) or [])
+                for pool in pools:
+                    for e in pool:
+                        if (isinstance(e, dict) and str(e.get("id")) == str(item_id)
+                                and (e.get("_fav_source") or source) == source):
+                            return dict(e)
+                return None
+            return ui.call(on_ui)
+
+        def _itch_key(self):
+            return str(configuration_dictionary.get(SETTING_ITCHIO_API_KEY, "") or "").strip()
+
+        def _itch_game(self, item_id):
+            if not self._itch_key():
+                raise McpToolError("no itch.io API key is configured: enter "
+                                   "it in the itch.io tab")
+            game = self._catalog_known_entry("itchio", item_id)
+            if not game or not game.get("url"):
+                raise McpToolError(
+                    f"itch.io entry {item_id} is not in the app's lists: find "
+                    "it first with catalog_search (source itchio)")
+            return game
+
+        def catalog_detail(self, source, item_id):
+            try:
+                if source == "getit":
+                    d = zxnu_api.getit_parse_detail(
+                        zxnu_api.getit_fetch(f"/nx/{item_id}/f/"))
+                    if not (d.get("TITL") or d.get("LINK")):
+                        raise McpToolError(f"GetIt has no entry {item_id}")
+                    out = {"source": "getit", "id": item_id,
+                           "title": d.get("TITL", ""), "author": d.get("AUTH", ""),
+                           "file": d.get("LINK", ""), "size": d.get("FSIZ", ""),
+                           "version": d.get("VER", ""), "date": d.get("DATE", ""),
+                           "downloaded_times": d.get("HITS", ""),
+                           "md5": d.get("MD5", ""),
+                           "description": d.get("DESC", ""),
+                           "url": d.get("URL", ""), "download": True}
+                    return {k: v for k, v in out.items() if v not in ("", None)}
+                if source == "zxdb":
+                    d = zxnu_api.zxdb_parse_game_detail(
+                        zxnu_api.zxdb_fetch_json(f"/entries/{item_id}"))
+                    files = zxnu_api._filter_download_urls(d.get("downloads") or [])
+                    out = {"source": "zxdb", "id": item_id,
+                           "url": zxnu_api.zxdb_entry_website_url(item_id),
+                           "download": False,
+                           "download_note": "the app does not offer ZXDB "
+                                            "downloads; the files are listed "
+                                            "for reference"}
+                    for key in ("title", "year", "authors", "publishers", "machine",
+                                "genre", "language", "description", "remarks"):
+                        if d.get(key) not in ("", None, []):
+                            out[key] = d[key]
+                    out["files"] = [
+                        {k: f.get(k) for k in ("filename", "type", "format", "size", "url")
+                         if f.get(k) not in ("", None)} for f in files[:60]]
+                    return out
+                if source == "zxart":
+                    known = self._catalog_known_entry("zxart", item_id) or {"id": item_id}
+                    out = {"source": "zxart", "id": item_id, "download": False,
+                           "download_note": "the app does not offer zxArt "
+                                            "downloads; open the entry's page"}
+                    for key in ("title", "year", "author", "machine", "genre"):
+                        if known.get(key) not in ("", None, []):
+                            out[key] = known[key]
+                    try:
+                        out["url"] = zxnu_api.zxart_entry_website_url(known)
+                    except Exception:                          # noqa: BLE001
+                        pass
+                    return out
+                game = self._itch_game(item_id)
+                dest = os.path.join(ZXNU_DATA_ROOT, DOWNLOADS_CSPECT_DIRNAME)
+                listed = zxnu_itchio.list_installable_uploads(game, self._itch_key())
+                out = {"source": "itchio", "id": item_id,
+                       "title": game.get("title", ""), "author": game.get("author", ""),
+                       "url": game.get("url", ""),
+                       "description": game.get("short_text", ""),
+                       "download": listed is not None,
+                       "installed_path": zxnu_itchio.installed_path(game, dest) or ""}
+                if listed is None:
+                    out["download_note"] = ("your account has no download for "
+                                            "this item (not owned, or no key)")
+                else:
+                    out["uploads"] = [
+                        {"filename": u.get("filename"), "size": u.get("size"),
+                         "version": u.get("version_name")} for u in listed[2][:40]]
+                return {k: v for k, v in out.items() if v not in ("", None)}
+            except McpToolError:
+                raise
+            except Exception as ex:                            # noqa: BLE001
+                raise McpToolError(
+                    f"{source} did not answer for {item_id}: {ex}") from ex
+
+        def catalog_download(self, source, item_id, dest_dir):
+            if source in ("zxdb", "zxart"):
+                raise McpToolError(
+                    "the app does not offer downloads from "
+                    + ("ZXDB" if source == "zxdb" else "zxArt")
+                    + " (they are switched off in this build); catalog_detail "
+                      "gives the entry's page")
+            try:
+                if source == "getit":
+                    d = zxnu_api.getit_parse_detail(
+                        zxnu_api.getit_fetch(f"/nx/{item_id}/f/"))
+                    title, link = d.get("TITL", ""), d.get("LINK", "")
+                    if not (title or link):
+                        raise McpToolError(f"GetIt has no entry {item_id}")
+                    root = dest_dir or os.path.join(ZXNU_DATA_ROOT, DOWNLOADS_ROOT_DIRNAME)
+                    folder = os.path.join(
+                        root, zxnu_api.getit_safe_folder_name(title or link, item_id))
+                    os.makedirs(folder, exist_ok=True)
+                    path = zxnu_api.getit_download_entry(
+                        item_id, folder, os.path.basename(link) if link else "")
+                    _log(f"MCP: downloaded GetIt entry {item_id} "
+                         f"({title or link}) to {path}")
+                    return {"source": "getit", "id": item_id, "title": title,
+                            "folder": folder, "files": [path],
+                            "bytes": os.path.getsize(path)}
+                game = self._itch_game(item_id)
+                text = (str(game.get("url") or "") + " "
+                        + str(game.get("title") or "")).lower()
+                if "cspect" in text or zxnu_itchio.is_zxnextremote_entry(game):
+                    raise McpToolError(
+                        "install CSpect and ZX Next Remote from the itch.io "
+                        "tab: the app sets them up there (emulator detection, "
+                        "the plugin offer, the update checks), which a plain "
+                        "download would skip")
+                key = self._itch_key()
+                dest = os.path.join(ZXNU_DATA_ROOT, DOWNLOADS_CSPECT_DIRNAME)
+                os.makedirs(dest, exist_ok=True)
+                listed = zxnu_itchio.list_installable_uploads(game, key)
+                if listed is None:
+                    ok, message = zxnu_itchio.install_game(game, key, dest, log_cb=_log)
+                    if not ok:
+                        raise McpToolError(str(message))
+                else:
+                    uploads = listed[2]
+                    if not uploads:
+                        raise McpToolError("itch.io lists no download for this item")
+                    zxnu_itchio.download_owned_upload(
+                        game, key, dest, uploads[0], listed[1], log_cb=_log)
+                install = zxnu_itchio.installed_path(game, dest)
+                if not install:
+                    raise McpToolError("the download finished but its folder "
+                                       "was not found under " + dest)
+                folder = install
+                zips = zxnu_itchio.find_extractable_zips(install)
+                if zips:
+                    folder = zxnu_itchio.extract_zip(zips[0])
+                files = []
+                for dirpath, _dirs, names in os.walk(folder):
+                    for name in sorted(names):
+                        files.append(os.path.join(dirpath, name))
+                        if len(files) >= 500:
+                            break
+                _log(f"MCP: downloaded itch.io entry {item_id} "
+                     f"({game.get('title', '')}) to {folder}")
+                return {"source": "itchio", "id": item_id,
+                        "title": game.get("title", ""), "folder": folder,
+                        "files": files}
+            except McpToolError:
+                raise
+            except Exception as ex:                            # noqa: BLE001
+                raise McpToolError(
+                    f"the {source} download of {item_id} failed: {ex}") from ex
 
     adapter = _AppMcpHost()
     host._mcp_host_adapter = adapter

@@ -49,6 +49,16 @@ emulator launch buttons below:
   (since 9.7.51 CSpect no longer freezes the window until it is closed),
   and while an emulator started from the app has the card mounted, the app
   does not write into that image.
+- **Network for the emulated Next, no hardware** — tick *RS232 ESP Emulation*
+  in Settings and the Next inside **MAME** or **CSpect** gets a working ESP
+  (Wi-Fi module): `.sync5`, ZX Next Remote and the NextZXOS WiFi tools reach
+  your real network through the PC. For CSpect (9.7.58) the app installs its
+  own small plugin, **UARTRS232**, beside `CSpect.exe` at launch — no USB ESP
+  module, and every UART speed works. It sits happily next to the
+  UARTReplacement plugin if you also use a real module: the Settings box
+  switches between the two. After an itch.io CSpect install or update the
+  app offers the plugin - and the Settings box - for the new build.
+  See [extra/UARTRS232](extra/UARTRS232/README.md).
 - **Transfer tools → NextSync** — push files over Wi-Fi from your PC to a real Spectrum Next
   (KS1/KS2 or clones with an ESP module) using the `.sync5` dot command.
   The Next can push files back the other way with `-send`, served by the
@@ -130,7 +140,8 @@ emulator launch buttons below:
   [Model Context Protocol](https://modelcontextprotocol.io) server on this PC
   (loopback, port 2050) so an AI agent such as **Claude Code** or **Claude
   Desktop** can drive the app: load or download a disk image, put files into
-  it, start MAME or CSpect on it, start the RS232 ESP emulation, start the
+  it, start MAME or CSpect on it, search the catalogues (*"what are the latest
+  Next games? put the newest three on the card"*), start the RS232 ESP emulation, start the
   NextSync listener, list the Nexts seated on it, push a build to one and
   **run it** (`next_deploy`: upload + CRC verify + the autoexec loop), read the
   consoles. One command connects Claude Code (shown under the toggle:

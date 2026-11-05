@@ -731,6 +731,9 @@ def build_unite_ops(
 
     host.allinone_search_input.textChanged.connect(_allinone_search_validate)
     host.allinone_search_button.clicked.connect(allinone_on_search)
+    # Exposed for the MCP server's catalog_search (9.7.58): the Search
+    # button's own handler, so an agent's Unite! search IS this one.
+    host._allinone_on_search = allinone_on_search
     host.allinone_search_input.returnPressed.connect(allinone_on_search)
 
     # --- Shared fan-out driver for Random/Latest on the Unite! tab.
@@ -835,6 +838,7 @@ def build_unite_ops(
         _allinone_fanout(actions)
 
     host.allinone_random_button.clicked.connect(allinone_on_random)
+    host._allinone_on_random = allinone_on_random     # catalog_random (MCP, 9.7.58)
 
     # --- Latest handler: fan out to GetIt + ZXDB + zxArt "Latest" actions.
     # Each per-source latest handler clears its own search box, drives its

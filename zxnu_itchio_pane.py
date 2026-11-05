@@ -829,6 +829,10 @@ def build_itchio_pane(
                         # notice appended to the detection toast that the
                         # rescan triggers once CSpect is found.
                         host._cspect_openal_notice_pending = True
+                        # ...and the UARTRS232 plugin offer (9.7.58): a
+                        # CSpect build was just installed, ask whether it
+                        # should get network access too.
+                        host._cspect_esp_plugin_offer_pending = True
                         try:
                             host._rescan_emulators_after_install()
                         except Exception:
@@ -895,6 +899,7 @@ def build_itchio_pane(
                     ).lower()
                     if _is_cspect:
                         host._cspect_openal_notice_pending = True
+                        host._cspect_esp_plugin_offer_pending = True
                     if hasattr(host, "_rescan_emulators_after_install"):
                         try: host._rescan_emulators_after_install()
                         except Exception: pass
