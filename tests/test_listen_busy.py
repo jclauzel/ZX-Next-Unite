@@ -23,8 +23,10 @@ Run with: python test_listen_busy.py
 """
 import os
 import queue
+import shutil
 import socket
 import sys
+import tempfile
 import threading
 import time
 
@@ -88,10 +90,15 @@ def wait_until(fn, timeout=8.0):
     return False
 
 
-def start_session(cmd_q, stop):
+def start_session(cmd_q, stop, control=None):
     app = QCoreApplication.instance() or QCoreApplication(sys.argv)  # noqa: F841
     sig = RemoteExplorerSignals()
-    state = {"connected": 0, "disconnected": 0, "peers": [], "logs": []}
+    state = {"connected": 0, "disconnected": 0, "peers": [], "logs": [],
+             "got": [], "errors": []}
+    sig.got.connect(lambda r, p: state["got"].append((r, p)),
+                    Qt.DirectConnection)
+    sig.error.connect(lambda m: state["errors"].append(m),
+                      Qt.DirectConnection)
     sig.connected.connect(lambda: state.update(
         connected=state["connected"] + 1), Qt.DirectConnection)
     sig.disconnected.connect(lambda: state.update(
@@ -100,7 +107,8 @@ def start_session(cmd_q, stop):
     sig.log.connect(lambda m: state["logs"].append(m), Qt.DirectConnection)
     th = threading.Thread(
         target=run_remote_listen_server,
-        args=(sig, cmd_q, stop), kwargs={"port": PORT}, daemon=True)
+        args=(sig, cmd_q, stop),
+        kwargs={"port": PORT, "control": control}, daemon=True)
     th.start()
     return th, state
 
@@ -122,8 +130,10 @@ def connect_next(handshake=b"Listen"):
 
 def test_multi_next():
     cmd_q, stop = queue.Queue(), threading.Event()
-    th, state = start_session(cmd_q, stop)
+    control = {}
+    th, state = start_session(cmd_q, stop, control)
     socks = []
+    stage = tempfile.mkdtemp(prefix="lb_get_")
     try:
         # ---- a silent probe must not kill the server ------------------
         probe = connect_next(handshake=b"")
@@ -160,6 +170,35 @@ def test_multi_next():
         check("active Next receives the command", got[0:1] == b"M", got)
         a.sendall(frame(b"O"))
         rx_payload(a)                        # the server's ack
+
+        # ---- a UI get aimed at the BENCHED seat's own queue (9.7.61) ---
+        # The Remote Explorer's paste between two Nexts: the items were
+        # copied on one machine and the pane drives the other, so the
+        # download goes to the SOURCE seat through the targeted channel -
+        # served at that seat's next Poll, reported through the ordinary
+        # got signal, the baton left where it is.
+        check("the targeted channel takes a get for the benched seat",
+              control["enqueue_to"](2, ("get", "/B/a.nex", stage)) is True)
+        check("the active Next is not handed it", poll(a) == b"I")
+        got = poll(b)
+        check("the benched Next receives the get", got == b"G/B/a.nex", got)
+        name = b"/B/a.nex"
+        for n, blk in enumerate((b"N" + bytes(4) + bytes([len(name)]) + name,
+                                 b"D" + b"HELLO", b"E", b"B")):
+            b.sendall(frame(blk, n))
+            rx_payload(b)                    # each block's "Ok"
+        check("it reports through the got signal",
+              wait_until(lambda: [g[0] for g in state["got"]]
+                         == ["/B/a.nex"]) and not state["errors"],
+              (state["got"], state["errors"]))
+        landed = os.path.join(stage, "a.nex")
+        check("the file landed where the command said, whole",
+              os.path.isfile(landed)
+              and open(landed, "rb").read() == b"HELLO")
+        check("the baton never moved", state["peers"][-1][0] == 1,
+              state["peers"][-1:])
+        check("a seat that is not there is refused",
+              control["enqueue_to"](99, ("get", "/x", stage)) is False)
 
         # ---- select_next hands the baton over -------------------------
         cmd_q.put(("select_next", 2))
@@ -214,6 +253,7 @@ def test_multi_next():
             except OSError:
                 pass
         th.join(timeout=10)
+        shutil.rmtree(stage, ignore_errors=True)
 
 
 if __name__ == "__main__":

@@ -1469,6 +1469,15 @@ class RemoteExplorerWidget(QWidget):
         # (kind, items, mode) where kind is "local"/"next", mode is "copy"/"cut"
         # and items is [local_path, …] or [(remote_path, is_dir), …].
         self._clip = None
+        # WHICH machine a "next" clipboard was filled on (9.7.61): the paths
+        # alone do not say whose SD card they are on, and with two Nexts
+        # seated the pane can drive another one by the time Paste is
+        # pressed. (the clip tuple itself, connection epoch, sid, address) -
+        # see _clip_source. None = unknown, read as "the driven machine".
+        self._clip_origin = None
+        # The download leg of a paste whose source is ANOTHER seated Next
+        # (9.7.61, see _xnext_begin). None when no such leg is running.
+        self._xnext = None
         # In-flight cut/move jobs, oldest first. Each is a dict:
         #   {token, src_kind, src_path, is_dir, local_copy, ok}
         # The source is deleted only once its marker confirms a clean transfer.
@@ -2433,7 +2442,9 @@ class RemoteExplorerWidget(QWidget):
         self._op_cancelled = True
         drained = self._drain_raw() if self._drain_raw else 0
         # Drained commands will never report back, so count them as done.
-        self._op_completed += int(drained or 0)
+        # So are the gets a paste from another Next had not sent yet
+        # (9.7.61): one is out at a time, the rest sit in no queue at all.
+        self._op_completed += int(drained or 0) + self._xnext_drop_pending()
         self._cut_jobs.clear()
         self._log("Cancelling remote operation after the current transfer…")
         # The dialog froze its status at a bare "Cancelling…" when the button
@@ -2855,6 +2866,10 @@ class RemoteExplorerWidget(QWidget):
         finally:
             self._peer_guard = False
         self._rebuild_session_strip()
+        # 9.7.61: a paste fetching from ANOTHER seated Next cares about the
+        # roster itself, not only the baton - its source may be the seat
+        # that just left, with a get still parked on its queue.
+        self._xnext_roster_changed()
         if active is not None and prev is not None and active != prev:
             # The baton moved: this pane now drives a DIFFERENT machine.
             # 9.7.47: a paste check or a move still in flight belonged to
@@ -4818,6 +4833,8 @@ class RemoteExplorerWidget(QWidget):
     def on_got(self, remote, local_path):
         self._log(f"Downloaded {remote} -> {local_path}")
         self.local_model.setRootPath(self.local_model.rootPath())  # nudge a refresh
+        # a paste from another Next (9.7.61)
+        self._xnext_step(True, remote, local_path)
         self._op_step_done(f"Downloaded {posixpath.basename(remote.rstrip('/')) or remote}")
 
     def on_put_done(self, ok, remote):
@@ -4864,8 +4881,12 @@ class RemoteExplorerWidget(QWidget):
             self._op_cancelled = True
             self._op_quiet_failures = False
             drained = self._drain_raw() if self._drain_raw else 0
-            self._op_completed += int(drained or 0)
+            # + the gets a paste from another Next had not sent yet (9.7.61):
+            # they sit in no queue, so the drain cannot count them.
+            self._op_completed += (int(drained or 0)
+                                   + self._xnext_drop_pending())
             self._cut_jobs.clear()
+        self._xnext_step(False)
         self._op_step_done()
 
     def on_op_done(self, ok, op, path):
@@ -4887,6 +4908,7 @@ class RemoteExplorerWidget(QWidget):
         self._cut_fail_head()
         if msg and self._op_active:
             self._record_op_failure(str(msg))
+        self._xnext_step(False)            # a paste from another Next (9.7.61)
         self._op_step_done()
 
     def on_marked(self, token):
@@ -5115,7 +5137,9 @@ class RemoteExplorerWidget(QWidget):
         act_copy.setEnabled(bool(sel))
         act_cut.setEnabled(bool(sel))
         # Paste: a local clipboard uploads here; a copied Next clipboard is
-        # duplicated ON the Next itself via the dot's rcpy (v5.2+).
+        # duplicated ON the Next itself via the dot's rcpy (v5.2+) - or,
+        # when it was filled on ANOTHER seated Next, fetched from that
+        # machine and uploaded here (9.7.61, _paste_other_next_into_next).
         act_paste.setEnabled(bool(self._clip))
         chosen = menu.exec(self.next_view.viewport().mapToGlobal(pos))
         for act, entry in emu_next:
@@ -5269,6 +5293,11 @@ class RemoteExplorerWidget(QWidget):
         entries = self._selected_next_entries()
         if entries:
             self._clip = ("next", entries, mode)
+            # Remember the machine these paths are ON (9.7.61). Tied to
+            # this very clip tuple, so a clipboard put there any other way
+            # reads as "origin unknown" instead of inheriting this one.
+            self._clip_origin = (self._clip, self._conn_epoch,
+                                 self._peer_active, self._active_addr())
             verb = "Cut" if mode == "cut" else "Copied"
             if mode == "cut":
                 self._log(f"{verb} {len(entries)} Next item(s). Paste in the "
@@ -5277,12 +5306,16 @@ class RemoteExplorerWidget(QWidget):
                 self._log(f"{verb} {len(entries)} Next item(s). Paste in the "
                           "local pane to download, or in a Next folder to "
                           "duplicate them ON the Next (dot v5.2+, works "
-                          "across partitions).")
+                          "across partitions)"
+                          + (" - or switch to another connected Next and "
+                             "paste there to copy them across."
+                             if len(self._peer_map) > 1 else "."))
 
     def _copy_local(self, mode="copy"):
         paths = [p for p in self._selected_local_paths() if os.path.exists(p)]
         if paths:
             self._clip = ("local", paths, mode)
+            self._clip_origin = None
             verb = "Cut" if mode == "cut" else "Copied"
             self._log(f"{verb} {len(paths)} local item(s). Paste in the Next "
                       "pane to " + ("move" if mode == "cut" else "upload")
@@ -5308,6 +5341,18 @@ class RemoteExplorerWidget(QWidget):
                 self._log("Cut Next items paste into the local pane (move to "
                           "the PC). To duplicate on the Next use Copy; to "
                           "move/rename use Rename.")
+                return
+            # WHOSE card are these paths on (9.7.61)? Copied on one Next and
+            # pasted after the pane switched to another, they used to be
+            # handed to the dot's rcpy on the machine driven NOW - which
+            # looked for the first Next's paths on its own card ("rcpy:
+            # files only" on the far screen) and pasted nothing.
+            where, src_sid = self._clip_source()
+            if where == "gone":
+                self._clip_source_gone()
+                return
+            if where == "other":
+                self._paste_other_next_into_next(src_sid, list(entries))
                 return
             base = self._cwd
             jobs = []
@@ -5448,6 +5493,312 @@ class RemoteExplorerWidget(QWidget):
             background_label="Close this window and continue in the background",
             bytes_total=bytes_total, files_total=files_total)
 
+    # ==================================================================
+    #  a Next clipboard pasted while ANOTHER Next is driven (9.7.61)
+    # ==================================================================
+    def _clip_source(self):
+        """Where a "next" clipboard's items live, relative to the machine
+        the pane drives NOW: ``("here", None)``, ``("other", sid)`` -
+        another SEATED Next, reachable through its own queue - or
+        ``("gone", None)``.
+
+        The sid is exact while the connection the copy was made under still
+        stands. Once it ended, or that session left the roster, the machine
+        may be back under a new sid, so the ADDRESS decides - the key the
+        per-machine folders, names and colours already use - but only when
+        exactly ONE seat has it: two emulators on this PC share an address,
+        and guessing between two cards is how files get copied from the
+        wrong one. An origin nobody recorded (a clipboard filled before any
+        roster arrived, a bare widget) reads as "here", which is what every
+        paste meant before 9.7.61."""
+        origin = self._clip_origin
+        if origin is None or origin[0] is not self._clip:
+            return ("here", None)
+        _clip, epoch, sid, addr = origin
+        if sid is None:
+            return ("here", None)
+        if epoch == self._conn_epoch and any(
+                s == sid for s, _a in self._peer_map):
+            return (("here", None) if sid == self._peer_active
+                    else ("other", sid))
+        same = [s for s, a in self._peer_map if addr and a == addr]
+        if len(same) == 1:
+            return (("here", None) if same[0] == self._peer_active
+                    else ("other", same[0]))
+        return ("gone", None)
+
+    def _clip_source_gone(self):
+        """The machine a Next clipboard was filled on is not on the line (or
+        cannot be told apart from another one): say so and touch nothing.
+        Running the paste against the driven machine instead is the bug
+        this replaced."""
+        self._log("Paste: the Next these items were copied from is no "
+                  "longer connected. Copy them again.")
+        self._on_toast("Paste refused",
+                       "The Next these items were copied from is no longer "
+                       "connected. Copy them again.", "yellow")
+
+    def _xnext_begin(self, src_sid, entries, dest_dir, to_next):
+        """Arm the DOWNLOAD leg of a paste whose source is another seated
+        Next; called from inside the operation, so it is never armed for an
+        op _run_op refused.
+
+        The gets go to THAT machine's own queue - the targeted channel the
+        session tabs' Disconnect and the remote updates use. A benched
+        session serves its own queue at every Poll and reports through the
+        same signals, so the baton, and the pane with it, never moves.
+
+        They are sent ONE AT A TIME, each when the one before it reported
+        back, for two reasons. Cancel can only drain the SHARED queue, so
+        anything already parked on the other machine's would still run. And
+        a session that leaves takes its queued commands with it, unreported:
+        with a single command out there is exactly one report to give up on
+        (_xnext_roster_changed), where a parked batch would leave the
+        operation short for good."""
+        job = {"src_sid": src_sid,
+               "source": self._machine_text_for(src_sid) or "the other Next",
+               "dst_sid": self._peer_active, "epoch": self._conn_epoch,
+               "to_next": bool(to_next), "dest": dest_dir,
+               "pending": list(entries), "inflight": None,
+               "done": [], "failed": [], "aborted": ""}
+        self._xnext = job
+        # Planned now, sent one by one: the operation must not end at the
+        # first report just because nothing else is queued yet.
+        self._op_total += len(job["pending"])
+        self._xnext_feed()
+        return job
+
+    def _xnext_feed(self):
+        """Send the next get of the download leg, if it is time to."""
+        job = self._xnext
+        if (job is None or job["inflight"] is not None or job["aborted"]
+                or not job["pending"] or self._op_cancelled):
+            return
+        path, is_dir = job["pending"][0]
+        self._prepare_local_download_dir(job["dest"], path, is_dir)
+        if self._enqueue_to(job["src_sid"], ("get", path, job["dest"])):
+            job["inflight"] = job["pending"].pop(0)
+            return
+        # The worker no longer knows that session (or no targeted channel
+        # is wired): nothing was sent, so nothing will report.
+        self._xnext_abort(f"{job['source']} is no longer connected")
+
+    def _xnext_step(self, ok, remote=None, local_path=None):
+        """A command reported back while the download leg runs: settle the
+        get that is out, then send the next one. ``remote`` (a success
+        only) must name that get - any other download's report is not
+        ours. ``local_path`` is where the worker says it landed."""
+        job = self._xnext
+        if job is None or job["inflight"] is None:
+            return
+        if ok and remote is not None and remote != job["inflight"][0]:
+            return
+        entry, job["inflight"] = job["inflight"], None
+        if ok:
+            job["done"].append(entry + (local_path,))
+        else:
+            job["failed"].append(entry)
+        self._xnext_feed()
+
+    def _xnext_drop_pending(self):
+        """Cancel's half: the gets not sent yet never will be. Returns how
+        many, for the caller to count as reported - the shared-queue drain
+        cannot see them, they were never queued."""
+        job = self._xnext
+        if job is None:
+            return 0
+        n = len(job["pending"])
+        job["failed"].extend(job["pending"])
+        job["pending"] = []
+        return n
+
+    def _xnext_abort(self, why, lost_inflight=False):
+        """Stop the download leg: nothing more is sent, and every step that
+        can no longer report is counted, so the operation ends instead of
+        waiting for it. ``lost_inflight``: the get that is out will never
+        report either (its session left the roster)."""
+        job = self._xnext
+        if job is None or job["aborted"]:
+            return
+        job["aborted"] = why
+        n = self._xnext_drop_pending()
+        if lost_inflight and job["inflight"] is not None:
+            job["failed"].append(job["inflight"])
+            job["inflight"] = None
+            n += 1
+        self._log(f"Copy between Nexts stopped: {why}.")
+        if self._op_active:
+            self._record_op_failure(why)
+            self._op_completed += n
+            if self._op_completed >= self._op_total:
+                self._end_operation()
+
+    def _xnext_roster_changed(self):
+        """on_peers' half of the download leg. The source session left: its
+        queue went with it, so the get that is out (if any) and the ones
+        not sent will never report. The baton moved off the machine the
+        paste was made on: what is staged must not be uploaded to another
+        card - the get that is out still reports, from the source's own
+        seat, and ends the operation."""
+        job = self._xnext
+        if job is None or job["aborted"]:
+            return
+        if not any(s == job["src_sid"] for s, _a in self._peer_map):
+            self._xnext_abort(
+                f"{job['source']} left before the copy finished",
+                lost_inflight=True)
+        elif job["to_next"] and self._peer_active != job["dst_sid"]:
+            self._xnext_abort("the Next the paste was made on is no longer "
+                              "the driven one")
+
+    def _paste_other_next_into_local(self, src_sid, entries):
+        """Paste (copy) a clipboard filled on ANOTHER seated Next into the
+        local pane: a download from that machine, the pane staying on the
+        one it drives."""
+        if not self._connected:
+            return
+        dest = self._local_dir()
+        source = self._machine_text_for(src_sid) or "the other Next"
+
+        def go():
+            self._xnext_begin(src_sid, entries, dest, to_next=False)
+
+        def done(_ok, _fails):
+            self._xnext = None
+
+        self._log(f"Downloading {len(entries)} item(s) from {source} "
+                  f"to {dest} …")
+        self._run_op("Downloading from the other Next…", go, on_done=done)
+
+    def _paste_other_next_into_next(self, src_sid, entries):
+        """Paste a clipboard filled on ANOTHER seated Next into the folder
+        shown on the driven one. No Next can read another's card, so the PC
+        carries the files: stage 1 downloads them from the source machine
+        into a temp folder (the sequenced, targeted gets of _xnext_begin),
+        stage 2 uploads that folder's content here (_xnext_upload). The
+        destination folder and machine are fixed NOW; every abort path
+        removes the stage and leaves the destination untouched."""
+        dst_dir = self._cwd
+        base = self._cwd_base()
+        tmp = tempfile.mkdtemp(prefix="zxnu_xnext_")
+        stage = os.path.join(tmp, "dl")
+        os.makedirs(stage, exist_ok=True)
+        source = self._machine_text_for(src_sid) or "the other Next"
+
+        def go():
+            self._xnext_begin(src_sid, entries, stage, to_next=True)
+
+        def stage2(_ok, _fails):
+            job, self._xnext = self._xnext, None
+            cancelled = self._op_cancelled
+            # Deferred so _end_operation fully unwinds before the next stage.
+            QTimer.singleShot(0, lambda: self._xnext_upload(
+                job, cancelled, tmp, base, dst_dir))
+
+        self._log(f"Copy between Nexts: fetching {len(entries)} item(s) "
+                  f"from {source} …")
+        self._run_op("Copying between Nexts: downloading…", go,
+                     on_done=stage2)
+
+    def _xnext_upload(self, job, cancelled, tmp, base, dst_dir):
+        """Stage 2 of a Next -> other Next paste: upload what the download
+        leg staged into the folder the paste was made in."""
+        def drop(msg):
+            shutil.rmtree(tmp, ignore_errors=True)
+            self._log("Copy between Nexts: " + msg)
+
+        if job is None or cancelled:
+            drop("cancelled — nothing was pasted.")
+            return
+        if job["aborted"]:
+            drop("nothing was pasted.")       # the reason is already logged
+            return
+        if (not self._connected or self._op_active
+                or self._precheck is not None
+                or self._conn_epoch != job["epoch"]
+                or self._peer_active != job["dst_sid"]):
+            # The machine the user pasted INTO is the one thing this stage
+            # may write to. Anything else on the line now is another card.
+            drop("the Next the paste was made on is no longer the driven "
+                 "one — nothing was pasted.")
+            return
+        staged = []
+        for path, is_dir, got_path in job["done"]:
+            local = os.path.join(job["dest"],
+                                 os.path.basename(path.rstrip("/")))
+            # A file lands under the name the NEXT reported, which a
+            # case-sensitive disk does not let us guess from the listing's
+            # spelling: take the worker's word for it - but only for a file
+            # sitting directly in the stage (for a folder that path is just
+            # the last file inside it).
+            if (not is_dir and got_path and os.path.isfile(got_path)
+                    and os.path.normcase(os.path.abspath(
+                        os.path.dirname(got_path)))
+                    == os.path.normcase(os.path.abspath(job["dest"]))):
+                local = got_path
+            if os.path.exists(local):
+                staged.append(local)
+        if not staged:
+            drop(f"nothing could be downloaded from {job['source']} — "
+                 "nothing was pasted.")
+            return
+        if job["failed"]:
+            self._log(f"Copy between Nexts: {len(job['failed'])} item(s) "
+                      f"could not be downloaded from {job['source']}; "
+                      "pasting the rest.")
+        # Will it fit? The sizes are exact now (the files are here); the
+        # free-space figure is the driven drive's freshest cached one.
+        total = 0
+        for local in staged:
+            if os.path.isdir(local):
+                for root, _dirs, files in os.walk(local):
+                    for name in files:
+                        try:
+                            total += os.path.getsize(os.path.join(root, name))
+                        except OSError:
+                            pass
+            else:
+                try:
+                    total += os.path.getsize(local)
+                except OSError:
+                    pass
+        drive = _re_drive_of(dst_dir) or self._default_drive or "C"
+        free = self._free_space.get(drive)
+        if free is not None and total > free:
+            shutil.rmtree(tmp, ignore_errors=True)
+            self._log(f"Copy between Nexts refused: needs {total:,} bytes "
+                      f"but drive {drive} has only {free:,} free.")
+            self._on_toast(
+                "Paste refused",
+                ui_tr_now("This copy needs {need}, but drive {drive}: only "
+                          "has {free} free.").format(
+                              need=self._fmt_free(total), drive=drive,
+                              free=self._fmt_free(free)),
+                "red")
+            return
+
+        def go():
+            for local in staged:
+                if os.path.isdir(local):
+                    self._enqueue_dir_upload(local, base)
+                else:
+                    self._enqueue(("put", local, base))
+
+        def done(ok2, _fails2):
+            shutil.rmtree(tmp, ignore_errors=True)
+            if ok2:
+                self._on_toast(
+                    "✅  Copy between Nexts complete",
+                    ui_tr_now("Copied {n} item(s) from {source} to "
+                              "{dest}.").format(
+                                  n=len(staged), source=job["source"],
+                                  dest=dst_dir),
+                    "green")
+
+        self._log(f"Copy between Nexts: uploading {len(staged)} item(s) "
+                  f"to {dst_dir} …")
+        self._run_op("Copying between Nexts: uploading…", go, on_done=done)
+
     def _paste_into_local(self):
         # Paste the clipboard into the current local directory. Next items:
         # copy = download, cut = download then delete the Next source once
@@ -5466,6 +5817,33 @@ class RemoteExplorerWidget(QWidget):
             return
         _kind, entries, mode = self._clip
         entries = list(entries)
+        # The items may be on ANOTHER seated Next than the one driven now
+        # (9.7.61, see _clip_source). A plain get would then fetch the
+        # driven machine's same-named paths, and a Cut would go on to DELETE
+        # them there.
+        where, src_sid = self._clip_source()
+        if where == "gone":
+            self._clip_source_gone()
+            return
+        if where == "other":
+            if mode == "cut":
+                # The move's delete half is built for the driven machine
+                # (its marks and rm/rmdir ride the shared queue), so a move
+                # off a machine the pane does not drive is not offered. The
+                # clipboard is kept: switching back makes the paste work.
+                source = self._machine_text_for(src_sid)
+                self._log(f"These items were cut on another Next ({source}). "
+                          "Switch back to it to move them to the PC, or use "
+                          "Copy to copy them from here.")
+                self._on_toast(
+                    "Paste refused",
+                    ui_tr_now("These items were cut on another Next "
+                              "({source}). Switch back to it to move them "
+                              "to the PC, or use Copy instead.")
+                    .format(source=source), "yellow")
+                return
+            self._paste_other_next_into_local(src_sid, entries)
+            return
         if mode == "cut":
             self._clip = None
             self._run_op("Moving from the Next…",

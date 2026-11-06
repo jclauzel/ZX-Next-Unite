@@ -1549,6 +1549,304 @@ def test_rcpy_precheck_and_background():
           and logged(calls, "rcpy refused"))
 
 
+def _two_nexts(name, listing, src=(1, "10.0.0.4"), dst=(2, "10.0.0.7"),
+               dst_dir="/A-NGo", **kw):
+    """Two seated Nexts: the items in ``listing`` (folder /B) are copied on
+    ``src`` while it is driven, then the baton moves to ``dst``, whose pane
+    shows ``dst_dir``. Returns the widget, its recorders and the local root."""
+    root = tdir(name)
+    w, calls = make_widget(local_start_dir=root, **kw)
+    w.on_peers((src[0], [src, dst]))
+    connect_widget(w, calls)
+    w.on_listing("/B", list(listing))
+    select_next(w, *[n for _d, _s, n in listing])
+    w._copy_next("copy")
+    w.on_peers((dst[0], [src, dst]))         # the user switches machine
+    w.on_drives("C", ["C"])
+    w.on_listing(dst_dir, [])
+    for rec in calls.values():
+        rec.clear()
+    return w, calls, root
+
+
+def _settle():
+    """Run the deferred stage-2 hop (QTimer.singleShot(0))."""
+    for _ in range(3):
+        QApplication.processEvents()
+
+
+def test_paste_from_another_next():
+    """9.7.61: a Next clipboard remembers WHICH machine it was filled on.
+
+    The field report: two Nexts seated, two files copied on one, the pane
+    switched to the other, Paste. The paths went to the driven machine's
+    rcpy - which looked for the first Next's files on its OWN card ("rcpy:
+    files only" on its screen) and pasted nothing. No Next can read
+    another's card, so the PC carries the files: targeted gets to the
+    source seat, one at a time, then an ordinary upload to the driven
+    one."""
+    print("\n== a paste whose source is another seated Next ==")
+    files = [(False, 9, "a.nex"), (False, 9, "b.nex")]
+
+    # --- the reported case: copy on the Next, paste on the N-Go ----------
+    w, calls, _root = _two_nexts("xn_root", files)
+    w._paste_into_next()
+    q = drain(calls)
+    check("nothing is asked of the DRIVEN machine about the other's paths",
+          not any(c[0] in ("fsize", "rcpy", "get") for c in q), q)
+    check("one targeted get goes to the SOURCE seat, and only one",
+          len(calls["q_to"]) == 1 and calls["q_to"][0][0] == 1
+          and calls["q_to"][0][1][:2] == ("get", "/B/a.nex")
+          and w._op_active and w._op_total == 2, calls["q_to"])
+    stage = calls["q_to"][0][1][2]
+    tmp = os.path.dirname(stage)
+    check("into a stage folder, not the local pane",
+          os.path.isdir(stage) and not samepath(stage, w._local_dir()))
+    tfile(stage, "a.nex", b"AAAA")
+    w.on_got("/B/a.nex", os.path.join(stage, "a.nex"))
+    check("the second get follows the first one's report",
+          len(calls["q_to"]) == 2
+          and calls["q_to"][1] == (1, ("get", "/B/b.nex", stage))
+          and w._op_active, calls["q_to"])
+    tfile(stage, "b.nex", b"BBBB")
+    w.on_got("/B/b.nex", os.path.join(stage, "b.nex"))
+    check("the download leg ends with its last report", not w._op_active)
+    drain(calls)                       # its end-of-op ls + free re-read
+    _settle()
+    q = normq(drain(calls))
+    check("then both files are uploaded into the folder pasted INTO",
+          [c for c in q if c[0] == "put"]
+          == [("put", fwd(os.path.join(stage, "a.nex")), "/A-NGo/"),
+              ("put", fwd(os.path.join(stage, "b.nex")), "/A-NGo/")]
+          and w._op_active and not calls["q_to"][2:], q)
+    w.on_put_done(True, "/A-NGo/a.nex")
+    w.on_put_done(True, "/A-NGo/b.nex")
+    check("the paste ends green, naming both machines' ends",
+          not w._op_active and any(
+              t[2] == "green" and "Copy between Nexts complete" in t[0]
+              and "/A-NGo" in t[1] for t in calls["toasts"]), calls["toasts"])
+    check("and the stage folder is gone", not os.path.exists(tmp))
+
+    # Back on the machine the copy was made on, the same clipboard is a
+    # same-card copy again: the rfsize check, then the dot's rcpy.
+    w.on_peers((1, [(1, "10.0.0.4"), (2, "10.0.0.7")]))
+    w.on_drives("C", ["C"])
+    w.on_listing("/dst", [])
+    for rec in calls.values():
+        rec.clear()
+    w._paste_into_next()
+    check("on its own machine the clipboard still takes the rcpy path",
+          drain(calls) == [("fsize", "/B/a.nex"), ("fsize", "/B/b.nex"),
+                           ("free", "C")] and calls["q_to"] == [])
+    w.on_disconnected()
+
+    # --- a folder rides the same way: mkdir + puts under the paste folder -
+    w, calls, _root = _two_nexts("xn_dir", [(True, 0, "GAMES")])
+    w._paste_into_next()
+    stage = calls["q_to"][0][1][2]
+    check("a folder's stage folder exists before any file lands in it",
+          os.path.isdir(os.path.join(stage, "GAMES")))
+    tfile(os.path.join(stage, "GAMES"), "g.nex", b"G")
+    w.on_got("/B/GAMES", os.path.join(stage, "GAMES"))
+    drain(calls)
+    _settle()
+    q = normq(drain(calls))
+    check("the folder is recreated under the paste folder",
+          ("mkdir", "/A-NGo/GAMES") in q
+          and ("put", fwd(os.path.join(stage, "GAMES", "g.nex")),
+               "/A-NGo/GAMES/") in q, q)
+    w.on_disconnected()
+
+    # --- one download fails: the rest is still pasted, the failure said --
+    w, calls, _root = _two_nexts("xn_fail", files)
+    w._paste_into_next()
+    stage = calls["q_to"][0][1][2]
+    tfile(stage, "a.nex", b"AA")           # a cut-short copy of the failed one
+    w.on_error("get /B/a.nex: failed")
+    check("a failed get still sends the next one",
+          len(calls["q_to"]) == 2 and calls["q_to"][1][1][1] == "/B/b.nex")
+    tfile(stage, "b.nex", b"BBBB")
+    w.on_got("/B/b.nex", os.path.join(stage, "b.nex"))
+    check("the failure is toasted when the download leg ends",
+          any("get /B/a.nex: failed" in t[1] for t in calls["toasts"]),
+          calls["toasts"])
+    drain(calls)
+    _settle()
+    puts = [c for c in normq(drain(calls)) if c[0] == "put"]
+    check("only what downloaded whole is uploaded - never the partial file",
+          puts == [("put", fwd(os.path.join(stage, "b.nex")), "/A-NGo/")]
+          and logged(calls, "could not be downloaded"), puts)
+    w.on_disconnected()
+
+    # --- Cancel: the gets not sent yet never are, nothing is uploaded ----
+    drained = []
+    w, calls, _root = _two_nexts(
+        "xn_cancel", files, drain=lambda: drained.append(1) or 0)
+    w._paste_into_next()
+    stage = calls["q_to"][0][1][2]
+    tmp = os.path.dirname(stage)
+    w._on_op_cancel()
+    check("cancel waits for the get that is out, and counts the unsent one",
+          w._op_active and w._op_completed == 1 and w._op_total == 2
+          and drained == [1])
+    tfile(stage, "a.nex", b"AAAA")
+    w.on_got("/B/a.nex", os.path.join(stage, "a.nex"))
+    drain(calls)
+    _settle()
+    check("a cancelled paste sends no second get and uploads nothing",
+          len(calls["q_to"]) == 1 and not w._op_active
+          and not any(c[0] == "put" for c in drain(calls))
+          and not os.path.exists(tmp)
+          and logged(calls, "nothing was pasted"))
+
+    # --- the SOURCE seat leaves mid-leg: its queue went with it ----------
+    w, calls, _root = _two_nexts("xn_left", files)
+    w._paste_into_next()
+    tmp = os.path.dirname(calls["q_to"][0][1][2])
+    w.on_peers((2, [(2, "10.0.0.7")]))
+    check("the operation ends instead of waiting for a get nobody will "
+          "answer", not w._op_active and logged(calls, "left before"))
+    check("...and says why", any("left before the copy finished" in t[1]
+                                 for t in calls["toasts"]), calls["toasts"])
+    drain(calls)
+    _settle()
+    check("nothing is uploaded and the stage is removed",
+          not any(c[0] == "put" for c in drain(calls))
+          and not os.path.exists(tmp))
+
+    # --- the baton leaves the machine pasted INTO: never another card ----
+    w, calls, _root = _two_nexts("xn_baton", files)
+    w._paste_into_next()
+    stage = calls["q_to"][0][1][2]
+    tmp = os.path.dirname(stage)
+    w.on_peers((1, [(1, "10.0.0.4")]))       # the N-Go left; the Next drives
+    check("the get that is out still has to report", w._op_active)
+    tfile(stage, "a.nex", b"AAAA")
+    w.on_got("/B/a.nex", os.path.join(stage, "a.nex"))
+    drain(calls)
+    _settle()
+    check("what was staged is not uploaded to the machine now driven",
+          not w._op_active and len(calls["q_to"]) == 1
+          and not any(c[0] == "put" for c in drain(calls))
+          and not os.path.exists(tmp))
+
+    # --- the worker no longer knows the source: nothing sent, op over ----
+    w, calls, _root = _two_nexts("xn_unknown", files,
+                                 enqueue_to=lambda sid, cmd: False)
+    w._paste_into_next()
+    _settle()
+    check("an unreachable source ends the paste at once",
+          not w._op_active
+          and not any(c[0] in ("put", "rcpy") for c in drain(calls))
+          and logged(calls, "no longer connected"))
+
+    # --- the copy would not fit on the driven drive ----------------------
+    w, calls, _root = _two_nexts("xn_full", files)
+    w.on_free_space("C", 5)
+    w._paste_into_next()
+    stage = calls["q_to"][0][1][2]
+    tfile(stage, "a.nex", b"AAAA")
+    w.on_got("/B/a.nex", os.path.join(stage, "a.nex"))
+    tfile(stage, "b.nex", b"BBBB")
+    w.on_got("/B/b.nex", os.path.join(stage, "b.nex"))
+    drain(calls)
+    w.on_free_space("C", 5)                  # the end-of-op re-read's answer
+    _settle()
+    check("a copy that cannot fit is refused before any upload",
+          not w._op_active and not any(c[0] == "put" for c in drain(calls))
+          and any(t[0] == "Paste refused" and t[2] == "red"
+                  for t in calls["toasts"]), calls["toasts"])
+
+    # --- the source machine is not on the line at paste time -------------
+    w, calls, _root = _two_nexts("xn_gone", files)
+    w.on_peers((2, [(2, "10.0.0.7")]))
+    for rec in calls.values():
+        rec.clear()
+    w._paste_into_next()
+    check("a clipboard whose machine left pastes nothing, and says so",
+          drain(calls) == [] and calls["q_to"] == [] and not w._op_active
+          and any(t[0] == "Paste refused" for t in calls["toasts"])
+          and logged(calls, "no longer connected"))
+    # It comes back under a NEW sid: the address names it.
+    w.on_peers((2, [(2, "10.0.0.7"), (3, "10.0.0.4")]))
+    for rec in calls.values():
+        rec.clear()
+    w._paste_into_next()
+    check("back under a new sid, the address finds the source again",
+          len(calls["q_to"]) == 1 and calls["q_to"][0][0] == 3,
+          calls["q_to"])
+    w.on_disconnected()
+    # Two seats sharing the address (two emulators on this PC) cannot be
+    # told apart once the sid is gone: no guess between two cards.
+    w, calls, _root = _two_nexts("xn_twins", files,
+                                 src=(1, "127.0.0.1"), dst=(2, "10.0.0.7"))
+    w.on_peers((2, [(2, "10.0.0.7"), (3, "127.0.0.1"), (4, "127.0.0.1")]))
+    for rec in calls.values():
+        rec.clear()
+    w._paste_into_next()
+    check("an address two seats share is no identity: the paste is refused",
+          calls["q_to"] == [] and drain(calls) == []
+          and any(t[0] == "Paste refused" for t in calls["toasts"]))
+
+    # --- a single Next that reconnects keeps its clipboard ---------------
+    root = tdir("xn_redial")
+    w, calls = make_widget(local_start_dir=root)
+    w.on_peers((1, [(1, "10.0.0.4")]))
+    connect_widget(w, calls, listing=[(True, 0, "GAMES")])
+    select_next(w, "GAMES")
+    w._copy_next("copy")
+    w.on_disconnected()
+    w.on_peers((5, [(5, "10.0.0.4")]))
+    connect_widget(w, calls)
+    w.on_listing("/dst", [])
+    for rec in calls.values():
+        rec.clear()
+    w._paste_into_next()
+    check("the same machine back under a new sid still copies on its card",
+          drain(calls) == [("fsize", "/GAMES"), ("free", "C")]
+          and calls["q_to"] == [])
+    w.on_disconnected()
+
+    # --- the LOCAL pane: download from the machine the copy was made on --
+    w, calls, root = _two_nexts("xn_local", files)
+    w._paste_into_local()
+    q = drain(calls)
+    check("a local paste fetches from the SOURCE seat, not the driven one",
+          not any(c[0] == "get" for c in q)
+          and len(calls["q_to"]) == 1 and calls["q_to"][0][0] == 1
+          and calls["q_to"][0][1][:2] == ("get", "/B/a.nex")
+          and samepath(calls["q_to"][0][1][2], root), (q, calls["q_to"]))
+    w.on_got("/B/a.nex", os.path.join(root, "a.nex"))
+    w.on_got("/B/b.nex", os.path.join(root, "b.nex"))
+    check("and ends when both arrived", not w._op_active
+          and len(calls["q_to"]) == 2 and w._xnext is None)
+
+    # A CUT made on the other machine is refused outright: before 9.7.61 it
+    # downloaded the DRIVEN machine's same-named paths and then deleted them.
+    w, calls, _root = _two_nexts("xn_cut", files)
+    w.on_peers((1, [(1, "10.0.0.4"), (2, "10.0.0.7")]))
+    w.on_listing("/B", files)
+    select_next(w, "a.nex")
+    w._copy_next("cut")
+    w.on_peers((2, [(1, "10.0.0.4"), (2, "10.0.0.7")]))
+    for rec in calls.values():
+        rec.clear()
+    w._paste_into_local()
+    check("a cut from another Next touches neither machine",
+          not any(c[0] in ("get", "mark", "rm") for c in drain(calls))
+          and calls["q_to"] == [] and not w._op_active and w._cut_jobs == []
+          and w._clip is not None
+          and any(t[0] == "Paste refused" for t in calls["toasts"]))
+    w.on_peers((1, [(1, "10.0.0.4"), (2, "10.0.0.7")]))
+    for rec in calls.values():
+        rec.clear()
+    w._paste_into_local()
+    check("...and works again once the pane is back on that machine",
+          [c[0] for c in drain(calls)][:2] == ["get", "mark"]
+          and len(w._cut_jobs) == 1)
+    w.on_disconnected()
+
+
 def test_cancel_and_disconnect_mid_op():
     root = tdir("cancel_root")
     drained = {"n": 0}
@@ -4682,6 +4980,7 @@ def main():
         test_copy_cut_paste_next_to_local()
         test_copy_cut_paste_local_to_next()
         test_rcpy_precheck_and_background()
+        test_paste_from_another_next()
         test_cancel_and_disconnect_mid_op()
         test_sync_root_and_local_pane()
         test_sync_root_history()

@@ -10059,6 +10059,17 @@ _TOAST_CATALOGS = {
         "Nothing was downloaded — no zip was created.": "Rien n'a été téléchargé — aucun zip n'a été créé.",
         "Could not build {zip_name}: {error}": "Impossible de créer {zip_name} : {error}",
         "Remote zip refused": "Compression distante refusée",
+        # 9.7.61: a Next clipboard pasted while ANOTHER Next is driven.
+        "Paste refused": "Collage refusé",
+        "These items were cut on another Next ({source}). Switch back to it to move them to the PC, or use Copy instead.":
+            "Ces éléments ont été coupés sur un autre Next ({source}). Revenez à celui-ci pour les déplacer vers le PC, ou utilisez Copier à la place.",
+        "The Next these items were copied from is no longer connected. Copy them again.":
+            "Le Next d'où ces éléments ont été copiés n'est plus connecté. Copiez-les à nouveau.",
+        "This copy needs {need}, but drive {drive}: only has {free} free.":
+            "Cette copie nécessite {need}, mais le lecteur {drive}: n'a que {free} de libre.",
+        "✅  Copy between Nexts complete": "✅  Copie entre Next terminée",
+        "Copied {n} item(s) from {source} to {dest}.":
+            "{n} élément(s) copié(s) de {source} vers {dest}.",
         "✅  Remote zip complete": "✅  Compression distante terminée",
         "Unzip failed": "Échec de la décompression",
         "✅  Unzip complete": "✅  Décompression terminée",
@@ -10184,6 +10195,17 @@ _TOAST_CATALOGS = {
         "Nothing was downloaded — no zip was created.": "No se descargó nada — no se creó ningún zip.",
         "Could not build {zip_name}: {error}": "No se pudo crear {zip_name}: {error}",
         "Remote zip refused": "Compresión remota rechazada",
+        # 9.7.61: a Next clipboard pasted while ANOTHER Next is driven.
+        "Paste refused": "Pegado rechazado",
+        "These items were cut on another Next ({source}). Switch back to it to move them to the PC, or use Copy instead.":
+            "Estos elementos se cortaron en otro Next ({source}). Vuelva a él para moverlos al PC, o use Copiar en su lugar.",
+        "The Next these items were copied from is no longer connected. Copy them again.":
+            "El Next desde el que se copiaron estos elementos ya no está conectado. Cópielos de nuevo.",
+        "This copy needs {need}, but drive {drive}: only has {free} free.":
+            "Esta copia necesita {need}, pero la unidad {drive}: solo tiene {free} libres.",
+        "✅  Copy between Nexts complete": "✅  Copia entre Next completada",
+        "Copied {n} item(s) from {source} to {dest}.":
+            "{n} elemento(s) copiado(s) de {source} a {dest}.",
         "✅  Remote zip complete": "✅  Compresión remota completada",
         "Unzip failed": "Falló la descompresión",
         "✅  Unzip complete": "✅  Descompresión completada",
@@ -10309,6 +10331,17 @@ _TOAST_CATALOGS = {
         "Nothing was downloaded — no zip was created.": "Nada foi transferido — nenhum zip foi criado.",
         "Could not build {zip_name}: {error}": "Não foi possível criar {zip_name}: {error}",
         "Remote zip refused": "Compressão remota recusada",
+        # 9.7.61: a Next clipboard pasted while ANOTHER Next is driven.
+        "Paste refused": "Colagem recusada",
+        "These items were cut on another Next ({source}). Switch back to it to move them to the PC, or use Copy instead.":
+            "Estes itens foram cortados noutro Next ({source}). Volte a ele para os mover para o PC, ou use Copiar.",
+        "The Next these items were copied from is no longer connected. Copy them again.":
+            "O Next de onde estes itens foram copiados já não está ligado. Copie-os novamente.",
+        "This copy needs {need}, but drive {drive}: only has {free} free.":
+            "Esta cópia precisa de {need}, mas a unidade {drive}: só tem {free} livres.",
+        "✅  Copy between Nexts complete": "✅  Cópia entre Next concluída",
+        "Copied {n} item(s) from {source} to {dest}.":
+            "{n} item(ns) copiado(s) de {source} para {dest}.",
         "✅  Remote zip complete": "✅  Compressão remota concluída",
         "Unzip failed": "Falha na descompressão",
         "✅  Unzip complete": "✅  Descompressão concluída",
@@ -10434,6 +10467,17 @@ _TOAST_CATALOGS = {
         "Nothing was downloaded — no zip was created.": "Nic nie pobrano — nie utworzono pliku zip.",
         "Could not build {zip_name}: {error}": "Nie można utworzyć {zip_name}: {error}",
         "Remote zip refused": "Zdalne pakowanie odrzucone",
+        # 9.7.61: a Next clipboard pasted while ANOTHER Next is driven.
+        "Paste refused": "Wklejanie odrzucone",
+        "These items were cut on another Next ({source}). Switch back to it to move them to the PC, or use Copy instead.":
+            "Te elementy zostały wycięte na innym Next ({source}). Przełącz się na niego, aby przenieść je na PC, albo użyj Kopiuj.",
+        "The Next these items were copied from is no longer connected. Copy them again.":
+            "Next, z którego skopiowano te elementy, nie jest już połączony. Skopiuj je ponownie.",
+        "This copy needs {need}, but drive {drive}: only has {free} free.":
+            "Ta kopia wymaga {need}, ale dysk {drive}: ma tylko {free} wolnego.",
+        "✅  Copy between Nexts complete": "✅  Kopiowanie między Next zakończone",
+        "Copied {n} item(s) from {source} to {dest}.":
+            "Skopiowano {n} element(ów) z {source} do {dest}.",
         "✅  Remote zip complete": "✅  Zdalne pakowanie zakończone",
         "Unzip failed": "Rozpakowywanie nie powiodło się",
         "✅  Unzip complete": "✅  Rozpakowywanie zakończone",
@@ -10559,6 +10603,17 @@ _TOAST_CATALOGS = {
         "Nothing was downloaded — no zip was created.": "Ничего не загружено — zip не создан.",
         "Could not build {zip_name}: {error}": "Не удалось создать {zip_name}: {error}",
         "Remote zip refused": "Удалённое архивирование отклонено",
+        # 9.7.61: a Next clipboard pasted while ANOTHER Next is driven.
+        "Paste refused": "Вставка отклонена",
+        "These items were cut on another Next ({source}). Switch back to it to move them to the PC, or use Copy instead.":
+            "Эти элементы были вырезаны на другом Next ({source}). Переключитесь на него, чтобы переместить их на ПК, или используйте «Копировать».",
+        "The Next these items were copied from is no longer connected. Copy them again.":
+            "Next, с которого были скопированы эти элементы, больше не подключён. Скопируйте их заново.",
+        "This copy needs {need}, but drive {drive}: only has {free} free.":
+            "Для этой копии нужно {need}, но на диске {drive}: свободно только {free}.",
+        "✅  Copy between Nexts complete": "✅  Копирование между Next завершено",
+        "Copied {n} item(s) from {source} to {dest}.":
+            "Скопировано элементов: {n}, из {source} в {dest}.",
         "✅  Remote zip complete": "✅  Удалённое архивирование завершено",
         "Unzip failed": "Распаковка не удалась",
         "✅  Unzip complete": "✅  Распаковка завершена",
@@ -10684,6 +10739,17 @@ _TOAST_CATALOGS = {
         "Nothing was downloaded — no zip was created.": "Nic nebylo staženo — žádný zip nevznikl.",
         "Could not build {zip_name}: {error}": "Nelze vytvořit {zip_name}: {error}",
         "Remote zip refused": "Vzdálené zabalení odmítnuto",
+        # 9.7.61: a Next clipboard pasted while ANOTHER Next is driven.
+        "Paste refused": "Vložení odmítnuto",
+        "These items were cut on another Next ({source}). Switch back to it to move them to the PC, or use Copy instead.":
+            "Tyto položky byly vyjmuty na jiném Nextu ({source}). Přepněte zpět na něj a přesuňte je do PC, nebo použijte Kopírovat.",
+        "The Next these items were copied from is no longer connected. Copy them again.":
+            "Next, ze kterého byly tyto položky zkopírovány, už není připojen. Zkopírujte je znovu.",
+        "This copy needs {need}, but drive {drive}: only has {free} free.":
+            "Tato kopie vyžaduje {need}, ale disk {drive}: má volných jen {free}.",
+        "✅  Copy between Nexts complete": "✅  Kopírování mezi Nexty dokončeno",
+        "Copied {n} item(s) from {source} to {dest}.":
+            "Zkopírováno {n} položek z {source} do {dest}.",
         "✅  Remote zip complete": "✅  Vzdálené zabalení dokončeno",
         "Unzip failed": "Rozbalení selhalo",
         "✅  Unzip complete": "✅  Rozbalení dokončeno",
