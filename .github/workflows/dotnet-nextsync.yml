@@ -1,0 +1,186 @@
+# The NextSync Listener .NET library (extra/NextSyncListener/): build + test
+# on every push or pull request that touches it, and on v* tag creation pack
+# it with the tag as its version and attach NextSyncListener-<tag>.zip plus
+# the .nupkg to the draft GitHub release that release.yml creates for the
+# same tag. The package goes to NuGet ONLY when that release is published
+# (the `release: published` event), with the NUGET_API_KEY secret - the
+# workflow never publishes a draft.
+#
+# Deliberately separate from release.yml, the same way flatpak.yml is: the
+# release asset contract with the in-app self-updater (one .exe, the linux
+# .tar.gz, the macOS .zip, sync5) stays untouched - a .nupkg or a
+# NextSyncListener-*.zip can never match select_zxnu_release_asset - and a
+# .NET build failure can never block an app release. The attach step is
+# non-blocking too: it retries while release.yml is still creating the draft,
+# then degrades to a warning (worst case the assets are attached by hand from
+# the workflow artifact).
+#
+# Tags ride the `create` event rather than `push.tags` so that the branch
+# push's `paths` filter never swallows a tag build (flatpak.yml's pattern).
+name: dotnet-nextsync
+
+on:
+  workflow_dispatch:
+  create:
+  push:
+    branches:
+      - "**"
+    paths:
+      - "extra/NextSyncListener/**"
+      - ".github/workflows/dotnet-nextsync.yml"
+  pull_request:
+    paths:
+      - "extra/NextSyncListener/**"
+      - ".github/workflows/dotnet-nextsync.yml"
+  release:
+    types: [published]
+
+# Keyed on the event as well as the ref, cancelling pushes only, for the two
+# reasons flatpak.yml spells out: a tag build must never be cancelled (it
+# attaches release assets), and the `create` event a new branch fires must
+# never cancel that branch's `push` run.
+concurrency:
+  group: dotnet-nextsync-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+
+env:
+  DOTNET_NOLOGO: 1
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+  SOLUTION: extra/NextSyncListener/NextSyncListener.sln
+  LIBRARY: extra/NextSyncListener/NextSyncListener/NextSyncListener.csproj
+  TESTS: extra/NextSyncListener/Tests/Tests.csproj
+
+jobs:
+  build:
+    name: Build, test, pack
+    # Every new branch fires `create` too - those builds are already covered
+    # by the push-paths trigger, so for create events only v* tags proceed.
+    # The publish job below handles the release event on its own.
+    if: >-
+      github.event_name != 'release' &&
+      (github.event_name != 'create' || (github.event.ref_type == 'tag' && startsWith(github.event.ref, 'v')))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Restore
+        run: dotnet restore "$SOLUTION"
+      - name: Build (net45 + netstandard2.0, the sample, the tests)
+        run: dotnet build "$SOLUTION" --configuration Release --no-restore
+      - name: Test against the fake Next
+        run: dotnet test "$TESTS" --configuration Release --no-build --logger "trx;LogFileName=results.trx"
+      - name: Compute the package version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag="$GITHUB_REF_NAME"
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+            echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          else
+            # Not a tag: a CI-only version so the pack step still proves the
+            # packaging, named after the run (never published anywhere).
+            echo "tag=ci-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "version=0.0.${GITHUB_RUN_NUMBER}-ci" >> "$GITHUB_OUTPUT"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Pack (version from the tag)
+        shell: bash
+        run: |
+          dotnet pack "$LIBRARY" --configuration Release --no-build \
+            -p:Version='${{ steps.ver.outputs.version }}' -o dist
+          ls -l dist/
+      - name: Build the release zip (both targets, XML docs, symbols)
+        shell: bash
+        run: |
+          tag='${{ steps.ver.outputs.tag }}'
+          stage="stage/NextSyncListener-${tag}"
+          mkdir -p "$stage/net45" "$stage/netstandard2.0"
+          for tfm in net45 netstandard2.0; do
+            cp extra/NextSyncListener/NextSyncListener/bin/Release/$tfm/NextSyncListener.dll \
+               extra/NextSyncListener/NextSyncListener/bin/Release/$tfm/NextSyncListener.xml \
+               extra/NextSyncListener/NextSyncListener/bin/Release/$tfm/NextSyncListener.pdb \
+               "$stage/$tfm/"
+          done
+          cp extra/NextSyncListener/README.md LICENSE "$stage/"
+          (cd stage && zip -r "../dist/NextSyncListener-${tag}.zip" "NextSyncListener-${tag}")
+          ls -l dist/
+      - uses: actions/upload-artifact@v7
+        with:
+          name: NextSyncListener-${{ steps.ver.outputs.tag }}
+          path: dist/*
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: test-results-${{ steps.ver.outputs.tag }}
+          path: extra/NextSyncListener/Tests/TestResults/*.trx
+          if-no-files-found: ignore
+      - name: Attach the zip and the package to the draft release (v* tags)
+        if: steps.ver.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tag='${{ steps.ver.outputs.tag }}'
+          found=""
+          for attempt in $(seq 1 10); do   # release.yml may still be creating the draft
+            if gh release view "$tag" >/dev/null 2>&1; then
+              found="yes"
+              break
+            fi
+            echo "release $tag not there yet (attempt $attempt/10) - waiting 60s"
+            sleep 60
+          done
+          if [ -z "$found" ]; then
+            echo "::warning::no release found for $tag - attach dist/* manually from the workflow artifact"
+            exit 0
+          fi
+          # --clobber: re-runs replace same-named assets, like release.yml.
+          if ! gh release upload "$tag" dist/NextSyncListener-${tag}.zip dist/*.nupkg dist/*.snupkg --clobber; then
+            echo "::warning::could not attach the .NET assets to $tag - attach dist/* manually from the workflow artifact"
+          fi
+
+  publish:
+    name: Publish to NuGet (published releases only)
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The release's own tag, not the default branch: the package must be
+          # the code the release was cut from.
+          ref: ${{ github.event.release.tag_name }}
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Build and test the tagged commit
+        run: |
+          dotnet restore "$SOLUTION"
+          dotnet build "$SOLUTION" --configuration Release --no-restore
+          dotnet test "$TESTS" --configuration Release --no-build
+      - name: Pack with the release's version
+        shell: bash
+        run: |
+          tag='${{ github.event.release.tag_name }}'
+          dotnet pack "$LIBRARY" --configuration Release --no-build -p:Version="${tag#v}" -o dist
+          ls -l dist/
+      - name: Push to nuget.org
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        shell: bash
+        run: |
+          if [ -z "$NUGET_API_KEY" ]; then
+            echo "::warning::NUGET_API_KEY is not set - the package was built but not pushed. Add the secret (repository Settings -> Secrets and variables -> Actions) and re-run this job, or push dist/*.nupkg by hand."
+            exit 0
+          fi
+          # --skip-duplicate: a re-run of an already-pushed version is not a failure.
+          dotnet nuget push dist/*.nupkg --api-key "$NUGET_API_KEY" \
+            --source https://api.nuget.org/v3/index.json --skip-duplicate

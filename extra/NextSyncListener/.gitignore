@@ -1,0 +1,6 @@
+# .NET build output of the NextSync Listener library, its sample and its tests.
+bin/
+obj/
+*.user
+.vs/
+TestResults/
