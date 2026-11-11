@@ -26,9 +26,11 @@ rules. It exists so a custom Remote Explorer can be written in .NET.
 > **Verification status.** The library is proven against an *in-process fake
 > Next* that replays the dot's half of the protocol exactly as the mocks in
 > ZX-Next-Unite's `tests/test_remote_listen.py` do (the executable spec the
-> Python worker is held to). It has **not yet been run against a real Next**;
-> the wire is byte-identical to the worker's by construction, but say so
-> yourself until you have.
+> Python worker is held to). On **real hardware** - a ZX Spectrum Next running
+> `.sync5` 5.9.14, 2026-11-11 - the sample app's run was clean: the handshake,
+> the version ident, drives, a 50-entry listing, free space and the quit.
+> **Put, get and CRC-32 have not been run against a real Next yet**: their
+> retry framing rests on the fake Next alone, so say so yourself until you have.
 
 ## Installing
 
