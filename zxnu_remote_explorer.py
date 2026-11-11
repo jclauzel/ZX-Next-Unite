@@ -482,6 +482,18 @@ def _re_norm_dir(p):
     return p
 
 
+def _same_local_dir(a, b):
+    """Whether two spellings name the same LOCAL folder: slashes unified,
+    a trailing slash ignored, case folded where the file system folds it
+    (os.path.normcase). Empty or None on either side is never a match."""
+    if not a or not b:
+        return False
+
+    def _norm(p):
+        return os.path.normcase(p.replace("\\", "/").rstrip("/"))
+    return _norm(a) == _norm(b)
+
+
 def _norm_remote_dir(p):
     """Normalise a saved Next-side folder path to an absolute posix dir.
 
@@ -1241,7 +1253,8 @@ class RemoteExplorerWidget(QWidget):
                  on_emulator_recheck=None, update_prompt_enabled=None,
                  on_update_prompt=None,
                  local_history=None, on_local_history_changed=None,
-                 drop_silent=None, image_write_blocker=None):
+                 drop_silent=None, image_write_blocker=None,
+                 local_browse_dir=None, on_local_dir_changed=None):
         super().__init__(parent)
         self._enqueue_raw = enqueue          # host closure: put one command
         # host closure: enqueue_to(sid, cmd) -> bool, delivering ONE command
@@ -1374,6 +1387,20 @@ class RemoteExplorerWidget(QWidget):
         # load_configuration_file has run.
         self._on_local_history_changed = (
             on_local_history_changed or (lambda _raw: None))
+        # The folder the local pane is BROWSING (9.7.62), handed in
+        # (local_browse_dir) and reported back (on_local_dir_changed) the
+        # same way: it is the pane's own state, distinct from the sync
+        # root it COMMITS. Without it every restart put the pane back on
+        # the sync root - reported by a user who had browsed elsewhere,
+        # the offer button up and the sync root deliberately left alone,
+        # and found the previous folder on the next launch. The hook
+        # fires on every CHANGE of the browsed folder once the startup
+        # restore is over, never during it: a build must rewrite nothing
+        # (the rule the history list above was built under).
+        self._on_local_dir_changed = (on_local_dir_changed
+                                      or (lambda _p: None))
+        self._local_dir_reported = None      # last folder handed to the hook
+        self._local_dir_restoring = True     # until the startup restore ends
         # Surface Next-side failures ('F' replies / abandoned transfers) to the
         # user: on_toast(title, message, variant) pops a host toast.
         self._on_toast = on_toast or (lambda title, msg, variant="red": None)
@@ -1750,6 +1777,21 @@ class RemoteExplorerWidget(QWidget):
             self._set_local_dir(local_start_dir, commit=True)
         else:
             self._set_local_dir(QDir.homePath(), commit=False)
+        # Then the folder the pane was BROWSING when the app last closed
+        # (9.7.62), restored UNCOMMITTED on top of the sync root: the pane,
+        # the box and the offer button come back exactly as they were
+        # left, the sync root above enabling Start. The sync root goes
+        # FIRST on purpose - committed after this browse it would move the
+        # pane back onto itself. A remembered folder that is gone (deleted,
+        # unplugged) leaves the pane on the sync root, as a vanished sync
+        # root leaves it at home; one that IS the sync root changes nothing.
+        browse = normalize_history_folder(local_browse_dir or "")
+        if (browse and os.path.isdir(browse)
+                and not _same_local_dir(browse, self._browse_root)):
+            self._set_local_dir(browse, commit=False)
+        self._local_dir_restoring = False
+        self._local_dir_reported = normalize_history_folder(
+            self._browse_root or "")
 
         # ---- centre: transfer buttons -------------------------------------
         self.btn_to_next = QPushButton("->:", self)
@@ -6602,6 +6644,7 @@ class RemoteExplorerWidget(QWidget):
         root_tree_at(self.local_view, self.local_proxy, self.local_model, path)
         self._browse_root = path
         self._sync_local_drive_combo(path)
+        self._report_local_dir()
         if commit:
             self._commit_sync_root(path)
         else:
@@ -6609,6 +6652,23 @@ class RemoteExplorerWidget(QWidget):
             # _show_browse_in_box for why, and why it is deferred.
             QTimer.singleShot(0, self._show_browse_in_box)
         self._update_set_syncroot_button()
+
+    def _report_local_dir(self):
+        """Tell the host the folder the local pane is browsing changed
+        (9.7.62), so the next build reopens on it. Silent while the startup
+        restore runs - a build must rewrite nothing - and when the folder
+        is the one last reported (a re-root onto the same path), since the
+        host saves hdfg.cfg on every report. The spelling handed over is
+        normalize_history_folder's, the cfg's canonical one, and a folder
+        it refuses (a '|' in the name) is simply never remembered, as the
+        history list never remembers one."""
+        if self._local_dir_restoring:
+            return
+        key = normalize_history_folder(self._browse_root or "")
+        if not key or _same_local_dir(key, self._local_dir_reported):
+            return
+        self._local_dir_reported = key
+        self._on_local_dir_changed(key)
 
     def _commit_sync_root(self, path):
         """Record `path` as the sync root, show it in the path box, and notify the

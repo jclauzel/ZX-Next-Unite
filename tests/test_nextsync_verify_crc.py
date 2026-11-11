@@ -71,7 +71,7 @@ check("...right after the send-conflict row",
       and rows.index("nextsync_send_conflict") + 1 == rows.index("nextsync_verify_crc"),
       str(rows[rows.index("nextsync_send_conflict"):][:3] if "nextsync_send_conflict" in rows else rows))
 check("the checkbox is placed through the registrar",
-      'settings_grid_row("nextsync_verify_crc")' in pane_src)
+      '_place("nextsync_verify_crc", ' in pane_src)
 check("...never by a literal grid index",
       not re.search(r"addWidget\(host\.settings_nextsync_verify_crc_checkbox,\s*\d", pane_src))
 

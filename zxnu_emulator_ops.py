@@ -2447,6 +2447,12 @@ def build_emulator_ops(
                 variant="green", duration_ms=12000)
         except Exception:
             pass
+        # Then, once the toast is up: offer the RS232 ESP emulation for the
+        # MAME that just landed (9.7.63) - the CSpect install's offer, for
+        # MAME. Reached by attribute: the offer is built further down this
+        # builder, and the offer itself waits for the screen to be free.
+        QTimer.singleShot(900, lambda: getattr(
+            host, "_offer_mame_esp_emulation", lambda: None)())
 
     def _on_mame_install_result(mame_path):
         host._mame_installing = False
@@ -4475,6 +4481,71 @@ def build_emulator_ops(
                 logging.exception("could not show the UARTRS232 toast")
         return installed
     host._offer_cspect_esp_plugin = _offer_cspect_esp_plugin
+
+    # ── RS232 ESP emulation offer after a MAME install / update (9.7.63) ──
+    # The MAME twin of the CSpect offer above, scheduled by
+    # _mame_finish_install (the in-app installer AND the startup update's
+    # install share it). MAME needs no plugin - launch_mame picks the
+    # built-in esp8266_at card or the null_modem + espemu path per launch -
+    # so there is ONE question, and only while Settings -> "RS232 ESP
+    # Emulation (Mame)" is off; a yes ticks that box, whose own handler
+    # saves the setting and lights the shared widgets.
+    def _offer_mame_esp_emulation(_tries=0):
+        """UI thread only. Returns True when the MAME emulation ends up
+        enabled (already on, or just turned on)."""
+        if QApplication.activeModalWidget() is not None:
+            if _tries < 600:
+                QTimer.singleShot(
+                    500, lambda: _offer_mame_esp_emulation(_tries + 1))
+            return False
+        if mame_rs232_esp_enabled(configuration_dictionary):
+            return True
+        box = QMessageBox(host)
+        box.setIcon(QMessageBox.Question)
+        box.setWindowTitle(
+            ui_tr_now("Enable the RS232 ESP emulation for MAME?"))
+        box.setTextFormat(Qt.RichText)
+        box.setText(ui_tr_now(
+            "ZX Next Unite can give the ZX Spectrum Next emulated by MAME a "
+            "working <b>ESP (Wi-Fi module)</b> without any hardware, so "
+            ".sync5, ZX Next Remote and the NextZXOS WiFi tools reach your "
+            "network through this PC. A MAME build that offers the built-in "
+            "<b>esp8266_at</b> card (the ZX Spectrum Next MAME fork) is "
+            "launched with it; any other MAME gets the app's RS232 ESP "
+            "emulation over a null modem link.<br><br>"
+            "Enable it now? A MAME launched from the app then gives the "
+            "emulated Next network access. Untick <b>RS232 ESP Emulation "
+            "(Mame)</b> in Settings at any time to launch without it."))
+        enable_btn = box.addButton(
+            ui_tr_now("Enable it now"), QMessageBox.AcceptRole)
+        box.addButton(ui_tr_now("Not now"), QMessageBox.RejectRole)
+        box.setDefaultButton(enable_btn)
+        box.exec()
+        if box.clickedButton() is not enable_btn:
+            add_main_log_window(
+                "RS232 ESP: skipped - tick 'RS232 ESP Emulation (Mame)' in "
+                "Settings to give the emulated Next a Wi-Fi module.")
+            return False
+        checkbox = getattr(host, "settings_rs232_esp_checkbox", None)
+        if checkbox is not None:
+            checkbox.setChecked(True)      # its handler saves and lights
+        else:
+            configuration_dictionary[SETTING_MAME_RS232_ESP] = "true"
+            save_configuration_file()
+        enabled_line = ui_tr_now(
+            "RS232 ESP: the emulation is now enabled for MAME - the next "
+            "MAME launched from the app gives the emulated Next network "
+            "access.")
+        add_main_log_window(enabled_line)
+        logging.info("RS232 ESP emulation enabled for MAME after an install")
+        try:
+            host._show_toast(
+                "✅  RS232 ESP emulation enabled for MAME", enabled_line,
+                variant="green", duration_ms=9000)
+        except (RuntimeError, AttributeError):
+            logging.exception("could not show the MAME RS232 ESP toast")
+        return True
+    host._offer_mame_esp_emulation = _offer_mame_esp_emulation
 
     # Expose the closures the rest of __init__ wires to widgets by bare name
     # (re-bound to bare locals at the call site). launch_cspect/launch_mame

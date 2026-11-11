@@ -512,7 +512,12 @@ elif PHASE in (6, 7):
                     "cspect_rs232_esp=true\n"
                     # "CSpect - Discard Beta or Patrons, Builders updates"
                     # (9.7.58), default off: saved ON here.
-                    "cspect_discard_restricted_updates=true\n")
+                    "cspect_discard_restricted_updates=true\n"
+                    # The Settings tab's Basic / Advanced switch (9.7.63),
+                    # default Basic: saved Advanced, so every row the
+                    # checks below read is on screen and the restore is
+                    # proven; the phase flips to Basic itself at the end.
+                    "settings_advanced=true\n")
     if PHASE == 7:
         # No MAME for this phase (9.7.53): the junction to the repo's
         # downloads/, where a dev box keeps its downloads/mame/mame.exe, is
@@ -561,6 +566,38 @@ def settings_row(name):
     right argv."""
     from zxnu_settings_pane import settings_grid_row
     return settings_grid_row(name)
+
+
+def settings_group(name):
+    """The group box key a Settings row lives in, "" for the main grid
+    (9.7.63: the MAME, CSpect and RS232 ESP rows sit in group boxes with
+    grids of their own). Late import, as above."""
+    from zxnu_settings_pane import settings_grid_group
+    return settings_grid_group(name)
+
+
+def settings_anchor(group):
+    """The main-grid row a group box occupies."""
+    from zxnu_settings_pane import settings_group_anchor_row
+    return settings_group_anchor_row(group)
+
+
+def sref(name, col):
+    """Where a named Settings row's widget must sit: (grid key, row, col) -
+    the row being the one IN its grid. Compared with settings_pos(), so a
+    widget placed on the raw main grid under a grouped name (a small
+    main-grid row that would still equal its in-group index) fails."""
+    return (settings_group(name), settings_row(name), col)
+
+
+def settings_pos(win, w):
+    """(grid key, row, col) of a widget among the Settings grids (the main
+    one under "" and one per group box), or None when no grid holds it."""
+    for key, grid in win._settings_grids.items():
+        i = grid.indexOf(w)
+        if i >= 0:
+            return (key,) + tuple(grid.getItemPosition(i)[:2])
+    return None
 
 
 FAILURES = []
@@ -1350,21 +1387,19 @@ def inspect_phase1():
           f"{_sdm.left()},{_sdm.top()},{_sdm.right()},{_sdm.bottom()}")
 
     # ---- retro log console color picker (Settings tab) ---------------------
-    lay = win.settings_btn_color_retro_log.parentWidget().layout()
     def spos(w):
-        i = lay.indexOf(w)
-        return None if i < 0 else lay.getItemPosition(i)[:2]
+        return settings_pos(win, w)
     check("general-text swatch at its named row",
           spos(win.settings_btn_color_general_text)
-          == (settings_row("color_general_text"), 1),
+          == sref("color_general_text", 1),
           str(spos(win.settings_btn_color_general_text)))
     check("retro-log swatch right under it",
           spos(win.settings_btn_color_retro_log)
-          == (settings_row("color_retro_log"), 1),
+          == sref("color_retro_log", 1),
           str(spos(win.settings_btn_color_retro_log)))
     check("retro font combo at its named row",
           spos(win.settings_retro_log_font_combo)
-          == (settings_row("retro_log_font"), 1),
+          == sref("retro_log_font", 1),
           str(spos(win.settings_retro_log_font_combo)))
     check("default retro color is phosphor green",
           win.img_color_retro_log.name().lower() == "#78ff8c", win.img_color_retro_log.name())
@@ -2352,14 +2387,12 @@ def inspect_phase6():
     timer = _arm_msgbox_autoclose(seen)
 
     cb = win.settings_zxnu_update_check_checkbox
-    lay = cb.parentWidget().layout()
     def spos(w):
-        i = lay.indexOf(w)
-        return None if i < 0 else lay.getItemPosition(i)[:2]
+        return settings_pos(win, w)
 
     # ---- general font size + update-on-connect prompt rows (9.7.2) --------
     check("general font combo at its named row",
-          spos(win.settings_general_font_combo) == (settings_row("general_font"), 1),
+          spos(win.settings_general_font_combo) == sref("general_font", 1),
           str(spos(win.settings_general_font_combo)))
     check("general font row sits directly above the Background colour row",
           settings_row("general_font") + 1 == settings_row("color_background"))
@@ -2384,7 +2417,7 @@ def inspect_phase6():
           win.settings_general_font_combo.font().pointSize() == _pt0 and "general_font_size=" in cfg_lines(),
           f"{win.settings_general_font_combo.font().pointSize()} vs {_pt0}")
     check("update-on-connect prompt toggle sits directly below the ZXNU update check",
-          spos(win.settings_re_update_prompt_checkbox) == (settings_row("re_update_prompt"), 0)
+          spos(win.settings_re_update_prompt_checkbox) == sref("re_update_prompt", 0)
           and settings_row("re_update_prompt") == settings_row("zxnu_update_check") + 1,
           str(spos(win.settings_re_update_prompt_checkbox)))
     win.settings_re_update_prompt_checkbox.setChecked(False)
@@ -2397,25 +2430,25 @@ def inspect_phase6():
     # (SETTINGS_TAB_ROWS), so inserting a row never renumbers this test.
     check("update-check toggles at the top of Settings",
           spos(win.settings_zxnextremote_update_check_checkbox)
-          == (settings_row("zxnextremote_update_check"), 0)
+          == sref("zxnextremote_update_check", 0)
           and settings_row("zxnextremote_update_check") == 0
-          and spos(cb) == (settings_row("zxnu_update_check"), 0)
+          and spos(cb) == sref("zxnu_update_check", 0)
           and settings_row("zxnu_update_check")
               > settings_row("zxnextremote_update_check"),
           str(spos(cb)))
     check("UI language row right under it",
           spos(win.settings_ui_language_combo)
-          == (settings_row("ui_language"), 1),
+          == sref("ui_language", 1),
           str(spos(win.settings_ui_language_combo)))
     check("wizard toggle right under the language row",
           spos(win.settings_wizard_checkbox)
-          == (settings_row("wizard"), 0)
+          == sref("wizard", 0)
           and settings_row("wizard")
           == settings_row("ui_language") + 1,
           str(spos(win.settings_wizard_checkbox)))
     check("desktop theme at its named row",
           spos(win.settings_desktop_theme_combo)
-          == (settings_row("desktop_theme"), 1),
+          == sref("desktop_theme", 1),
           str(spos(win.settings_desktop_theme_combo)))
 
     # ---- "Background" colour + "Reset theme" (the white-panes fix) -------
@@ -2426,7 +2459,7 @@ def inspect_phase6():
     # runner, whose variant is whatever the OS reports.
     check("background swatch at its named row",
           spos(win.settings_btn_color_background)
-          == (settings_row("color_background"), 1),
+          == sref("color_background", 1),
           str(spos(win.settings_btn_color_background)))
     check("background sits directly above the up-directory row",
           settings_row("color_background") + 1
@@ -2434,7 +2467,7 @@ def inspect_phase6():
           f'{settings_row("color_background")} vs {settings_row("color_up_directory")}')
     check("reset-theme button at its named row",
           spos(win.settings_btn_reset_theme)
-          == (settings_row("reset_theme"), 1),
+          == sref("reset_theme", 1),
           str(spos(win.settings_btn_reset_theme)))
     check("default background is the dark ground",
           win.img_color_background.name().lower() == "#0d0d20",
@@ -2529,11 +2562,11 @@ def inspect_phase6():
     # Recycle Bin deletes toggle: sits right under the no-prompt checkbox.
     rb = win.settings_delete_to_recycle_bin_checkbox
     check("recycle toggle at its named row",
-          spos(rb) == (settings_row("delete_to_recycle_bin"), 0),
+          spos(rb) == sref("delete_to_recycle_bin", 0),
           str(spos(rb)))
     check("no-prompt checkbox directly above it",
           spos(win.settings_no_prompt_on_deletion_checkbox)
-          == (settings_row("no_prompt_on_deletion"), 0)
+          == sref("no_prompt_on_deletion", 0)
           and settings_row("no_prompt_on_deletion") + 1
           == settings_row("delete_to_recycle_bin"),
           str(spos(win.settings_no_prompt_on_deletion_checkbox)))
@@ -2541,11 +2574,11 @@ def inspect_phase6():
     # both placed by name through the SETTINGS_TAB_ROWS registrar.
     ac = win.settings_re_autostart_checkbox
     check("RE-autostart toggle at its named row",
-          spos(ac) == (settings_row("re_autostart"), 0),
+          spos(ac) == sref("re_autostart", 0),
           str(spos(ac)))
     check("send-conflict combo directly under it",
           spos(win.settings_nextsync_send_conflict_combo)
-          == (settings_row("nextsync_send_conflict"), 1)
+          == sref("nextsync_send_conflict", 1)
           and settings_row("re_autostart") + 1
           == settings_row("nextsync_send_conflict"),
           str(spos(win.settings_nextsync_send_conflict_combo)))
@@ -2553,7 +2586,7 @@ def inspect_phase6():
     # combo, persisted both ways, and the red log line it uses.
     vc = win.settings_nextsync_verify_crc_checkbox
     check("verify-CRC toggle directly under the send-conflict row",
-          spos(vc) == (settings_row("nextsync_verify_crc"), 0)
+          spos(vc) == sref("nextsync_verify_crc", 0)
           and settings_row("nextsync_send_conflict") + 1 == settings_row("nextsync_verify_crc"),
           str(spos(vc)))
     vc.setChecked(False)
@@ -2567,7 +2600,7 @@ def inspect_phase6():
     # both ways, and the worker hook that reads it per dial.
     ss = win.settings_nextsync_sessions_checkbox
     check("Sessions toggle directly under the verify-CRC row",
-          spos(ss) == (settings_row("nextsync_sessions"), 0)
+          spos(ss) == sref("nextsync_sessions", 0)
           and settings_row("nextsync_verify_crc") + 1 == settings_row("nextsync_sessions"),
           str(spos(ss)))
     ss.setChecked(False)
@@ -2590,7 +2623,7 @@ def inspect_phase6():
     # decoder the worker's per-tick hook uses.
     dn = win.settings_nextsync_drop_silent_next_checkbox
     check("Drop-a-silent-Next toggle directly under the Sessions row",
-          spos(dn) == (settings_row("nextsync_drop_silent_next"), 0)
+          spos(dn) == sref("nextsync_drop_silent_next", 0)
           and settings_row("nextsync_sessions") + 1
           == settings_row("nextsync_drop_silent_next"),
           str(spos(dn)))
@@ -2731,15 +2764,13 @@ def inspect_phase7():
     check("MAME ROM combo built without MAME (9.7.53)", rom is not None)
     check("MAME parameters box built without MAME (9.7.53)",
           params is not None)
-    lay = win.settings_zxnu_update_check_checkbox.parentWidget().layout()
     def spos(w):
-        i = lay.indexOf(w)
-        return None if i < 0 else lay.getItemPosition(i)[:2]
+        return settings_pos(win, w)
     if rom is not None and params is not None:
         check("ROM combo at its named row",
-              spos(rom) == (settings_row("mame_rom"), 1), str(spos(rom)))
+              spos(rom) == sref("mame_rom", 1), str(spos(rom)))
         check("parameters box at its named row",
-              spos(params) == (settings_row("mame_params"), 1),
+              spos(params) == sref("mame_params", 1),
               str(spos(params)))
         check("ROM combo restored from the cfg",
               rom.currentText() == "specnext_ks3", rom.currentText())
@@ -2808,7 +2839,7 @@ def inspect_phase7():
           discard is not None)
     if discard is not None:
         check("...at its named row, right under the update check",
-              spos(discard) == (settings_row("cspect_discard_restricted_updates"), 0)
+              spos(discard) == sref("cspect_discard_restricted_updates", 0)
               and settings_row("cspect_discard_restricted_updates")
               == settings_row("cspect_update_check") + 1, str(spos(discard)))
         check("...restored ON from the cfg (off is the default)",
@@ -2830,13 +2861,137 @@ def inspect_phase7():
               upd is not None)
         if upd is not None:
             check("...at its named row",
-                  spos(upd) == (settings_row("mame_update_check"), 0),
+                  spos(upd) == sref("mame_update_check", 0),
                   str(spos(upd)))
             check("...restored OFF from mame_update_check=false",
                   not upd.isChecked())
     else:
         check("no MAME update-check toggle where the app cannot install MAME",
               upd is None)
+    # ---- Basic / Advanced and the group boxes (9.7.63) --------------------
+    # The cfg saved settings_advanced=true, so the tab opened Advanced: the
+    # switch is on and every row shows. A click is the user's Basic.
+    sw = win.settings_mode_switch
+    page = win.settings_tab_page
+    tabs = win._tab_widget
+    check("the Settings tab page carries the mode bar over the scroll area",
+          tabs.indexOf(page) >= 0
+          and getattr(page, "tab_name_private", "") == "Settings"
+          and page.layout().indexOf(win.settings_mode_bar) == 0
+          and page.layout().indexOf(win.settings_scroll) == 1,
+          str((tabs.indexOf(page), page.layout().indexOf(win.settings_mode_bar),
+               page.layout().indexOf(win.settings_scroll))))
+    check("the switch sits at the right of its bar, Basic | switch | Advanced",
+          win.settings_mode_bar.layout().indexOf(win.settings_mode_basic_label) + 1
+          == win.settings_mode_bar.layout().indexOf(sw)
+          and win.settings_mode_bar.layout().indexOf(sw) + 1
+          == win.settings_mode_bar.layout().indexOf(win.settings_mode_advanced_label)
+          and win.settings_mode_bar.layout().itemAt(0).spacerItem() is not None)
+    check("Advanced restored from the cfg", sw.isChecked())
+    groups = win._settings_group_boxes
+    advanced_only = [w for w in (
+        win.settings_no_prompt_on_deletion_checkbox,
+        win.settings_rs232_esp_verbose_checkbox, win.settings_btn_reset_theme,
+        win.settings_cspect_params_edit, win.settings_cspect_mcp_checkbox,
+        win.settings_btn_color_background, win.settings_crash_log_enabled_checkbox,
+        win.settings_http_token_checkbox, win.settings_http_token_edit,
+        win.settings_mcp_token_checkbox, win.settings_mcp_token_generate_btn,
+        rom, params) if w is not None]
+    basic_rows = [w for w in (
+        win.settings_zxnu_update_check_checkbox, win.settings_ui_language_combo,
+        win.settings_wizard_checkbox, win.settings_desktop_theme_combo,
+        win.settings_delete_to_recycle_bin_checkbox, win.settings_re_autostart_checkbox,
+        win.settings_nextsync_verify_crc_checkbox, win.settings_search_sort_combo,
+        win.settings_general_font_combo, win.settings_retro_log_font_combo,
+        win.settings_rs232_esp_checkbox, win.settings_rs232_esp_port_spinbox,
+        win.settings_rs232_esp_ip_combo, win.settings_cspect_update_check_checkbox,
+        win.settings_http_bridge_checkbox, win.settings_http_verbose_checkbox,
+        win.settings_mcp_checkbox, win.settings_mcp_hint_label, win.settings_mcp_copy_btn,
+        discard, cs_esp, upd) if w is not None]
+    check("Advanced shows every row",
+          all(not w.isHidden() for w in advanced_only + basic_rows),
+          str([w.objectName() or type(w).__name__
+               for w in advanced_only + basic_rows if w.isHidden()]))
+    check("the Advanced label is the bold one",
+          "bold" in win.settings_mode_advanced_label.styleSheet()
+          and "bold" not in win.settings_mode_basic_label.styleSheet())
+    check("three group boxes, titled as registered, all showing",
+          set(groups) == {"mame", "cspect", "rs232_esp"}
+          and groups["mame"].title() == "MAME"
+          and groups["cspect"].title() == "CSpect"
+          and groups["rs232_esp"].title() == "RS232 ESP emulation (MAME and CSpect)"
+          and all(not b.isHidden() for b in groups.values()),
+          str({k: b.title() for k, b in groups.items()}))
+    check("the boxes sit in the main grid, MAME then CSpect then RS232 ESP",
+          spos(groups["mame"]) == ("", settings_anchor("mame"), 0)
+          and spos(groups["cspect"]) == ("", settings_anchor("cspect"), 0)
+          and spos(groups["rs232_esp"]) == ("", settings_anchor("rs232_esp"), 0)
+          and settings_anchor("mame") + 1 == settings_anchor("cspect")
+          and settings_anchor("cspect") + 1 == settings_anchor("rs232_esp"),
+          str((spos(groups["mame"]), spos(groups["cspect"]), spos(groups["rs232_esp"]))))
+    check("the MAME rows live in the MAME box",
+          all(w is None or w.parentWidget() is groups["mame"]
+              for w in (rom, params, upd, win.settings_rs232_esp_checkbox))
+          and spos(win.settings_rs232_esp_checkbox) == sref("mame_rs232_esp", 0))
+    check("the CSpect rows live in the CSpect box",
+          all(w.parentWidget() is groups["cspect"] for w in (
+              win.settings_cspect_params_edit, win.settings_cspect_mcp_checkbox,
+              win.settings_cspect_update_check_checkbox, discard, cs_esp))
+          and spos(cs_esp) == sref("cspect_rs232_esp", 0)
+          and spos(win.settings_cspect_update_check_checkbox)
+          == sref("cspect_update_check", 0))
+    check("the shared RS232 ESP rows live in their own box: port, address, verbose",
+          all(w.parentWidget() is groups["rs232_esp"] for w in (
+              win.settings_rs232_esp_port_spinbox, win.settings_rs232_esp_ip_combo,
+              win.settings_rs232_esp_verbose_checkbox))
+          and settings_row("rs232_esp_port") + 1 == settings_row("rs232_esp_ip")
+          and settings_row("rs232_esp_ip") + 1 == settings_row("rs232_esp_verbose")
+          and spos(win.settings_rs232_esp_verbose_checkbox) == sref("rs232_esp_verbose", 0))
+    content = win.settings_scroll.widget()
+    h_advanced = content.sizeHint().height()
+    sw.click()                                   # the user's Basic
+    QApplication.processEvents()
+    check("Basic persists to cfg", "settings_advanced=false" in cfg_lines(),
+          str([l for l in cfg_lines() if l.startswith("settings_advanced")]))
+    check("Basic hides the advanced rows",
+          all(w.isHidden() for w in advanced_only),
+          str([type(w).__name__ for w in advanced_only if not w.isHidden()]))
+    check("...and keeps the basic ones",
+          all(not w.isHidden() for w in basic_rows),
+          str([type(w).__name__ for w in basic_rows if w.isHidden()]))
+    check("...the hidden rows take no height",
+          content.sizeHint().height() < h_advanced - 200,
+          f"{content.sizeHint().height()} vs {h_advanced}")
+    check("...the three boxes stay, each with its basic rows",
+          all(not b.isHidden() for b in groups.values()))
+    check("...the Basic label is the bold one",
+          "bold" in win.settings_mode_basic_label.styleSheet()
+          and "bold" not in win.settings_mode_advanced_label.styleSheet())
+    # A widget the app hid for its own reason (the availability check sits
+    # behind the download-buttons feature flags) is never the switch's to
+    # show.
+    avail = win.settings_avail_check_checkbox
+    avail_hidden = avail.isHidden()
+    sw.click()                                   # Advanced again
+    QApplication.processEvents()
+    check("Advanced again persists and shows the rows",
+          "settings_advanced=true" in cfg_lines()
+          and all(not w.isHidden() for w in advanced_only + basic_rows))
+    check("a widget the app hid stays as the app left it",
+          avail.isHidden() == avail_hidden
+          and not avail.property(sys.modules["zxnu_settings_pane"].SETTINGS_MODE_HIDDEN_PROP))
+    # The config restore's entry sets the switch WITHOUT saving.
+    _cfg_before = cfg_lines()
+    win._settings_set_advanced(False)
+    QApplication.processEvents()
+    check("the restore entry applies Basic without a save",
+          not sw.isChecked() and all(w.isHidden() for w in advanced_only)
+          and cfg_lines() == _cfg_before)
+    win._settings_set_advanced(True)
+    QApplication.processEvents()
+    check("...and Advanced back", sw.isChecked()
+          and all(not w.isHidden() for w in advanced_only))
+
     # The source tripwire: none of the three may sit under an if that tests
     # the detection again, in any if/elif/else shape - an AST walk over the
     # assignment's enclosing ifs, not a text match. An early return or a
@@ -2926,10 +3081,9 @@ def inspect_phase9():
     # The picker must live in the visible 0/1 column band (a column-2+ cell
     # sits outside the pane width unless the window is enlarged — the bug
     # this check pins down).
-    _lay = win.settings_ui_language_combo.parentWidget().layout()
-    _pos = _lay.getItemPosition(_lay.indexOf(win.settings_ui_language_combo))[:2]
+    _pos = settings_pos(win, win.settings_ui_language_combo)
     check("language combo on its own visible row",
-          _pos == (settings_row("ui_language"), 1),
+          _pos == sref("ui_language", 1),
           str(_pos))
     check("button translated at startup",
           win.selectimage.text() == "Seleccionar imagen de disco NextZXOS",
@@ -3465,6 +3619,32 @@ def inspect_phase11():
     check("returning to the Remote Explorer still shows it",
           win.nextsync_log_stack.currentWidget() is win._re_container
           and re_widget.isVisible())
+
+    # 9.7.62: browsing the LOCAL pane persists the folder it shows, so the
+    # next build reopens on it (reported: the app closed with the pane on
+    # one folder and reopened on the sync root). Drive the real widget and
+    # read the real cfg; the sync root must not move, since browsing
+    # never commits (9.7.22). Last in the phase on purpose: the offer
+    # button this raises widens the local pane's floor, which the split
+    # checks above measure.
+    _ldir = os.path.join(SCRATCH, "re_local_dir_11")
+    os.makedirs(_ldir, exist_ok=True)
+    _root_before = [ln for ln in cfg_lines()
+                    if ln.startswith("nextsync_explorerpath=")]
+    re_widget._set_local_dir(_ldir, commit=False)
+    QCoreApplication.processEvents()
+    _want_ldir = "nextsync_re_local_dir=" + _ldir.replace("\\", "/")
+    check("browsing the local pane persists the folder to hdfg.cfg",
+          wait_until(lambda: _want_ldir in cfg_lines(), 5,
+                     "the browsed local folder to reach the cfg"),
+          _want_ldir + " | " + str([ln for ln in cfg_lines()
+                                   if ln.startswith("nextsync_re_local")]))
+    check("...and leaves the sync root alone",
+          [ln for ln in cfg_lines()
+           if ln.startswith("nextsync_explorerpath=")] == _root_before,
+          str(_root_before))
+    check("...with the offer button up, since the two now differ",
+          re_widget.local_set_syncroot_button.isVisibleTo(re_widget))
     app.quit()
 
 
@@ -4112,6 +4292,56 @@ def _phase12_cspect_in_background(win, toasts):
                       wait_until(lambda: called == [1], 10, "the scheduled offer"))
             finally:
                 win._offer_cspect_esp_plugin = real_offer
+
+            # ---- the MAME twin (9.7.63): one question, no plugin, asked by
+            # _mame_finish_install (the in-app installer AND the startup
+            # update share it) while Settings -> "RS232 ESP Emulation (Mame)"
+            # is off; a yes ticks that box through its own handler.
+            mame_title = _tr("Enable the RS232 ESP emulation for MAME?")
+            mame_toast = _tr("✅  RS232 ESP emulation enabled for MAME")
+            mame_box = win.settings_rs232_esp_checkbox
+            mame_was = mame_box.isChecked()
+            try:
+                mame_box.setChecked(False)
+                _FakeBox.shown, _FakeBox.answers = [], [True]
+                toasts.clear()
+                res = win._offer_mame_esp_emulation()
+                check("MAME, box off, yes: one question, the box ticked and saved",
+                      res is True and [b[0] for b in _FakeBox.shown] == [mame_title]
+                      and mame_box.isChecked() and cfgd.get("mame_rs232_esp") == "true",
+                      str(([b[0] for b in _FakeBox.shown], mame_box.isChecked(),
+                           cfgd.get("mame_rs232_esp"))))
+                check("...the question names the built-in card and the Settings box",
+                      "esp8266_at" in _FakeBox.shown[0][1]
+                      and "RS232 ESP Emulation (Mame)" in _FakeBox.shown[0][1]
+                      and _FakeBox.shown[0][2] == [_tr("Enable it now"), _tr("Not now")],
+                      str(_FakeBox.shown[0][2]))
+                check("...the shared port / address widgets are live",
+                      win.settings_rs232_esp_port_spinbox.isEnabled()
+                      and win.settings_rs232_esp_ip_combo.isEnabled())
+                check("...and the green toast", any(t[0] == mame_toast for t in toasts),
+                      str(toasts))
+                _FakeBox.shown, _FakeBox.answers = [], [True]
+                res = win._offer_mame_esp_emulation()
+                check("MAME, box already on: nothing asked",
+                      res is True and _FakeBox.shown == [])
+                mame_box.setChecked(False)
+                _FakeBox.shown, _FakeBox.answers = [], [False]
+                res = win._offer_mame_esp_emulation()
+                check("MAME, not now: the box stays off",
+                      res is False and [b[0] for b in _FakeBox.shown] == [mame_title]
+                      and not mame_box.isChecked()
+                      and cfgd.get("mame_rs232_esp") == "false")
+                _FakeApp.busy = 2
+                _FakeBox.shown, _FakeBox.answers = [], [False]
+                res = win._offer_mame_esp_emulation()
+                check("MAME, another dialog up: the offer waits",
+                      res is False and _FakeBox.shown == [])
+                check("...and asks once the screen is free",
+                      wait_until(lambda: [b[0] for b in _FakeBox.shown] == [mame_title],
+                                 10, "the deferred MAME RS232 ESP offer"))
+            finally:
+                mame_box.setChecked(mame_was)
         finally:
             _zeo.QMessageBox, _zeo.QApplication, _zeo.deploy_plugin = offer_saved
             cs_box.setChecked(box_was)

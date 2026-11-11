@@ -1376,6 +1376,16 @@ CATALOGS = {
             "Emulación RS232 ESP (CSpect)",
         "RS232 ESP Emulation verbose mode":
             "Modo detallado de la emulación RS232 ESP",
+        "Basic":
+            "Básico",
+        "Advanced":
+            "Avanzado",
+        "MAME":
+            "MAME",
+        "CSpect":
+            "CSpect",
+        "RS232 ESP emulation (MAME and CSpect)":
+            "Emulación RS232 ESP (MAME y CSpect)",
         "IP address shown to the emulated Next:":
             "Dirección IP mostrada al Next emulado:",
         "Automatic ({ip})":
@@ -1773,6 +1783,12 @@ CATALOGS = {
             "El plugin UARTRS232 está instalado. Se usa mientras <b>Emulación RS232 ESP (CSpect)</b> esté marcada en Ajustes, y esa casilla aún no lo está.<br><br>¿Activarla ahora? Un CSpect lanzado desde la aplicación dará entonces acceso a la red al Next emulado. Desmarca la casilla en Ajustes en cualquier momento para lanzarlo sin ella.",
         "Enable it now":
             "Activarla ahora",
+        "Enable the RS232 ESP emulation for MAME?":
+            "¿Activar la emulación RS232 ESP para MAME?",
+        "ZX Next Unite can give the ZX Spectrum Next emulated by MAME a working <b>ESP (Wi-Fi module)</b> without any hardware, so .sync5, ZX Next Remote and the NextZXOS WiFi tools reach your network through this PC. A MAME build that offers the built-in <b>esp8266_at</b> card (the ZX Spectrum Next MAME fork) is launched with it; any other MAME gets the app's RS232 ESP emulation over a null modem link.<br><br>Enable it now? A MAME launched from the app then gives the emulated Next network access. Untick <b>RS232 ESP Emulation (Mame)</b> in Settings at any time to launch without it.":
+            "ZX Next Unite puede dar al ZX Spectrum Next emulado por MAME un <b>ESP (módulo Wi-Fi)</b> operativo sin ningún hardware, de modo que .sync5, ZX Next Remote y las herramientas WiFi de NextZXOS llegan a tu red a través de este PC. Una compilación de MAME que ofrece la tarjeta integrada <b>esp8266_at</b> (el fork de MAME para ZX Spectrum Next) se lanza con ella; cualquier otro MAME recibe la emulación RS232 ESP de la aplicación a través de un enlace de módem nulo.<br><br>¿Activarla ahora? Un MAME lanzado desde la aplicación dará entonces acceso a la red al Next emulado. Desmarca <b>Emulación RS232 ESP (Mame)</b> en Ajustes en cualquier momento para lanzarlo sin ella.",
+        "RS232 ESP: the emulation is now enabled for MAME - the next MAME launched from the app gives the emulated Next network access.":
+            "RS232 ESP: la emulación está ahora activada para MAME: el próximo MAME lanzado desde la aplicación dará acceso a la red al Next emulado.",
         "RS232 ESP: the emulation is now enabled for CSpect - the next CSpect launched from the app gives the emulated Next network access.":
             "RS232 ESP: la emulación está ahora activada para CSpect: el próximo CSpect lanzado desde la aplicación dará acceso a la red al Next emulado.",
         ("On Windows CSpect needs the <b>OpenAL 1.1</b> audio library "
@@ -1826,6 +1842,8 @@ CATALOGS = {
             "El puerto {port} ya está en uso; el servidor MCP no se ha iniciado.",
         "MCP server (AI agents):":
             "Servidor MCP (agentes de IA):",
+        "The Settings tab opens in Basic mode, showing the settings most people need; the Basic / Advanced switch at its top right shows every setting, with the MAME, CSpect and RS232 ESP emulation settings grouped in their own boxes. The choice is saved.":
+            "La pestaña Ajustes se abre en modo Básico, mostrando los ajustes que la mayoría necesita; el interruptor Básico / Avanzado de su esquina superior derecha muestra todos los ajustes, con los de MAME, CSpect y la emulación RS232 ESP agrupados en sus propios recuadros. La elección se guarda.",
         "Settings -> 'Enable MCP server' starts a Model Context Protocol server on this PC only (127.0.0.1, port 2050 by default) that lets an AI agent such as Claude Code or Claude Desktop drive zx-next-unite: load or download a disk image, put files into it, start MAME or CSpect on it, start the RS232 ESP emulation, start the NextSync listener, list the Nexts seated on it, push a build to one and run it, read the consoles. Every tool is the same operation the buttons perform, so an agent can do what you can and nothing more.":
             "Ajustes -> 'Enable MCP server' inicia un servidor Model Context Protocol solo en este PC (127.0.0.1, puerto 2050 por defecto) que permite a un agente de IA como Claude Code o Claude Desktop controlar zx-next-unite: cargar o descargar una imagen de disco, meter archivos en ella, iniciar MAME o CSpect con ella, iniciar la emulación RS232 ESP, iniciar el listener de NextSync, listar los Next conectados a él, enviar una compilación a uno y ejecutarla, leer las consolas. Cada herramienta es la misma operación que realizan los botones, así que un agente puede hacer lo que tú puedes y nada más.",
         "Connect Claude Code with the one-line command shown under the toggle (claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp). A client that can only spawn a stdio server (Claude Desktop) runs 'zx-next-unite --mcp-stdio' (or the zx-next-unite-mcp command of a pipx install), which relays to the running app. 'Require bearer token' makes every request carry the token shown next to it.":
@@ -2997,6 +3015,16 @@ CATALOGS = {
             "Emulação RS232 ESP (CSpect)",
         "RS232 ESP Emulation verbose mode":
             "Modo detalhado da emulação RS232 ESP",
+        "Basic":
+            "Básico",
+        "Advanced":
+            "Avançado",
+        "MAME":
+            "MAME",
+        "CSpect":
+            "CSpect",
+        "RS232 ESP emulation (MAME and CSpect)":
+            "Emulação RS232 ESP (MAME e CSpect)",
         "IP address shown to the emulated Next:":
             "Endereço IP mostrado ao Next emulado:",
         "Automatic ({ip})":
@@ -3394,6 +3422,12 @@ CATALOGS = {
             "O plugin UARTRS232 está instalado. É usado enquanto <b>Emulação RS232 ESP (CSpect)</b> estiver marcada nas Definições, e essa caixa ainda não está.<br><br>Ativá-la agora? Um CSpect iniciado a partir da aplicação dará então acesso à rede ao Next emulado. Desmarque a caixa nas Definições a qualquer momento para o iniciar sem ela.",
         "Enable it now":
             "Ativar agora",
+        "Enable the RS232 ESP emulation for MAME?":
+            "Ativar a emulação RS232 ESP para o MAME?",
+        "ZX Next Unite can give the ZX Spectrum Next emulated by MAME a working <b>ESP (Wi-Fi module)</b> without any hardware, so .sync5, ZX Next Remote and the NextZXOS WiFi tools reach your network through this PC. A MAME build that offers the built-in <b>esp8266_at</b> card (the ZX Spectrum Next MAME fork) is launched with it; any other MAME gets the app's RS232 ESP emulation over a null modem link.<br><br>Enable it now? A MAME launched from the app then gives the emulated Next network access. Untick <b>RS232 ESP Emulation (Mame)</b> in Settings at any time to launch without it.":
+            "O ZX Next Unite pode dar ao ZX Spectrum Next emulado pelo MAME um <b>ESP (módulo Wi-Fi)</b> funcional sem qualquer hardware, para que o .sync5, o ZX Next Remote e as ferramentas WiFi do NextZXOS cheguem à sua rede através deste PC. Uma build do MAME que ofereça a placa integrada <b>esp8266_at</b> (o fork do MAME para ZX Spectrum Next) é iniciada com ela; qualquer outro MAME recebe a emulação RS232 ESP da aplicação através de uma ligação null modem.<br><br>Ativá-la agora? Um MAME iniciado a partir da aplicação dará então acesso à rede ao Next emulado. Desmarque <b>Emulação RS232 ESP (Mame)</b> nas Definições a qualquer momento para o iniciar sem ela.",
+        "RS232 ESP: the emulation is now enabled for MAME - the next MAME launched from the app gives the emulated Next network access.":
+            "RS232 ESP: a emulação está agora ativada para o MAME: o próximo MAME iniciado a partir da aplicação dará acesso à rede ao Next emulado.",
         "RS232 ESP: the emulation is now enabled for CSpect - the next CSpect launched from the app gives the emulated Next network access.":
             "RS232 ESP: a emulação está agora ativada para o CSpect: o próximo CSpect iniciado a partir da aplicação dará acesso à rede ao Next emulado.",
         ("On Windows CSpect needs the <b>OpenAL 1.1</b> audio library "
@@ -3447,6 +3481,8 @@ CATALOGS = {
             "A porta {port} já está em uso; o servidor MCP não foi iniciado.",
         "MCP server (AI agents):":
             "Servidor MCP (agentes de IA):",
+        "The Settings tab opens in Basic mode, showing the settings most people need; the Basic / Advanced switch at its top right shows every setting, with the MAME, CSpect and RS232 ESP emulation settings grouped in their own boxes. The choice is saved.":
+            "O separador Definições abre em modo Básico, mostrando as definições de que a maioria precisa; o interruptor Básico / Avançado no seu canto superior direito mostra todas as definições, com as do MAME, do CSpect e da emulação RS232 ESP agrupadas nas suas próprias caixas. A escolha é guardada.",
         "Settings -> 'Enable MCP server' starts a Model Context Protocol server on this PC only (127.0.0.1, port 2050 by default) that lets an AI agent such as Claude Code or Claude Desktop drive zx-next-unite: load or download a disk image, put files into it, start MAME or CSpect on it, start the RS232 ESP emulation, start the NextSync listener, list the Nexts seated on it, push a build to one and run it, read the consoles. Every tool is the same operation the buttons perform, so an agent can do what you can and nothing more.":
             "Definições -> 'Enable MCP server' inicia um servidor Model Context Protocol apenas neste PC (127.0.0.1, porta 2050 por defeito) que permite a um agente de IA como o Claude Code ou o Claude Desktop controlar o zx-next-unite: carregar ou descarregar uma imagem de disco, colocar ficheiros nela, iniciar o MAME ou o CSpect com ela, iniciar a emulação RS232 ESP, iniciar o listener do NextSync, listar os Next ligados a ele, enviar uma build para um deles e executá-la, ler as consolas. Cada ferramenta é a mesma operação que os botões executam, por isso um agente pode fazer o que você pode e nada mais.",
         "Connect Claude Code with the one-line command shown under the toggle (claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp). A client that can only spawn a stdio server (Claude Desktop) runs 'zx-next-unite --mcp-stdio' (or the zx-next-unite-mcp command of a pipx install), which relays to the running app. 'Require bearer token' makes every request carry the token shown next to it.":
@@ -4614,6 +4650,16 @@ CATALOGS = {
             "Emulacja RS232 ESP (CSpect)",
         "RS232 ESP Emulation verbose mode":
             "Tryb szczegółowy emulacji RS232 ESP",
+        "Basic":
+            "Podstawowe",
+        "Advanced":
+            "Zaawansowane",
+        "MAME":
+            "MAME",
+        "CSpect":
+            "CSpect",
+        "RS232 ESP emulation (MAME and CSpect)":
+            "Emulacja RS232 ESP (MAME i CSpect)",
         "IP address shown to the emulated Next:":
             "Adres IP pokazywany emulowanemu Nextowi:",
         "Automatic ({ip})":
@@ -5011,6 +5057,12 @@ CATALOGS = {
             "Wtyczka UARTRS232 jest zainstalowana. Jest używana, gdy w Ustawieniach zaznaczone jest <b>Emulacja RS232 ESP (CSpect)</b>, a to pole nie jest jeszcze zaznaczone.<br><br>Włączyć ją teraz? CSpect uruchomiony z aplikacji da wtedy emulowanemu Nextowi dostęp do sieci. W każdej chwili możesz odznaczyć to pole w Ustawieniach, aby uruchamiać bez niej.",
         "Enable it now":
             "Włącz teraz",
+        "Enable the RS232 ESP emulation for MAME?":
+            "Włączyć emulację RS232 ESP dla MAME?",
+        "ZX Next Unite can give the ZX Spectrum Next emulated by MAME a working <b>ESP (Wi-Fi module)</b> without any hardware, so .sync5, ZX Next Remote and the NextZXOS WiFi tools reach your network through this PC. A MAME build that offers the built-in <b>esp8266_at</b> card (the ZX Spectrum Next MAME fork) is launched with it; any other MAME gets the app's RS232 ESP emulation over a null modem link.<br><br>Enable it now? A MAME launched from the app then gives the emulated Next network access. Untick <b>RS232 ESP Emulation (Mame)</b> in Settings at any time to launch without it.":
+            "ZX Next Unite może dać ZX Spectrum Next emulowanemu przez MAME działający <b>ESP (moduł Wi-Fi)</b> bez żadnego sprzętu, dzięki czemu .sync5, ZX Next Remote i narzędzia WiFi NextZXOS docierają do Twojej sieci przez ten PC. Build MAME oferujący wbudowaną kartę <b>esp8266_at</b> (fork MAME dla ZX Spectrum Next) jest uruchamiany z nią; każdy inny MAME otrzymuje emulację RS232 ESP aplikacji przez łącze null modem.<br><br>Włączyć ją teraz? MAME uruchomiony z aplikacji da wtedy emulowanemu Nextowi dostęp do sieci. W każdej chwili możesz odznaczyć <b>Emulacja RS232 ESP (Mame)</b> w Ustawieniach, aby uruchamiać bez niej.",
+        "RS232 ESP: the emulation is now enabled for MAME - the next MAME launched from the app gives the emulated Next network access.":
+            "RS232 ESP: emulacja jest teraz włączona dla MAME: następny MAME uruchomiony z aplikacji da emulowanemu Nextowi dostęp do sieci.",
         "RS232 ESP: the emulation is now enabled for CSpect - the next CSpect launched from the app gives the emulated Next network access.":
             "RS232 ESP: emulacja jest teraz włączona dla CSpect: następny CSpect uruchomiony z aplikacji da emulowanemu Nextowi dostęp do sieci.",
         ("On Windows CSpect needs the <b>OpenAL 1.1</b> audio library "
@@ -5065,6 +5117,8 @@ CATALOGS = {
             "Port {port} jest już zajęty; serwer MCP nie został uruchomiony.",
         "MCP server (AI agents):":
             "Serwer MCP (agenci AI):",
+        "The Settings tab opens in Basic mode, showing the settings most people need; the Basic / Advanced switch at its top right shows every setting, with the MAME, CSpect and RS232 ESP emulation settings grouped in their own boxes. The choice is saved.":
+            "Karta Ustawienia otwiera się w trybie Podstawowym, pokazując ustawienia potrzebne większości; przełącznik Podstawowe / Zaawansowane w jej prawym górnym rogu pokazuje wszystkie ustawienia, z ustawieniami MAME, CSpect i emulacji RS232 ESP zgrupowanymi we własnych ramkach. Wybór jest zapisywany.",
         "Settings -> 'Enable MCP server' starts a Model Context Protocol server on this PC only (127.0.0.1, port 2050 by default) that lets an AI agent such as Claude Code or Claude Desktop drive zx-next-unite: load or download a disk image, put files into it, start MAME or CSpect on it, start the RS232 ESP emulation, start the NextSync listener, list the Nexts seated on it, push a build to one and run it, read the consoles. Every tool is the same operation the buttons perform, so an agent can do what you can and nothing more.":
             "Ustawienia -> 'Enable MCP server' uruchamia serwer Model Context Protocol tylko na tym PC (127.0.0.1, domyślnie port 2050), który pozwala agentowi AI, takiemu jak Claude Code lub Claude Desktop, sterować zx-next-unite: wczytać lub pobrać obraz dysku, umieścić w nim pliki, uruchomić na nim MAME lub CSpect, uruchomić emulację RS232 ESP, uruchomić listener NextSync, wypisać podłączone do niego Nexty, wysłać build na jeden z nich i uruchomić go, czytać konsole. Każde narzędzie to ta sama operacja, którą wykonują przyciski, więc agent może zrobić to, co Ty, i nic więcej.",
         "Connect Claude Code with the one-line command shown under the toggle (claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp). A client that can only spawn a stdio server (Claude Desktop) runs 'zx-next-unite --mcp-stdio' (or the zx-next-unite-mcp command of a pipx install), which relays to the running app. 'Require bearer token' makes every request carry the token shown next to it.":
@@ -6233,6 +6287,16 @@ CATALOGS = {
             "Эмуляция RS232 ESP (CSpect)",
         "RS232 ESP Emulation verbose mode":
             "Подробный режим эмуляции RS232 ESP",
+        "Basic":
+            "Базовые",
+        "Advanced":
+            "Расширенные",
+        "MAME":
+            "MAME",
+        "CSpect":
+            "CSpect",
+        "RS232 ESP emulation (MAME and CSpect)":
+            "Эмуляция RS232 ESP (MAME и CSpect)",
         "IP address shown to the emulated Next:":
             "IP-адрес, показываемый эмулируемому Next:",
         "Automatic ({ip})":
@@ -6630,6 +6694,12 @@ CATALOGS = {
             "Плагин UARTRS232 установлен. Он используется, пока в Настройках отмечен флажок <b>Эмуляция RS232 ESP (CSpect)</b>, а этот флажок ещё не отмечен.<br><br>Включить сейчас? Тогда CSpect, запущенный из приложения, даст эмулируемому Next доступ к сети. Флажок можно снять в Настройках в любой момент, чтобы запускать без неё.",
         "Enable it now":
             "Включить сейчас",
+        "Enable the RS232 ESP emulation for MAME?":
+            "Включить эмуляцию RS232 ESP для MAME?",
+        "ZX Next Unite can give the ZX Spectrum Next emulated by MAME a working <b>ESP (Wi-Fi module)</b> without any hardware, so .sync5, ZX Next Remote and the NextZXOS WiFi tools reach your network through this PC. A MAME build that offers the built-in <b>esp8266_at</b> card (the ZX Spectrum Next MAME fork) is launched with it; any other MAME gets the app's RS232 ESP emulation over a null modem link.<br><br>Enable it now? A MAME launched from the app then gives the emulated Next network access. Untick <b>RS232 ESP Emulation (Mame)</b> in Settings at any time to launch without it.":
+            "ZX Next Unite может дать ZX Spectrum Next, эмулируемому MAME, работающий <b>ESP (модуль Wi-Fi)</b> без какого-либо оборудования, так что .sync5, ZX Next Remote и инструменты WiFi NextZXOS выходят в вашу сеть через этот ПК. Сборка MAME со встроенной картой <b>esp8266_at</b> (форк MAME для ZX Spectrum Next) запускается с ней; любой другой MAME получает эмуляцию RS232 ESP приложения через нуль-модемное соединение.<br><br>Включить сейчас? Тогда MAME, запущенный из приложения, даст эмулируемому Next доступ к сети. Флажок <b>Эмуляция RS232 ESP (Mame)</b> можно снять в Настройках в любой момент, чтобы запускать без неё.",
+        "RS232 ESP: the emulation is now enabled for MAME - the next MAME launched from the app gives the emulated Next network access.":
+            "RS232 ESP: эмуляция теперь включена для MAME: следующий MAME, запущенный из приложения, даст эмулируемому Next доступ к сети.",
         "RS232 ESP: the emulation is now enabled for CSpect - the next CSpect launched from the app gives the emulated Next network access.":
             "RS232 ESP: эмуляция теперь включена для CSpect: следующий CSpect, запущенный из приложения, даст эмулируемому Next доступ к сети.",
         ("On Windows CSpect needs the <b>OpenAL 1.1</b> audio library "
@@ -6684,6 +6754,8 @@ CATALOGS = {
             "Порт {port} уже занят; сервер MCP не запущен.",
         "MCP server (AI agents):":
             "Сервер MCP (ИИ-агенты):",
+        "The Settings tab opens in Basic mode, showing the settings most people need; the Basic / Advanced switch at its top right shows every setting, with the MAME, CSpect and RS232 ESP emulation settings grouped in their own boxes. The choice is saved.":
+            "Вкладка Настройки открывается в Базовом режиме, показывая настройки, нужные большинству; переключатель Базовые / Расширенные в её правом верхнем углу показывает все настройки, причём настройки MAME, CSpect и эмуляции RS232 ESP сгруппированы в собственных рамках. Выбор сохраняется.",
         "Settings -> 'Enable MCP server' starts a Model Context Protocol server on this PC only (127.0.0.1, port 2050 by default) that lets an AI agent such as Claude Code or Claude Desktop drive zx-next-unite: load or download a disk image, put files into it, start MAME or CSpect on it, start the RS232 ESP emulation, start the NextSync listener, list the Nexts seated on it, push a build to one and run it, read the consoles. Every tool is the same operation the buttons perform, so an agent can do what you can and nothing more.":
             "Настройки -> 'Enable MCP server' запускает сервер Model Context Protocol только на этом ПК (127.0.0.1, порт 2050 по умолчанию), который позволяет ИИ-агенту, такому как Claude Code или Claude Desktop, управлять zx-next-unite: загрузить или скачать образ диска, положить в него файлы, запустить на нём MAME или CSpect, запустить эмуляцию RS232 ESP, запустить listener NextSync, перечислить подключённые к нему Next, отправить сборку на один из них и запустить её, читать консоли. Каждый инструмент — та же операция, что выполняют кнопки, поэтому агент может делать то же, что и вы, и ничего больше.",
         "Connect Claude Code with the one-line command shown under the toggle (claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp). A client that can only spawn a stdio server (Claude Desktop) runs 'zx-next-unite --mcp-stdio' (or the zx-next-unite-mcp command of a pipx install), which relays to the running app. 'Require bearer token' makes every request carry the token shown next to it.":
@@ -7848,6 +7920,16 @@ CATALOGS = {
             "Emulace RS232 ESP (CSpect)",
         "RS232 ESP Emulation verbose mode":
             "Podrobný režim emulace RS232 ESP",
+        "Basic":
+            "Základní",
+        "Advanced":
+            "Pokročilé",
+        "MAME":
+            "MAME",
+        "CSpect":
+            "CSpect",
+        "RS232 ESP emulation (MAME and CSpect)":
+            "Emulace RS232 ESP (MAME a CSpect)",
         "IP address shown to the emulated Next:":
             "IP adresa ukazovaná emulovanému Nextu:",
         "Automatic ({ip})":
@@ -8245,6 +8327,12 @@ CATALOGS = {
             "Plugin UARTRS232 je nainstalován. Používá se, dokud je v Nastavení zaškrtnuto <b>Emulace RS232 ESP (CSpect)</b>, a toto políčko zatím zaškrtnuto není.<br><br>Zapnout ji nyní? CSpect spuštěný z aplikace pak dá emulovanému Nextu přístup k síti. Políčko můžete v Nastavení kdykoli odškrtnout a spouštět bez ní.",
         "Enable it now":
             "Zapnout nyní",
+        "Enable the RS232 ESP emulation for MAME?":
+            "Zapnout emulaci RS232 ESP pro MAME?",
+        "ZX Next Unite can give the ZX Spectrum Next emulated by MAME a working <b>ESP (Wi-Fi module)</b> without any hardware, so .sync5, ZX Next Remote and the NextZXOS WiFi tools reach your network through this PC. A MAME build that offers the built-in <b>esp8266_at</b> card (the ZX Spectrum Next MAME fork) is launched with it; any other MAME gets the app's RS232 ESP emulation over a null modem link.<br><br>Enable it now? A MAME launched from the app then gives the emulated Next network access. Untick <b>RS232 ESP Emulation (Mame)</b> in Settings at any time to launch without it.":
+            "ZX Next Unite může dát ZX Spectrum Nextu emulovanému v MAME funkční <b>ESP (modul Wi-Fi)</b> bez jakéhokoli hardwaru, takže .sync5, ZX Next Remote a nástroje WiFi v NextZXOS se dostanou do vaší sítě přes tento PC. Sestavení MAME, které nabízí vestavěnou kartu <b>esp8266_at</b> (fork MAME pro ZX Spectrum Next), se s ní spustí; každé jiné MAME dostane emulaci RS232 ESP aplikace přes nulový modem.<br><br>Zapnout ji nyní? MAME spuštěné z aplikace pak dá emulovanému Nextu přístup k síti. Políčko <b>Emulace RS232 ESP (Mame)</b> můžete v Nastavení kdykoli odškrtnout a spouštět bez ní.",
+        "RS232 ESP: the emulation is now enabled for MAME - the next MAME launched from the app gives the emulated Next network access.":
+            "RS232 ESP: emulace je nyní pro MAME zapnutá: příští MAME spuštěné z aplikace dá emulovanému Nextu přístup k síti.",
         "RS232 ESP: the emulation is now enabled for CSpect - the next CSpect launched from the app gives the emulated Next network access.":
             "RS232 ESP: emulace je nyní pro CSpect zapnutá: příští CSpect spuštěný z aplikace dá emulovanému Nextu přístup k síti.",
         ("On Windows CSpect needs the <b>OpenAL 1.1</b> audio library "
@@ -8298,6 +8386,8 @@ CATALOGS = {
             "Port {port} je již obsazen; server MCP nebyl spuštěn.",
         "MCP server (AI agents):":
             "Server MCP (AI agenti):",
+        "The Settings tab opens in Basic mode, showing the settings most people need; the Basic / Advanced switch at its top right shows every setting, with the MAME, CSpect and RS232 ESP emulation settings grouped in their own boxes. The choice is saved.":
+            "Karta Nastavení se otevírá v Základním režimu a ukazuje nastavení, která většina lidí potřebuje; přepínač Základní / Pokročilé v jejím pravém horním rohu ukáže všechna nastavení, přičemž nastavení MAME, CSpectu a emulace RS232 ESP jsou seskupena ve vlastních rámečcích. Volba se ukládá.",
         "Settings -> 'Enable MCP server' starts a Model Context Protocol server on this PC only (127.0.0.1, port 2050 by default) that lets an AI agent such as Claude Code or Claude Desktop drive zx-next-unite: load or download a disk image, put files into it, start MAME or CSpect on it, start the RS232 ESP emulation, start the NextSync listener, list the Nexts seated on it, push a build to one and run it, read the consoles. Every tool is the same operation the buttons perform, so an agent can do what you can and nothing more.":
             "Nastavení -> 'Enable MCP server' spustí server Model Context Protocol jen na tomto PC (127.0.0.1, výchozí port 2050), který umožní AI agentovi, jako je Claude Code nebo Claude Desktop, ovládat zx-next-unite: načíst nebo stáhnout obraz disku, vložit do něj soubory, spustit na něm MAME nebo CSpect, spustit emulaci RS232 ESP, spustit listener NextSync, vypsat připojené Nexty, poslat build na jeden z nich a spustit ho, číst konzole. Každý nástroj je stejná operace, jakou provádějí tlačítka, takže agent může udělat to, co vy, a nic víc.",
         "Connect Claude Code with the one-line command shown under the toggle (claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp). A client that can only spawn a stdio server (Claude Desktop) runs 'zx-next-unite --mcp-stdio' (or the zx-next-unite-mcp command of a pipx install), which relays to the running app. 'Require bearer token' makes every request carry the token shown next to it.":
@@ -9472,6 +9562,16 @@ CATALOGS = {
             "Émulation RS232 ESP (CSpect)",
         "RS232 ESP Emulation verbose mode":
             "Mode verbeux de l'émulation RS232 ESP",
+        "Basic":
+            "Basique",
+        "Advanced":
+            "Avancé",
+        "MAME":
+            "MAME",
+        "CSpect":
+            "CSpect",
+        "RS232 ESP emulation (MAME and CSpect)":
+            "Émulation RS232 ESP (MAME et CSpect)",
         "IP address shown to the emulated Next:":
             "Adresse IP présentée au Next émulé :",
         "Automatic ({ip})":
@@ -9869,6 +9969,12 @@ CATALOGS = {
             "Le plugin UARTRS232 est installé. Il sert tant que <b>Émulation RS232 ESP (CSpect)</b> est cochée dans les Réglages, et cette case ne l'est pas encore.<br><br>L'activer maintenant ? Un CSpect lancé depuis l'application donnera alors l'accès au réseau au Next émulé. Décochez la case dans les Réglages à tout moment pour le lancer sans elle.",
         "Enable it now":
             "L'activer maintenant",
+        "Enable the RS232 ESP emulation for MAME?":
+            "Activer l'émulation RS232 ESP pour MAME ?",
+        "ZX Next Unite can give the ZX Spectrum Next emulated by MAME a working <b>ESP (Wi-Fi module)</b> without any hardware, so .sync5, ZX Next Remote and the NextZXOS WiFi tools reach your network through this PC. A MAME build that offers the built-in <b>esp8266_at</b> card (the ZX Spectrum Next MAME fork) is launched with it; any other MAME gets the app's RS232 ESP emulation over a null modem link.<br><br>Enable it now? A MAME launched from the app then gives the emulated Next network access. Untick <b>RS232 ESP Emulation (Mame)</b> in Settings at any time to launch without it.":
+            "ZX Next Unite peut donner au ZX Spectrum Next émulé par MAME un <b>ESP (module Wi-Fi)</b> fonctionnel sans aucun matériel, de sorte que .sync5, ZX Next Remote et les outils WiFi de NextZXOS atteignent votre réseau à travers ce PC. Une version de MAME qui propose la carte intégrée <b>esp8266_at</b> (le fork MAME pour ZX Spectrum Next) est lancée avec elle ; tout autre MAME reçoit l'émulation RS232 ESP de l'application par une liaison null modem.<br><br>L'activer maintenant ? Un MAME lancé depuis l'application donnera alors l'accès au réseau au Next émulé. Décochez <b>Émulation RS232 ESP (Mame)</b> dans les Réglages à tout moment pour le lancer sans elle.",
+        "RS232 ESP: the emulation is now enabled for MAME - the next MAME launched from the app gives the emulated Next network access.":
+            "RS232 ESP : l'émulation est maintenant activée pour MAME : le prochain MAME lancé depuis l'application donnera l'accès au réseau au Next émulé.",
         "RS232 ESP: the emulation is now enabled for CSpect - the next CSpect launched from the app gives the emulated Next network access.":
             "RS232 ESP : l'émulation est maintenant activée pour CSpect : le prochain CSpect lancé depuis l'application donnera l'accès au réseau au Next émulé.",
         ("On Windows CSpect needs the <b>OpenAL 1.1</b> audio library "
@@ -9923,6 +10029,8 @@ CATALOGS = {
             "Le port {port} est déjà utilisé ; le serveur MCP n'a pas été démarré.",
         "MCP server (AI agents):":
             "Serveur MCP (agents IA) :",
+        "The Settings tab opens in Basic mode, showing the settings most people need; the Basic / Advanced switch at its top right shows every setting, with the MAME, CSpect and RS232 ESP emulation settings grouped in their own boxes. The choice is saved.":
+            "L'onglet Réglages s'ouvre en mode Basique, avec les réglages dont la plupart ont besoin ; l'interrupteur Basique / Avancé en haut à droite affiche tous les réglages, ceux de MAME, de CSpect et de l'émulation RS232 ESP étant regroupés dans leurs propres cadres. Le choix est enregistré.",
         "Settings -> 'Enable MCP server' starts a Model Context Protocol server on this PC only (127.0.0.1, port 2050 by default) that lets an AI agent such as Claude Code or Claude Desktop drive zx-next-unite: load or download a disk image, put files into it, start MAME or CSpect on it, start the RS232 ESP emulation, start the NextSync listener, list the Nexts seated on it, push a build to one and run it, read the consoles. Every tool is the same operation the buttons perform, so an agent can do what you can and nothing more.":
             "Réglages -> 'Enable MCP server' démarre un serveur Model Context Protocol sur ce PC uniquement (127.0.0.1, port 2050 par défaut) qui permet à un agent IA comme Claude Code ou Claude Desktop de piloter zx-next-unite : charger ou télécharger une image disque, y placer des fichiers, y lancer MAME ou CSpect, démarrer l'émulation RS232 ESP, démarrer le listener NextSync, lister les Next qui y sont connectés, pousser une compilation sur l'un d'eux et l'exécuter, lire les consoles. Chaque outil est l'opération même qu'effectuent les boutons : un agent peut faire ce que vous pouvez faire, et rien de plus.",
         "Connect Claude Code with the one-line command shown under the toggle (claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp). A client that can only spawn a stdio server (Claude Desktop) runs 'zx-next-unite --mcp-stdio' (or the zx-next-unite-mcp command of a pipx install), which relays to the running app. 'Require bearer token' makes every request carry the token shown next to it.":
@@ -9963,6 +10071,7 @@ _TOAST_CATALOGS = {
         "✅  MAME installed": "✅  MAME installé",
         "⚠  MAME install failed": "⚠  Échec de l'installation de MAME",
         "✅  CSpect updated": "✅  CSpect mis à jour",
+        "✅  RS232 ESP emulation enabled for MAME": "✅  Émulation RS232 ESP activée pour MAME",
         "✅  UARTRS232 plugin installed": "✅  Plugin UARTRS232 installé",
         "⚠  No disk image selected/found for your emulator": "⚠  Aucune image disque sélectionnée/trouvée pour votre émulateur",
         "Classic NextSync server not started": "Serveur NextSync classique non démarré",
@@ -10099,6 +10208,7 @@ _TOAST_CATALOGS = {
         "✅  MAME installed": "✅  MAME instalado",
         "⚠  MAME install failed": "⚠  Falló la instalación de MAME",
         "✅  CSpect updated": "✅  CSpect actualizado",
+        "✅  RS232 ESP emulation enabled for MAME": "✅  Emulación RS232 ESP activada para MAME",
         "✅  UARTRS232 plugin installed": "✅  Plugin UARTRS232 instalado",
         "⚠  No disk image selected/found for your emulator": "⚠  No hay imagen de disco seleccionada/encontrada para su emulador",
         "Classic NextSync server not started": "Servidor NextSync clásico no iniciado",
@@ -10235,6 +10345,7 @@ _TOAST_CATALOGS = {
         "✅  MAME installed": "✅  MAME instalado",
         "⚠  MAME install failed": "⚠  Falha na instalação do MAME",
         "✅  CSpect updated": "✅  CSpect atualizado",
+        "✅  RS232 ESP emulation enabled for MAME": "✅  Emulação RS232 ESP ativada para o MAME",
         "✅  UARTRS232 plugin installed": "✅  Plugin UARTRS232 instalado",
         "⚠  No disk image selected/found for your emulator": "⚠  Nenhuma imagem de disco selecionada/encontrada para o seu emulador",
         "Classic NextSync server not started": "Servidor NextSync clássico não iniciado",
@@ -10371,6 +10482,7 @@ _TOAST_CATALOGS = {
         "✅  MAME installed": "✅  MAME zainstalowany",
         "⚠  MAME install failed": "⚠  Instalacja MAME nie powiodła się",
         "✅  CSpect updated": "✅  CSpect zaktualizowany",
+        "✅  RS232 ESP emulation enabled for MAME": "✅  Emulacja RS232 ESP włączona dla MAME",
         "✅  UARTRS232 plugin installed": "✅  Wtyczka UARTRS232 zainstalowana",
         "⚠  No disk image selected/found for your emulator": "⚠  Nie wybrano/znaleziono obrazu dysku dla emulatora",
         "Classic NextSync server not started": "Klasyczny serwer NextSync nie został uruchomiony",
@@ -10507,6 +10619,7 @@ _TOAST_CATALOGS = {
         "✅  MAME installed": "✅  MAME установлен",
         "⚠  MAME install failed": "⚠  Не удалось установить MAME",
         "✅  CSpect updated": "✅  CSpect обновлён",
+        "✅  RS232 ESP emulation enabled for MAME": "✅  Эмуляция RS232 ESP включена для MAME",
         "✅  UARTRS232 plugin installed": "✅  Плагин UARTRS232 установлен",
         "⚠  No disk image selected/found for your emulator": "⚠  Образ диска для эмулятора не выбран/не найден",
         "Classic NextSync server not started": "Классический сервер NextSync не запущен",
@@ -10643,6 +10756,7 @@ _TOAST_CATALOGS = {
         "✅  MAME installed": "✅  MAME nainstalován",
         "⚠  MAME install failed": "⚠  Instalace MAME selhala",
         "✅  CSpect updated": "✅  CSpect aktualizován",
+        "✅  RS232 ESP emulation enabled for MAME": "✅  Emulace RS232 ESP pro MAME zapnuta",
         "✅  UARTRS232 plugin installed": "✅  Plugin UARTRS232 nainstalován",
         "⚠  No disk image selected/found for your emulator": "⚠  Nebyl vybrán/nalezen obraz disku pro emulátor",
         "Classic NextSync server not started": "Klasický server NextSync nebyl spuštěn",

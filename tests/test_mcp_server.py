@@ -1001,10 +1001,17 @@ def test_wiring():
     pane = _src("zxnu_settings_pane.py")
     m = re.search(r"SETTINGS_TAB_ROWS = \((.*?)\n\)", pane, re.S)
     rows = ast.literal_eval("(" + m.group(1) + "\n)")
-    check("Settings row 'mcp_server' right after 'http_bridge'", rows.index("mcp_server") == rows.index("http_bridge") + 1)
+    check("Settings row 'mcp_server' right after the HTTP bridge's three rows",
+          rows.index("mcp_server") == rows.index("http_bridge_trace") + 1
+          and rows.index("http_bridge_trace") == rows.index("http_bridge") + 2)
+    mb = re.search(r"SETTINGS_BASIC_ROWS = frozenset\(\((.*?)\n\)\)", pane, re.S)
+    basic = set(ast.literal_eval("(" + mb.group(1) + "\n)"))
+    check("the bearer-token rows wait behind Advanced, the rest of both stays Basic (9.7.63)",
+          {"http_bridge", "http_bridge_trace", "mcp_server", "mcp_server_hint"} <= basic
+          and not {"http_bridge_token", "mcp_server_token"} & basic)
     check("Settings row 'cspect_mcp' right after 'cspect_params'", rows.index("cspect_mcp") == rows.index("cspect_params") + 1)
     for row in ("mcp_server", "cspect_mcp"):
-        check(f"{row} placed by name", f'settings_grid_row("{row}")' in pane)
+        check(f"{row} placed by name", f'_place("{row}", ' in pane)
     for w in ("settings_mcp_checkbox", "settings_mcp_port_spinbox", "settings_mcp_token_checkbox",
               "settings_mcp_token_edit", "settings_mcp_token_generate_btn", "settings_mcp_hint_label",
               "settings_mcp_copy_btn",

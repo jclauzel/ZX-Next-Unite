@@ -163,7 +163,7 @@ def make_widget(**kw):
     """A RemoteExplorerWidget wired to recorders for every host callback."""
     calls = {"q": [], "log": [], "toasts": [], "sync_root": [],
              "remote_cwd": [], "sorts": [], "extra_drives": [], "q_to": [],
-             "local_history": []}
+             "local_history": [], "local_dir": []}
     w = RemoteExplorerWidget(
         enqueue=calls["q"].append,
         local_start_dir=kw.get("local_start_dir"),
@@ -217,7 +217,11 @@ def make_widget(**kw):
         # The sync-root box's remembered folders (9.7.22): handed in and
         # reported back, never read from the cfg by the widget itself.
         local_history=kw.get("local_history"),
-        on_local_history_changed=calls["local_history"].append)
+        on_local_history_changed=calls["local_history"].append,
+        # The folder the local pane was browsing (9.7.62): handed in and
+        # reported back like the history list.
+        local_browse_dir=kw.get("local_browse_dir"),
+        on_local_dir_changed=calls["local_dir"].append)
     return w, calls
 
 
@@ -2217,6 +2221,118 @@ def test_box_follows_the_pane():
           combo.text() == fwd[beta] and w._browse_dir() == fwd[beta],
           f"{combo.text()} / {w._browse_dir()}")
     w.deleteLater()
+
+
+def test_local_dir_remembered():
+    """The local pane comes back on the folder it was BROWSING (9.7.62).
+
+    Reported: the app closed with the Remote Explorer's local pane on one
+    folder and reopened on another - the sync root. Browsing deliberately
+    never moves the sync root (9.7.22), and nothing persisted the browsed
+    folder itself, so every restart put the pane back on the root. The
+    widget now hands the browsed folder to the host on every CHANGE
+    (on_local_dir_changed) and takes it back at build (local_browse_dir),
+    restored UNCOMMITTED on top of the sync root: the pane, the box and the
+    offer button all come back as they were left.
+    """
+    root = tdir("ldir_root")
+    alpha = tdir("ldir_alpha")
+    beta = tdir("ldir_beta")
+    gone = os.path.join(TMP, "ldir_gone_never_made")
+    f = {p: p.replace("\\", "/") for p in (root, alpha, beta)}
+    app = QApplication.instance()
+
+    def settle():
+        app.processEvents()          # the box update is deferred one turn
+        app.processEvents()
+
+    def same(a, b):
+        return (os.path.normcase((a or "").rstrip("/\\"))
+                == os.path.normcase((b or "").rstrip("/\\")))
+
+    # ---- the reported case: root committed, alpha browsed, restart ------
+    w, calls = make_widget(local_start_dir=root, local_browse_dir=alpha)
+    settle()
+    check("the pane opens on the folder it was browsing, not the sync root",
+          same(w._browse_dir(), f[alpha]), w._browse_dir())
+    check("...the sync root is still the committed one",
+          same(w.sync_root(), f[root]), w.sync_root())
+    check("...the box shows the browsed folder",
+          same(w.local_path_edit.text(), f[alpha]), w.local_path_edit.text())
+    check("...and the offer button is up, as it was when the app closed",
+          w.local_set_syncroot_button.isVisibleTo(w))
+    check("the host was told of the sync root once, as before",
+          calls["sync_root"] == [f[root]], str(calls["sync_root"]))
+    check("...and of NO local-folder change at build (nothing to rewrite)",
+          calls["local_dir"] == [], str(calls["local_dir"]))
+
+    # ---- navigation reports every CHANGE, once ---------------------------
+    w._set_local_dir(beta, commit=False)
+    settle()
+    check("browsing to another folder reports it",
+          len(calls["local_dir"]) == 1
+          and same(calls["local_dir"][0], f[beta]), str(calls["local_dir"]))
+    w._local_refresh()
+    w._set_local_dir(beta, commit=False)
+    settle()
+    check("...a refresh or a re-root onto the same folder reports nothing",
+          len(calls["local_dir"]) == 1, str(calls["local_dir"]))
+    w._local_up()
+    settle()
+    check("...Up reports the parent",
+          len(calls["local_dir"]) == 2
+          and same(calls["local_dir"][1], os.path.dirname(f[beta])),
+          str(calls["local_dir"]))
+    w._set_local_dir(alpha, commit=True)
+    settle()
+    check("...and a COMMIT reports the folder too (the pane is there)",
+          len(calls["local_dir"]) == 3
+          and same(calls["local_dir"][2], f[alpha])
+          and same(w.sync_root(), f[alpha]), str(calls["local_dir"]))
+    check("the reported spelling is the cfg's: forward slashes, no trailing slash",
+          all("\\" not in p and not p.endswith("/")
+              for p in calls["local_dir"]), str(calls["local_dir"]))
+
+    # ---- a remembered folder that is gone: the sync root, nothing reported
+    w, calls = make_widget(local_start_dir=root, local_browse_dir=gone)
+    settle()
+    check("a vanished browsed folder leaves the pane on the sync root",
+          same(w._browse_dir(), f[root])
+          and not w.local_set_syncroot_button.isVisibleTo(w),
+          w._browse_dir())
+    check("...and reports nothing", calls["local_dir"] == [],
+          str(calls["local_dir"]))
+
+    # ---- the browsed folder IS the sync root: no offer, nothing reported -
+    w, calls = make_widget(local_start_dir=root,
+                           local_browse_dir=f[root] + "/")
+    settle()
+    check("the sync root itself remembered shows no offer",
+          same(w._browse_dir(), f[root])
+          and not w.local_set_syncroot_button.isVisibleTo(w)
+          and calls["local_dir"] == [],
+          f"{w._browse_dir()} {calls['local_dir']}")
+
+    # ---- no sync root at all: the browsed folder still comes back -------
+    w, calls = make_widget(local_start_dir=None, local_browse_dir=beta)
+    settle()
+    check("with no sync root the pane still opens on the browsed folder",
+          same(w._browse_dir(), f[beta]) and w.sync_root() == ""
+          and calls["local_dir"] == [],
+          f"{w._browse_dir()} {w.sync_root()!r} {calls['local_dir']}")
+
+    # ---- the pane hands it in and out: pinned at the source -------------
+    pane_src = open(os.path.join(os.path.dirname(rex.__file__),
+                                 "zxnu_nextsync_pane.py"),
+                    encoding="utf-8").read()
+    check("the pane restores the key into local_browse_dir=",
+          "local_browse_dir=local_dir" in pane_src
+          and "configuration_dictionary.get(SETTING_NEXTSYNC_RE_LOCAL_DIR)"
+          in pane_src)
+    check("...and persists the report through on_local_dir_changed=",
+          "on_local_dir_changed=_re_on_local_dir_changed" in pane_src
+          and "configuration_dictionary[SETTING_NEXTSYNC_RE_LOCAL_DIR]"
+          in pane_src)
 
 
 def test_modified_column_local_time():
@@ -4986,6 +5102,7 @@ def main():
         test_sync_root_history()
         test_sync_root_offer_repeats()
         test_box_follows_the_pane()
+        test_local_dir_remembered()
         test_modified_column_local_time()
         test_local_file_operations()
         test_local_open_with_shell()

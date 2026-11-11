@@ -43,6 +43,10 @@ emulator launch buttons below:
 
 ## Features
 
+- **Basic settings first** — the Settings tab opens in *Basic* mode (9.7.63),
+  showing the dozen settings most people need; the Basic / Advanced switch at
+  its top right shows everything, with the MAME, CSpect and RS232 ESP
+  emulation settings grouped in their own boxes. The choice is remembered.
 - **Transfer tools → SD Card Utility** — mount an HDF image, copy files in/out
   with a built-in explorer, then launch **CSpect** or **MAME** directly. No
   emulator command lines to remember. The emulator runs alongside the app
@@ -57,7 +61,8 @@ emulator launch buttons below:
   module, and every UART speed works. It sits happily next to the
   UARTReplacement plugin if you also use a real module: the Settings box
   switches between the two. After an itch.io CSpect install or update the
-  app offers the plugin - and the Settings box - for the new build.
+  app offers the plugin - and the Settings box - for the new build; after an
+  in-app MAME install or update it offers the MAME box the same way (9.7.63).
   See [extra/UARTRS232](extra/UARTRS232/README.md).
 - **Transfer tools → NextSync** — push files over Wi-Fi from your PC to a real Spectrum Next
   (KS1/KS2 or clones with an ESP module) using the `.sync5` dot command.

@@ -28,7 +28,7 @@ from PySide6.QtGui import QColor
 from zxnu_mcp import MCP_DEFAULT_PORT  # noqa: F401  (re-exported by the star import)
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.61"
+ZX_NEXT_UNITE_VERSION = "9.7.63"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -470,6 +470,7 @@ SETTING_CONTENT_DISCLAIMER_AGREED = "content_disclaimer_agreed"
 # shown), whether the first-run introduction has already been played, and
 # the speech-bubble font size in px ("" => the built-in default).
 SETTING_WIZARD_ENABLED     = "wizard_enabled"
+SETTING_SETTINGS_ADVANCED  = "settings_advanced"  # "true" => the Settings tab shows EVERY row; default off = Basic, the rows most people need (SETTINGS_BASIC_ROWS in zxnu_settings_pane; 9.7.63)
 SETTING_WIZARD_INTRO_SHOWN = "wizard_intro_shown"
 SETTING_WIZARD_FONT_SIZE   = "wizard_font_size"
 # "true" once Wizzy has made his one-time image-loaded starter-pack offer.
@@ -590,6 +591,21 @@ def cspect_rs232_esp_enabled(cfg):
     return str(v or "").strip().lower() in ("true", "1", "yes", "on")
 
 
+def mame_rs232_esp_enabled(cfg):
+    """Settings 'RS232 ESP Emulation (Mame)', default OFF - the decoder the
+    post-install offer reads (9.7.63); launch_mame and the config restore
+    keep their inline reads of the same key."""
+    v = cfg.get(SETTING_MAME_RS232_ESP, "") if cfg else ""
+    return str(v or "").strip().lower() in ("true", "1", "yes", "on")
+
+
+def settings_advanced_enabled(cfg):
+    """Settings tab Basic / Advanced switch (9.7.63), default OFF = Basic:
+    only an explicit true shows every row."""
+    v = cfg.get(SETTING_SETTINGS_ADVANCED, "") if cfg else ""
+    return str(v or "").strip().lower() in ("true", "1", "yes", "on")
+
+
 def cspect_mcp_port(cfg):
     """The port CSpect's MCP server is asked for: the saved value when it is
     a valid port, else CSPECT_MCP_DEFAULT_PORT."""
@@ -702,6 +718,7 @@ SETTING_NEXTSYNC_DROP_SILENT_NEXT = "nextsync_drop_silent_next"  # "false" => a 
 SETTING_RE_MACHINE_NAMES       = "nextsync_re_machine_names"  # JSON {address: friendly name} for the Remote Explorer's machine combo ("10.0.0.185 #1 - N-Go")
 SETTING_RE_MACHINE_COLORS      = "nextsync_re_machine_colors"  # JSON {address: "#rrggbb"} tint for the Remote Explorer's machine combo and session tabs (empty = untinted)
 SETTING_NEXTSYNC_REMOTE_CWD    = "nextsync_remote_cwd"     # last Next-side folder browsed in the Remote Explorer, restored on reconnect (falls back to "/" if gone)
+SETTING_NEXTSYNC_RE_LOCAL_DIR  = "nextsync_re_local_dir"   # the folder the Remote Explorer's LOCAL pane was browsing, reopened on the next build (9.7.62); the sync root (SETTING_NEXTSYNC_EXPLORERPATH) is what that pane COMMITS, this is where it IS - browsing never moves the sync root
 SETTING_NEXTSYNC_RE_LOCAL_SORT = "nextsync_re_local_sort"  # Remote Explorer local pane sort, "<name|size|type>:<asc|desc>" (default "name:asc")
 SETTING_NEXTSYNC_RE_NEXT_SORT  = "nextsync_re_next_sort"   # Remote Explorer Next pane sort, "<name|size|type>:<asc|desc>" (default "name:asc")
 SETTING_NEXTSYNC_EXTRA_DRIVES  = "nextsync_extra_drives"   # user-declared extra Next drives (e.g. "DE"): the dot only reports C/M/current, extra SD-reader letters are added by hand
@@ -1537,6 +1554,7 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              (""),
              ("MCP server (AI agents):"),
              ("-----------------------"),
+             ("The Settings tab opens in Basic mode, showing the settings most people need; the Basic / Advanced switch at its top right shows every setting, with the MAME, CSpect and RS232 ESP emulation settings grouped in their own boxes. The choice is saved."),
              ("Settings -> 'Enable MCP server' starts a Model Context Protocol server on this PC only (127.0.0.1, port 2050 by default) that lets an AI agent such as Claude Code or Claude Desktop drive zx-next-unite: load or download a disk image, put files into it, start MAME or CSpect on it, start the RS232 ESP emulation, start the NextSync listener, list the Nexts seated on it, push a build to one and run it, read the consoles. Every tool is the same operation the buttons perform, so an agent can do what you can and nothing more."),
              ("Connect Claude Code with the one-line command shown under the toggle (claude mcp add --transport http zx-next-unite http://127.0.0.1:2050/mcp). A client that can only spawn a stdio server (Claude Desktop) runs 'zx-next-unite --mcp-stdio' (or the zx-next-unite-mcp command of a pipx install), which relays to the running app. 'Require bearer token' makes every request carry the token shown next to it."),
              ("CSpect 4.2.0 and later has an MCP server of its own ('-mcp[=port]' on its command line). Settings -> 'Start CSpect with its MCP server' launches CSpect with it on the port set beside the toggle (2051 by default), so an agent can drive both at once: zx-next-unite through this server, the running CSpect through CSpect's. The emulator_start tool reports that port, and app_status shows it for every CSpect started from the app."),
@@ -1659,10 +1677,10 @@ SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, S
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
 SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_CHECK, SETTING_MAME_INSTALLED_TAG, SETTING_MAME_ASPECT, SETTING_MAME_SOUND, SETTING_MAME_MOUSE, SETTING_MAME_JOYSTICK, SETTING_MAME_ESC, SETTING_MAME_FLATPAK, SETTING_MAME_FLATPAK_ROMPATH, SETTING_MAME_RS232_ESP, SETTING_MAME_RS232_ESP_PORT, SETTING_MAME_RS232_ESP_VERBOSE, SETTING_MAME_RS232_ESP_IP, SETTING_CSPECT_RS232_ESP, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
-SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_NEXTSYNC_REMOTE_EXPLORER, SETTING_NEXTSYNC_RE_AUTOSTART, SETTING_NEXTSYNC_VERIFY_CRC, SETTING_NEXTSYNC_SESSIONS, SETTING_NEXTSYNC_DROP_SILENT_NEXT, SETTING_NEXTSYNC_REMOTE_CWD, SETTING_NEXTSYNC_RE_LOCAL_SORT, SETTING_NEXTSYNC_RE_NEXT_SORT, SETTING_NEXTSYNC_EXTRA_DRIVES, SETTING_NEXTSYNC_HTTP_BRIDGE, SETTING_NEXTSYNC_HTTP_PORT, SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT, SETTING_NEXTSYNC_HTTP_VERBOSE, SETTING_NEXTSYNC_HTTP_TOKEN_ENABLED, SETTING_NEXTSYNC_HTTP_TOKEN, SETTING_MCP_SERVER, SETTING_MCP_PORT, SETTING_MCP_TOKEN_ENABLED, SETTING_MCP_TOKEN, SETTING_SDCARD_PYGAME_LOG, SETTING_SDCARD_SPLITTER, SETTING_GETIT_SPLITTER, SETTING_SDCARD_HSPLITTER, SETTING_NEXTSYNC_RE_SPLITTER, SETTING_NEXTSYNC_RE_LOG_SPLITTER, SETTING_HELP_PYGAME_LOG, SETTING_RETRO_LOG_FONT_SIZE, SETTING_GENERAL_FONT_SIZE, SETTING_RE_UPDATE_PROMPT, SETTING_SYNC5_IMG_AUTODEPLOY,
+SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_NEXTSYNC_REMOTE_EXPLORER, SETTING_NEXTSYNC_RE_AUTOSTART, SETTING_NEXTSYNC_VERIFY_CRC, SETTING_NEXTSYNC_SESSIONS, SETTING_NEXTSYNC_DROP_SILENT_NEXT, SETTING_NEXTSYNC_REMOTE_CWD, SETTING_NEXTSYNC_RE_LOCAL_DIR, SETTING_NEXTSYNC_RE_LOCAL_SORT, SETTING_NEXTSYNC_RE_NEXT_SORT, SETTING_NEXTSYNC_EXTRA_DRIVES, SETTING_NEXTSYNC_HTTP_BRIDGE, SETTING_NEXTSYNC_HTTP_PORT, SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT, SETTING_NEXTSYNC_HTTP_VERBOSE, SETTING_NEXTSYNC_HTTP_TOKEN_ENABLED, SETTING_NEXTSYNC_HTTP_TOKEN, SETTING_MCP_SERVER, SETTING_MCP_PORT, SETTING_MCP_TOKEN_ENABLED, SETTING_MCP_TOKEN, SETTING_SDCARD_PYGAME_LOG, SETTING_SDCARD_SPLITTER, SETTING_GETIT_SPLITTER, SETTING_SDCARD_HSPLITTER, SETTING_NEXTSYNC_RE_SPLITTER, SETTING_NEXTSYNC_RE_LOG_SPLITTER, SETTING_HELP_PYGAME_LOG, SETTING_RETRO_LOG_FONT_SIZE, SETTING_GENERAL_FONT_SIZE, SETTING_RE_UPDATE_PROMPT, SETTING_SYNC5_IMG_AUTODEPLOY,
 SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK, SETTING_CSPECT_DISCARD_RESTRICTED_UPDATES, SETTING_CSPECT_MCP, SETTING_CSPECT_MCP_PORT, SETTING_ZXNEXTREMOTE_UPDATE_CHECK, SETTING_ZXNU_UPDATE_CHECK, SETTING_DOTN_LAST_VERSION, SETTING_ZXNR_UPDATE_PATH, SETTING_DELETE_TO_RECYCLE_BIN, SETTING_QLNEXTREMOTE_UPDATE_CHECK, SETTING_QLNR_UPDATE_PATH,
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO, SETTING_UI_LANGUAGE,
-SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN, SETTING_WIZARD_FONT_SIZE, SETTING_WIZARD_SP_OFFERED,
+SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN, SETTING_WIZARD_FONT_SIZE, SETTING_WIZARD_SP_OFFERED, SETTING_SETTINGS_ADVANCED,
 SETTING_WINDOW_SCREEN, SETTING_WINDOW_SIZE, SETTING_SDCARD_TREE_COLS, SETTING_IMAGE_TREE_COLS, SETTING_RE_LOCAL_COLS, SETTING_RE_NEXT_COLS, SETTING_RE_REMOTE_CWDS, SETTING_RE_MACHINE_NAMES, SETTING_RE_MACHINE_COLORS,
 SETTING_SDCARD_TREE_FONT, SETTING_IMAGE_TREE_FONT, SETTING_RE_LOCAL_FONT, SETTING_RE_NEXT_FONT, SETTING_NEXTSYNC_TREE_FONT,
 SETTING_EMULATOR_COLORS)
