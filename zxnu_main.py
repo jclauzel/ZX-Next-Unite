@@ -4141,7 +4141,8 @@ class MainWindow(QMainWindow):
 
         # Create Settings Tab (extracted to zxnu_settings_pane.py; the builder
         # writes every historical self.settings_* attribute and hands back
-        # settings_scroll for the addTab below)
+        # settings_tab_page - the Basic / Advanced bar over the scroll area,
+        # 9.7.63 - for the addTab below)
         # UI-language re-translation hook: the Settings pane's language combo
         # calls this with a code from zxnu_i18n.UI_LANGUAGES; the walk swaps
         # every catalogued text in place (English restores the originals).
@@ -4175,8 +4176,7 @@ class MainWindow(QMainWindow):
             _zxnu_set_crash_log_enabled=_zxnu_set_crash_log_enabled,
             _apply_autocomplete_setting=lambda *a, **k: _apply_autocomplete_setting(*a, **k),
         )
-        settings_scroll = self.settings_scroll
-        wid_inner.tab.addTab(settings_scroll, "Settings 🔩")
+        wid_inner.tab.addTab(self.settings_tab_page, "Settings 🔩")
 
         # The MCP server (zxnu_mcp_ops, 9.7.57): its lifecycle closures and
         # the host adapter the tools call. Built AFTER every pane and op

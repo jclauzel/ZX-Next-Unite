@@ -49,6 +49,11 @@ SUITES = [
     # "CSpect - Discard Beta or Patrons, Builders updates" (9.7.58): the
     # startup update check leaves the password-protected builds out.
     ("test_cspect_update_filter.py", 120, None),
+    # The Settings tab's Basic / Advanced mode and its three group boxes
+    # (9.7.63): the registrar tables, the switch widget, the row-widget
+    # collector and the wiring tripwires - headless; the real tab is
+    # driven in offscreen phase 7, the MAME RS232 ESP offer in phase 12.
+    ("test_settings_basic_advanced.py", 120, None),
     ("test_openal_install.py",   120, None),
     ("test_startup_tab_activation.py", 120, None),
     ("test_transfer_tab.py",     120, None),

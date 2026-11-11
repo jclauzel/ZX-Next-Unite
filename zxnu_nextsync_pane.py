@@ -1037,6 +1037,22 @@ def build_nextsync_pane(
             _re_ip_info_cache["t"] = now
         return _re_ip_info_cache["text"]
 
+    def _re_on_local_dir_changed(path):
+        # The widget reports the folder its LOCAL pane is now browsing
+        # (9.7.62), the twin of _re_on_remote_cwd_changed below for the
+        # Next pane: persisted at once, so the next build reopens on it.
+        # The sync root is NOT touched here - browsing never moves it
+        # (9.7.22); SETTING_NEXTSYNC_EXPLORERPATH is written by
+        # _re_on_sync_root_changed alone. The widget reports only a CHANGE
+        # and never during its own restore, so a build rewrites nothing.
+        try:
+            configuration_dictionary[SETTING_NEXTSYNC_RE_LOCAL_DIR] = (
+                path or "")
+            save_configuration_file()
+        except Exception:
+            logging.exception("could not persist the Remote Explorer's "
+                              "local folder")
+
     def _re_on_sync_root_changed(root):
         # The widget reports the user picked (or changed) the local sync root.
         host._re_sync_root = (root or "").strip()
@@ -1414,6 +1430,7 @@ def build_nextsync_pane(
         if host._re_widget is not None:
             return host._re_widget
         start_dir = configuration_dictionary.get(SETTING_NEXTSYNC_EXPLORERPATH) or None
+        local_dir = configuration_dictionary.get(SETTING_NEXTSYNC_RE_LOCAL_DIR) or None
         local_hist = configuration_dictionary.get(
             SETTING_NEXTSYNC_EXPLORERPATH_HISTORY) or ""
         remote_cwd = configuration_dictionary.get(SETTING_NEXTSYNC_REMOTE_CWD) or None
@@ -1427,6 +1444,11 @@ def build_nextsync_pane(
             # built lazily, after load_configuration_file has run.
             local_history=local_hist,
             on_local_history_changed=_re_on_local_history_changed,
+            # The folder the local pane was browsing when the app last
+            # closed (9.7.62), restored on top of the sync root and
+            # reported back on every change.
+            local_browse_dir=local_dir,
+            on_local_dir_changed=_re_on_local_dir_changed,
             log=lambda s: add_nextsync_log_window(str(s)),
             drain=_re_drain, on_sync_root_changed=_re_on_sync_root_changed,
             remote_start_dir=remote_cwd,

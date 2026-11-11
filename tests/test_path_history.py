@@ -28,6 +28,8 @@ from zxnu_config import (CONFIG_FILE_SETTINGS, MAX_PATH_HISTORY,  # noqa: E402
                          SETTING_EXPLORERPATH_HISTORY,
                          SETTING_NEXTSYNC_EXPLORERPATH,
                          SETTING_NEXTSYNC_EXPLORERPATH_HISTORY,
+                         SETTING_NEXTSYNC_RE_LOCAL_DIR,
+                         SETTING_NEXTSYNC_REMOTE_CWD,
                          normalize_history_folder)
 from zxnu_pathhistorycombo import (FolderHistoryCombo,  # noqa: E402
                                    PathHistoryCombo)
@@ -111,6 +113,16 @@ def test_setting_keys():
           == CONFIG_FILE_SETTINGS.index(SETTING_EXPLORERPATH_HISTORY)
           and CONFIG_FILE_SETTINGS.index(SETTING_NEXTSYNC_EXPLORERPATH) + 1
           == CONFIG_FILE_SETTINGS.index(SETTING_NEXTSYNC_EXPLORERPATH_HISTORY))
+    # 9.7.62: the folder the Remote Explorer's local pane is BROWSING has
+    # a key of its own beside the Next pane's (nextsync_remote_cwd) -
+    # distinct from the sync root the pane commits, which browsing never
+    # moves. Unregistered it would round-trip all session and vanish on
+    # restart, the very bug it exists to fix.
+    check("the Remote Explorer's browsed local folder has its own registered "
+          "key, beside the Next pane's",
+          SETTING_NEXTSYNC_RE_LOCAL_DIR in CONFIG_FILE_SETTINGS
+          and CONFIG_FILE_SETTINGS.index(SETTING_NEXTSYNC_REMOTE_CWD) + 1
+          == CONFIG_FILE_SETTINGS.index(SETTING_NEXTSYNC_RE_LOCAL_DIR))
     # The explicit ask was TWO distinct values: the two panes browse for
     # different reasons, and one shared list would drop a sync root into the
     # SD Card tab's box.

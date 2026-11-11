@@ -694,7 +694,7 @@ def test_settings_switch_wiring():
           and rows.index("nextsync_sessions") + 1
           == rows.index("nextsync_drop_silent_next"))
     check("the checkbox is placed through the registrar",
-          'settings_grid_row("nextsync_drop_silent_next")' in pane_src)
+          '_place("nextsync_drop_silent_next", ' in pane_src)
     check("the handler persists true/false and saves",
           "configuration_dictionary[SETTING_NEXTSYNC_DROP_SILENT_NEXT] = (" in pane_src)
     check("the checkbox defaults on",

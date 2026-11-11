@@ -713,6 +713,13 @@ def build_config_io(
                     cspect_discard_restricted_updates(configuration_dictionary))
                 host.settings_cspect_discard_restricted_checkbox.blockSignals(False)
 
+            # The Settings tab's Basic / Advanced switch (9.7.63). The pane
+            # built itself Basic, so only a saved "true" changes anything;
+            # the setter never saves (a restore must rewrite nothing).
+            if hasattr(host, "_settings_set_advanced"):
+                host._settings_set_advanced(
+                    settings_advanced_enabled(configuration_dictionary))
+
             # CSpect default launch parameters (editable text). Empty falls
             # back to the built-in default, mirroring the MAME params handling.
             if hasattr(host, "settings_cspect_params_edit"):

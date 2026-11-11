@@ -77,7 +77,7 @@ check("...right after the verify-CRC row",
       and rows.index("nextsync_verify_crc") + 1 == rows.index("nextsync_sessions"),
       str(rows[rows.index("nextsync_verify_crc"):][:3] if "nextsync_verify_crc" in rows else rows))
 check("the checkbox is placed through the registrar",
-      'settings_grid_row("nextsync_sessions")' in pane_src)
+      '_place("nextsync_sessions", ' in pane_src)
 check("...never by a literal grid index",
       not re.search(r"addWidget\(host\.settings_nextsync_sessions_checkbox,\s*\d", pane_src))
 check("the handler persists true/false and saves",
