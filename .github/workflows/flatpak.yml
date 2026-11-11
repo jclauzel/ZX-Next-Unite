@@ -93,13 +93,18 @@ jobs:
               return urllib.request.urlopen(r, timeout=300)
 
           release = None
-          for attempt in range(10):  # release.yml may still be creating the draft
+          # release.yml creates the draft ~16 min after the tag push (its test
+          # gate, then three builds); this job's own build covers ~10 of them,
+          # so 10 attempts only ever worked by that margin. 30 keeps the
+          # bundle attaching itself when either side is slower (v9.7.65: the
+          # .NET workflow, which starts waiting at once, fell out of its window).
+          for attempt in range(30):  # release.yml may still be creating the draft
               with req(f"{api}/repos/{repo}/releases?per_page=30") as resp:
                   releases = json.load(resp)
               release = next((r for r in releases if r.get("tag_name") == tag), None)
               if release:
                   break
-              print(f"release {tag} not there yet (attempt {attempt + 1}/10) - waiting 60s")
+              print(f"release {tag} not there yet (attempt {attempt + 1}/30) - waiting 60s")
               time.sleep(60)
           if not release:
               print(f"::warning::no release found for {tag} - attach {asset} "
