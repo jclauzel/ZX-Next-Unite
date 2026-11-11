@@ -1046,19 +1046,30 @@ border — even though `/machines/next/MENU.DEF` is in the image and identical
 to the repository's. Two swaps narrow it down: firmware **1.46 copied onto a
 zxnext.uk 2 GB image boots to NextZXOS** in the same setup, and the older
 firmware 1.45 copied onto the 26.11a image fails exactly the same way. So it is
-something about that image's layout that MAME's emulated card and the
-firmware disagree on, not the firmware and not these ROMs. The cause was not
-identified here. One measured difference, for whoever picks this up: the
-1 GB image is FAT32 with 32,758 clusters of 32 KB, while the zxnext.uk images
-are FAT32 with about 131,000 clusters (16 KB each on the 2 GB image, 32 KB
-on the 4 GB one) — the 1 GB volume sits below the 65,525-cluster count at
-which the classic rule calls a volume FAT32, a shape ZX-Next-Unite's own
-image reader had to learn to recognise from the boot sector instead
-(`read_image_fat_usage`, 9.7.41). Whether the firmware's FAT driver trips
-on that was not checked. Until it is, keep a zxnext.uk image for MAME; its firmware
-and NextZXOS can be brought up to 26.11a by copying the distribution's files
-onto it (the firmware half of that was the swap just described; a full
-distribution copy was not tested here).
+the image's volume, not the firmware and not these ROMs — and it was then
+pinned down. The 1 GB image is FAT32 with **32 KB clusters**, which leaves it
+**32,758 clusters**, below the 65,525-cluster floor the FAT specification
+sets for FAT32 (a volume that small is meant to be FAT16; `mkfs.fat -F 32`
+and the like write it anyway, with a warning). Rebuilt with hdfmonkey from the
+26.11a lite distribution, the same files boot to the firmware's test-card
+screen on a FAT16 1 GB volume (65,517 clusters), on a FAT32 1 GB volume with
+8 KB clusters (130,938) and on a FAT32 2 GB volume (131,005). An empty volume
+with the 26.11a image's exact geometry, filled by hdfmonkey with those same
+files, fails with the same error, and so does one with 32 reserved sectors in
+place of its 33 — while 8 KB clusters with 33 reserved sectors boot. That is
+the behaviour of a FAT driver that types a volume by its cluster count, as
+Microsoft's rule does, and so reads this one as FAT16; the boot ROM,
+hdfmonkey and CSpect type it by the boot sector's shape and read it fine,
+which is why the IPL finds `TBBLUE.FW` on it and CSpect boots it. The cure is
+on the image side: format the 1 GB volume as FAT16 (hdfmonkey's own choice
+for that size) or as FAT32 with 8 KB clusters, or make the image 2 GB.
+
+For MAME, meanwhile, either keep a zxnext.uk image or make your own card from
+the distribution: `hdfmonkey create next.img 1G` (or `2G`), then
+`hdfmonkey putdir next.img <unpacked sn-lite-26.11a folder> /` — both
+verified here to boot the 26.11a firmware, which lands on its display test
+card (`timing=8` in the distribution's `config.ini`; ENTER picks a mode).
+ZX-Next-Unite's own image download keeps fetching the zxnext.uk image.
 
 ---
 
@@ -1139,7 +1150,10 @@ on the v3.02.04 core and has no BIOS entry for anything newer; the 3.03 core
 exists only as the `TBBLUE.TBU` bitstream in the distribution (section 1).
 
 **MAME boots the 26.11a emulator image to `Error opening 'menu.ini/.def'!`.**
-Known; it is the image, not the ROMs. See the end of section 9.
+Known: that image's FAT32 volume has only 32,758 clusters (32 KB clusters on
+1 GB), below the FAT32 floor of 65,525, and the firmware's card driver reads
+it as FAT16. Not the ROMs. Build a card with hdfmonkey instead — see the end
+of section 9.
 
 **Do I need the two `bootrom*.bin` duplicates?** No. They are provenance
 copies of files already present under MAME's names. Include them if you want
@@ -1215,4 +1229,5 @@ v3.02.04 core.
 - **2026-11-11** — six ROMs: the final v3.02.04 pair added under MAME's names,
   the earlier pair kept as `boot-30204rc*.bin`; verified against MAME 0.289
   (official table) and a holub-fork build (final-core table); the System/Next
-  26.11a emulator image tested and documented as not booting in MAME.
+  26.11a emulator image found not to boot in MAME, and the cause pinned to
+  its FAT32 volume having fewer than 65,525 clusters.
