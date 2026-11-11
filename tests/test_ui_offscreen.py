@@ -4520,14 +4520,29 @@ def _phase12_mcp_catalog_adapter(win):
     catalog_search / catalog_latest / catalog_random do not query the
     catalogues themselves: the adapter calls, on the UI thread, the handler
     the tab's own button is wired to and hands back the list the tab then
-    shows. Checked here with those handlers replaced by scripted ones (no
-    network in the suite) and the adapter called from a worker thread - as
-    the MCP server's HTTP thread calls it - while this thread keeps the Qt
-    loop turning: which handler each (kind, source) reaches, the tagging and
-    trimming of the entries, the Unite! path reading the fan-out's end off
-    its bulk flag, and the three ways it must say no (a search that never
-    reports back, a Unite! search already running, a source that is not
-    available)."""
+    shows. Checked here with those handlers replaced by scripted ones and
+    the adapter called from a worker thread - as the MCP server's HTTP
+    thread calls it - while this thread keeps the Qt loop turning: which
+    handler each (kind, source) reaches, the tagging and trimming of the
+    entries, the Unite! path reading the fan-out's end off its bulk flag,
+    and the three ways it must say no (a search that never reports back, a
+    Unite! search already running, a source that is not available).
+
+    The app's OWN network traffic is the one thing the scripted handlers do
+    not stop: zxnu_main's deferred startup activation runs the Unite!
+    "Latest" fan-out (GetIt, ZXDB, zxArt - real fetches) whatever tab was
+    restored. Its end - every source answered, or its 30 s watchdog - lowers
+    the bulk flag and rebuilds the aggregation through closures this test
+    cannot reach, and a source answering AFTER the watchdog rebuilds it
+    through host._allinone_repopulate, the way zxnu_zxart_pane's result
+    handler does. On a CI runner zxart.ee answered ~45 s after startup,
+    inside this block, and the merged-list check read the fake GetIt and
+    ZXDB rows plus twenty live zxArt productions (run 43003617922,
+    test (3.10), 2026-11-11; the 3.13 job and the re-run passed). So the
+    block first waits for that fan-out to END (bounded by its watchdog),
+    then holds the host-reachable rebuild off for its duration - the fake
+    Unite! handler writes the aggregation itself - and proves the immunity
+    by landing a late zxArt answer mid-window on purpose."""
     import threading as _th
     from zxnu_mcp import McpToolError
 
@@ -4539,6 +4554,7 @@ def _phase12_mcp_catalog_adapter(win):
     names = ("_cross_search_getit", "_cross_search_zxdb", "_cross_search_zxart",
              "_itchio_cross_search", "getit_on_latest", "zxdb_on_random",
              "_allinone_on_search", "_allinone_on_latest", "_allinone_on_random",
+             "_allinone_repopulate",
              "_getit_last_entries", "_zxdb_last_entries", "_zxart_last_entries",
              "_itchio_last_entries", "_allinone_all_entries",
              "_allinone_bulk_active", "_allinone_ac_block", "_itchio_connected")
@@ -4577,6 +4593,20 @@ def _phase12_mcp_catalog_adapter(win):
     zxart_rows = [{"id": 9001, "title": "Some Demo", "_kind": "zxart_prod",
                    "_source": {"a whole": "server payload"}}]
     try:
+        # The startup "Latest" fan-out must be OVER before anything here
+        # reads the bulk flag: its end lowers the flag and rebuilds through
+        # closures no host attribute reaches. Bounded by its own 30 s
+        # watchdog from startup; the phase's earlier blocks have usually
+        # outlasted it, so this costs nothing on a normal run.
+        check("the startup Unite! Latest fan-out has ended before the "
+              "catalogue checks (its watchdog bounds it)",
+              wait_until(lambda: not getattr(win, "_allinone_bulk_active", False),
+                         45, "the startup Unite! Latest fan-out to end"))
+        # From here on, a late real answer (a slow catalogue) reaches the
+        # aggregation only through host._allinone_repopulate: held off for
+        # the block, and counted.
+        repops = []
+        win._allinone_repopulate = lambda: repops.append(1)
         win._allinone_bulk_active = False
         win._itchio_connected = True
         win._cross_search_getit = handler("getit", "search", getit_rows)
@@ -4661,6 +4691,17 @@ def _phase12_mcp_catalog_adapter(win):
                   dict(zxdb_rows[0], _fav_source="zxdb"),
                   dict(zxart_rows[0], _fav_source="zxart")]
 
+        live_zxart = [dict(id=606083, title="Gorbat Story", year="2025",
+                           _kind="zxart_prod")]
+
+        def late_landing():
+            """A real zxArt answer landing late, exactly as the zxArt pane's
+            result handler lands one: the pane's list, then the rebuild the
+            host exposes. Fired mid-window and right after the flag drops -
+            the two moments CI lost the race at."""
+            win._zxart_last_entries = list(live_zxart)
+            getattr(win, "_allinone_repopulate", lambda: None)()
+
         def unite(kind):
             def fn():
                 calls.append(("unite", kind, win.allinone_search_input.text()))
@@ -4671,7 +4712,9 @@ def _phase12_mcp_catalog_adapter(win):
                 def finish():
                     win._allinone_all_entries = list(merged)
                     win._allinone_bulk_active = False
+                QTimer.singleShot(200, late_landing)
                 QTimer.singleShot(450, finish)
+                QTimer.singleShot(460, late_landing)
             return fn
         win._allinone_on_search = unite("search")
         win._allinone_on_latest = unite("latest")
@@ -4683,6 +4726,11 @@ def _phase12_mcp_catalog_adapter(win):
         check("...the answer waits for the fan-out to END, then is the merged list",
               [e.get("_fav_source") for e in entries] == ["getit", "zxdb", "zxart"]
               and "_source" not in entries[2], entries)
+        check("...a real catalogue answer landing late rebuilt nothing: the "
+              "rebuild it reaches is held off for the block, and was reached",
+              len(repops) >= 2 and [e.get("title") for e in entries]
+              == ["Alpha", "Jet Set Willy", "Some Demo"],
+              f"{len(repops)} {[e.get('title') for e in entries]}")
         out = run("latest", "unite")
         check("MCP latest unite: Unite!'s Latest",
               out.get("r", (False,))[0] and calls[-1][:2] == ("unite", "latest")
