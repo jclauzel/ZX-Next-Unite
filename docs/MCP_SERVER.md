@@ -69,7 +69,7 @@ with the tool names.
 | Family | Tools |
 |---|---|
 | App | `app_status` (everything at a glance), `app_log_tail` (the SD Card console, the NextSync console or the file log) |
-| Disk image | `image_status`, `image_load`, `image_unload`, `image_recent`, `image_download_nextzxos` (the stock 2/4/8 GB zxnext.uk image; never replaces a zip or an image already in the folder unless `overwrite` is true), `image_ls`, `image_get`, `image_put` (a file or a whole folder), `image_mkdir`, `image_rm` (`recursive` for folders), `image_rename` |
+| Disk image | `image_status`, `image_load`, `image_unload`, `image_recent`, `image_download_nextzxos` (the stock 2/4/8 GB zxnext.uk image; never replaces a zip or an image already in the folder unless `overwrite` is true), `image_ls`, `image_get`, `image_put` (a file or a whole folder), `image_mkdir`, `image_rm` (`recursive` for folders), `image_rename`, and since 9.7.65 `image_create_nextzxos` (a fresh 2/4/8 GB FAT32 image holding the latest System/Next distribution from specnext.com; needs hdfmonkey; never replaces an existing path unless `overwrite` is true), `image_mame_check` (will MAME boot this image? its FAT type and cluster count) and `image_make_mame_bootable` (rebuild an image as a fresh FAT32 one MAME boots) |
 | Emulators | `emulator_list`, `emulator_start` (MAME / CSpect on the loaded image, optionally starting a program file; CSpect optionally with its own MCP server), `emulator_processes`, `emulator_stop` |
 | RS232 ESP emulation | `esp_emulation_status`, `esp_emulation_start` (optionally on another port), `esp_emulation_stop` |
 | NextSync servers | `nextsync_status`, `nextsync_listener_start` / `_stop` (the Remote Explorer's `-listen` server), `nextsync_set_sync_root`, `nextsync_classic_start` / `_stop` (Jari Komppa's one-shot or continuous sync), `nextsync_http_bridge_start` / `_stop` |
@@ -89,6 +89,19 @@ downloading anything, and its error lists what is there: load that image with
 `image_load`, pass another `dest_dir`, or pass `overwrite: true` to replace
 both. An image an emulator started by the app is running on is never replaced,
 whatever `overwrite` says.
+
+`image_create_nextzxos` (9.7.65) builds a card from scratch instead: it reads
+<https://www.specnext.com/latestdistro/>, downloads the distribution zip the
+page names (verified against the SHA-1 the page prints and cached under
+`downloads/nextzxos/`), creates the image with hdfmonkey as **FAT32 whatever
+the size** and copies the distribution in. FAT32 matters: the official 26.11a
+"image for emulators" is FAT32 with only 32,758 clusters, below the 65,525 the
+format requires, and the Next firmware's card driver reads such a volume as
+FAT16 under MAME and stops at `Error opening 'menu.ini/.def'` (CSpect never
+runs that firmware and boots it fine). `image_mame_check` tells the two apart
+before you boot, and `image_make_mame_bootable` copies every file of such an
+image into a fresh FAT32 one. All three need hdfmonkey, take minutes, and
+never replace an existing file unless `overwrite` is true.
 
 ## Getting started: your first session
 
@@ -136,7 +149,7 @@ the port in the command differs from the one in Settings — re-copy the command
 ### 3. Open a fresh Claude Code session in this folder
 
 Claude Code discovers a server's tools when a session **starts** (in a session
-that is already open, `/mcp` reconnects). The 54 tools appear as
+that is already open, `/mcp` reconnects). The 57 tools appear as
 `mcp__zx-next-unite__<name>`, and Claude picks them from plain requests — you
 never type a tool name unless you want to.
 

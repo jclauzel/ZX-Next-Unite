@@ -117,6 +117,20 @@ class FakeHost:
         self.calls.append(("image_download", size, dest_dir, load, overwrite))
         return {"ok": True, "zip": "x.zip", "image": "x.img", "loaded": load}
 
+    def image_create(self, path, size, load, overwrite):
+        self.calls.append(("image_create", path, size, load, overwrite))
+        return {"ok": True, "image": path, "version": "26.11a",
+                "distribution": "sn-nosrc-26.11a.zip", "size": size, "loaded": load}
+
+    def image_mame_check(self, path):
+        self.calls.append(("image_mame_check", path))
+        return {"path": path or self.image, "verdict": "fat32-small", "mame_bootable": False}
+
+    def image_rebuild(self, source, target, size, load, overwrite):
+        self.calls.append(("image_rebuild", source, target, size, load, overwrite))
+        return {"ok": True, "source": source or self.image, "target": target,
+                "files": 3, "size": size, "loaded": load}
+
     def image_refresh(self, path):
         self.refreshed.append(path)
 
@@ -1610,6 +1624,69 @@ def test_image_download_guard():
           and 'open(save_path, "wb")' not in wizard and 'open(target, "wb")' not in wizard)
 
 
+def test_image_create_tools():
+    """image_create_nextzxos / image_mame_check / image_make_mame_bootable
+    (9.7.65): the Create NextZXOS Image button and the MAME-bootable rebuild
+    as tools - the argument rules (path/target required, the size enum, the
+    JSON-true overwrite rule of image_download_nextzxos) and, in the
+    adapter's source, the order hdfmonkey -> size -> existing-target refusal
+    -> the task."""
+    print("-- image_create_nextzxos / image_mame_check / image_make_mame_bootable")
+    host, srv = make_server()
+    tools = {t["name"]: t for t in srv.handle_message(rpc("tools/list"))["result"]["tools"]}
+    check("the three tools are listed",
+          {"image_create_nextzxos", "image_mame_check", "image_make_mame_bootable"} <= set(tools))
+    create = tools["image_create_nextzxos"]["inputSchema"]
+    check("create: path required, size an enum defaulting to 2 GB, overwrite false by default",
+          "path" in create.get("required", [])
+          and create["properties"]["size"].get("enum") == ["2 GB", "4 GB", "8 GB"]
+          and create["properties"]["size"].get("default") == "2 GB"
+          and create["properties"]["overwrite"].get("default") is False, create)
+    check("...and the descriptions say an existing file is never replaced",
+          "never replaced" in tools["image_create_nextzxos"]["description"]
+          and "never replaced" in tools["image_make_mame_bootable"]["description"])
+    is_err, text, _ = result_of(call(srv, "image_create_nextzxos", {}))
+    check("create without a path is refused", is_err and "path" in text, text)
+    is_err, _, s = result_of(call(srv, "image_create_nextzxos", {"path": "D:/x.img", "size": "4 GB"}))
+    check("create passes path/size/load and never asks to overwrite by itself",
+          not is_err and host.calls[-1] == ("image_create", "D:/x.img", "4 GB", True, False)
+          and s["version"] == "26.11a", str((host.calls[-1], s)))
+    is_err, _, _ = result_of(call(srv, "image_create_nextzxos", {"path": "D:/x.img", "overwrite": None, "load": False}))
+    check("a null overwrite is not consent, the size defaults to 2 GB",
+          not is_err and host.calls[-1] == ("image_create", "D:/x.img", "2 GB", False, False), host.calls[-1])
+    is_err, _, _ = result_of(call(srv, "image_create_nextzxos", {"path": "D:/x.img", "overwrite": True}))
+    check("overwrite=true reaches the host", not is_err and host.calls[-1][4] is True)
+    before = len(host.calls)
+    reply = call(srv, "image_create_nextzxos", {"path": "D:/x.img", "overwrite": "true"})
+    check("overwrite='true' is refused, not read as true",
+          ("error" in reply or result_of(reply)[0]) and len(host.calls) == before, reply)
+    reply = call(srv, "image_create_nextzxos", {"path": "D:/x.img", "size": "1 GB"})
+    check("a size outside 2/4/8 GB is refused",
+          ("error" in reply or result_of(reply)[0]) and len(host.calls) == before, reply)
+    is_err, _, s = result_of(call(srv, "image_mame_check", {}))
+    check("mame_check defaults to the loaded image and answers the verdict",
+          not is_err and host.calls[-1] == ("image_mame_check", "") and s["verdict"] == "fat32-small", str(s))
+    is_err, text, _ = result_of(call(srv, "image_make_mame_bootable", {}))
+    check("rebuild without a target is refused", is_err and "target" in text, text)
+    is_err, _, s = result_of(call(srv, "image_make_mame_bootable", {"target": "D:/y.img"}))
+    check("rebuild passes source (default: loaded)/target/size/load/overwrite",
+          not is_err and host.calls[-1] == ("image_rebuild", "", "D:/y.img", "2 GB", False, False)
+          and s["files"] == 3, str((host.calls[-1], s)))
+    is_err, _, _ = result_of(call(srv, "image_make_mame_bootable", {"target": "D:/y.img", "source": "D:/z.img", "size": "8 GB", "load": True, "overwrite": True}))
+    check("...every argument reaches the host",
+          not is_err and host.calls[-1] == ("image_rebuild", "D:/z.img", "D:/y.img", "8 GB", True, True), host.calls[-1])
+    repo = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+    ops = open(os.path.join(repo, "zxnu_mcp_ops.py"), encoding="utf-8").read()
+    for fn, task in (("def image_create(self", "create_nextzxos_image_task("),
+                     ("def image_rebuild(self", "make_image_mame_bootable_task(")):
+        start = ops.find(fn)
+        body = ops[start:ops.find("\n        def ", start + 10)]
+        a, b, c, d = (body.find("self._hdfmonkey_or_raise()"), body.find("os.path.lexists("),
+                      body.find("not overwrite"), body.find(task))
+        check(f"{fn[4:-5]}: hdfmonkey checked, an existing target refused unless overwrite, before the task runs",
+              0 <= a < b < c < d, f"{a} {b} {c} {d}")
+
+
 def main():
     test_dispatcher()
     test_http()
@@ -1620,6 +1697,7 @@ def main():
     test_wiring()
     test_emulator_label()
     test_image_download_guard()
+    test_image_create_tools()
     print("ALL PASSED" if ok else "SOME CHECKS FAILED")
     return 0 if ok else 1
 
