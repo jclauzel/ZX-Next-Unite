@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A minimal console app: start the listener, wait for a Next, list its
+       root. net8.0 here; the README shows the same program for a .NET
+       Framework 4.5 console app (no await needed). -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>NextSyncListener.Sample</AssemblyName>
+    <RootNamespace>NextSync.Listener.Sample</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NextSyncListener\NextSyncListener.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- xUnit tests driving the library against an in-process fake Next over
+       loopback (FakeNext.cs: the dot's half of the protocol, ported from the
+       mock in ZX-Next-Unite's tests/test_remote_listen.py). -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <AssemblyName>NextSyncListener.Tests</AssemblyName>
+    <RootNamespace>NextSync.Listener.Tests</RootNamespace>
+    <!-- xUnit1031 (no blocking Task waits in tests) is OFF on purpose: the
+         suite waits on the Tasks synchronously, the way a .NET Framework 4.5
+         caller without await does, which is one of the things it proves. -->
+    <NoWarn>$(NoWarn);xUnit1031</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NextSyncListener\NextSyncListener.csproj" />
+  </ItemGroup>
+
+</Project>

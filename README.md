@@ -254,6 +254,20 @@ the **[Wiki](https://github.com/jclauzel/ZX-Next-Unite/wiki)**:
   compiled. `Ctrl+Shift+B` builds it, pushes it, verifies it and runs it on
   real hardware.
 
+### .NET library
+
+- 📦 **[NextSync Listener for .NET](extra/NextSyncListener/README.md)** — the
+  PC half of the `.sync5 -listen` Remote Explorer protocol as a C# class
+  library (`net45` + `netstandard2.0`: a .NET Framework 4.5 app and a .NET 8
+  app can both use it), ported from the app's own listener worker. Wait for
+  a Next, then list, get and put with the dot's framing and retries,
+  mkdir/rmdir/rm/rename, drives, free space, the version ident, CRC-32
+  computed on the Next, release, quit. Ships with each release as
+  `NextSyncListener-<tag>.zip` and on NuGet as `NextSyncListener`; proven
+  against an in-process fake Next, not yet on real hardware. API reference
+  and quick starts for both frameworks:
+  [NextSync .NET library](https://github.com/jclauzel/ZX-Next-Unite/wiki/NextSync-.NET-library).
+
 ## License
 
 Released under the **MIT** license (see [LICENSE](LICENSE)). Built on

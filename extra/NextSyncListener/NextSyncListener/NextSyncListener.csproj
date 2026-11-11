@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The NextSync Listener as a .NET class library: the PC half of the
+    ".sync5 -listen" Remote Explorer protocol, ported from ZX-Next-Unite's
+    zxnu_workers.run_remote_listen_server / _re_session.
+
+    Two targets on purpose: net45 so a .NET Framework 4.5 application (WinForms,
+    WPF, a console tool) can reference it, netstandard2.0 for .NET Core 2.0+,
+    .NET 5/6/7/8+ and Mono. Everything in the source stays inside what BOTH
+    can consume: C# 7.3, no Span/Memory, no ValueTuple, no init-only setters,
+    no default interface members, no Array.Empty, no RuntimeInformation.
+
+    The version is a placeholder here; CI's dotnet pack passes the release
+    tag as -p:Version=<tag without the v> (see .github/workflows/dotnet-nextsync.yml).
+  -->
+
+  <PropertyGroup>
+    <TargetFrameworks>net45;netstandard2.0</TargetFrameworks>
+    <LangVersion>7.3</LangVersion>
+    <Nullable>disable</Nullable>
+    <RootNamespace>NextSync.Listener</RootNamespace>
+    <AssemblyName>NextSyncListener</AssemblyName>
+    <Version>0.0.0-local</Version>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Deterministic>true</Deterministic>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup Label="NuGet">
+    <PackageId>NextSyncListener</PackageId>
+    <Title>NextSync Listener (ZX Spectrum Next remote file server, PC side)</Title>
+    <Authors>Julien Clauzel</Authors>
+    <Description>The PC half of the NextSync ".sync5 -listen" Remote Explorer protocol: a TCP server a ZX Spectrum Next (the .sync5 dot, ZX Next Remote's Listener, QLNextRemote) dials into over Wi-Fi, after which this library drives it - list folders, get and put files with the dot's framing, checksums and retries, mkdir/rmdir/rm/rename, drives, free space, the version ident, CRC-32 computed on the Next, release and quit. Ported from ZX-Next-Unite's tested worker. Targets .NET Framework 4.5 and .NET Standard 2.0.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/jclauzel/ZX-Next-Unite</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/jclauzel/ZX-Next-Unite</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>zx-spectrum-next;zxnext;nextsync;spectrum;retro</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="\" />
+    <InternalsVisibleTo Include="NextSyncListener.Tests" />
+  </ItemGroup>
+
+  <!-- Builds the net45 target without a .NET Framework targeting pack
+       installed (Linux CI, a dev box with only the .NET SDK). -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net45'">
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>
