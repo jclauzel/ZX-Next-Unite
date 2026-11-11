@@ -140,12 +140,17 @@ jobs:
         run: |
           tag='${{ steps.ver.outputs.tag }}'
           found=""
-          for attempt in $(seq 1 10); do   # release.yml may still be creating the draft
+          # release.yml creates the draft only after its test gate and the three
+          # platform builds, about 16 min after the tag push (measured on
+          # v9.7.65: pushed 17:19, draft at 17:35), while this job gets here
+          # within a minute or two. Ten minutes was not enough and left the
+          # .NET assets to be attached by hand from the artifact; 30 is.
+          for attempt in $(seq 1 30); do   # release.yml may still be creating the draft
             if gh release view "$tag" >/dev/null 2>&1; then
               found="yes"
               break
             fi
-            echo "release $tag not there yet (attempt $attempt/10) - waiting 60s"
+            echo "release $tag not there yet (attempt $attempt/30) - waiting 60s"
             sleep 60
           done
           if [ -z "$found" ]; then
