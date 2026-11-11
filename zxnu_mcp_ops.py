@@ -46,6 +46,10 @@ import zxnu_itchio
 from zxnu_config import *                                   # noqa: F401,F403
 from zxnu_http_bridge import BridgeReply, flask_available
 from zxnu_i18n import ui_tr_now
+from zxnu_nextzxos_image import (NEXTZXOS_CACHE_DIRNAME, create_nextzxos_image_task,
+                                 human_size, image_bytes_in_use,
+                                 make_image_mame_bootable_task, mame_bootable_verdict,
+                                 size_choice, size_fits)
 from zxnu_mcp import (LAUNCH_TIMEOUT, MCP_INSTRUCTIONS, MCP_PATH, McpHttpServer,
                       McpServer, McpToolError, build_mcp_tools)
 from zxnu_sdcard_ops import (NEXTZXOS_IMAGE_EXTENSIONS, download_nextzxos_archive,
@@ -348,6 +352,138 @@ def build_mcp_ops(host, *, configuration_dictionary, save_configuration_file,
                 "Extracted disk image: {path}").format(path=image)))
             if load and image.lower().endswith((".img", ".hdf")):
                 ok, msg = self.image_load(image, 180.0)
+                out["loaded"] = ok
+                out["message"] = msg
+            return out
+
+        # ── Create NextZXOS Image / MAME-bootable rebuild (9.7.65) ──────
+        # The tasks the SD Card tab runs (zxnu_nextzxos_image), on this HTTP
+        # thread, hdfmonkey under the image lock. The target is any path, so
+        # they go to host.execute_hdf_monkey directly rather than through
+        # hdfmonkey() below, which is bound to the LOADED image.
+        def _hdfmonkey_or_raise(self):
+            found = getattr(host, "_hdfmonkey_binary_found", None)
+            if found is not None and not found():
+                raise McpToolError("hdfmonkey is not installed (SD Card tab -> "
+                                   "'Download and install HDF Monkey')")
+
+        def _execute_any(self, command, image, additional_args="", silent=True,
+                         extra_argv=None, prompt_if_missing=False, options=None):
+            with self._img_lock:
+                return host.execute_hdf_monkey(
+                    command, image, extra_argv=list(extra_argv or []),
+                    options=list(options or []), silent=True,
+                    prompt_if_missing=False)
+
+        def _log(self, line):
+            ui.post(lambda: add_main_log_window(line))
+
+        @staticmethod
+        def _size(size_label):
+            choice = size_choice(size_label)
+            if choice is None:
+                raise McpToolError(f"unknown image size {size_label!r}: 2 GB, 4 GB or 8 GB")
+            return choice
+
+        def image_create(self, path, size_label, load, overwrite=False):
+            self._hdfmonkey_or_raise()
+            size_label, token, _bytes = self._size(size_label)
+            target = os.path.abspath(path)
+            # Nothing is replaced unless the caller said so (the 9.7.60 rule
+            # of image_download, for the same reason: nobody is asked here).
+            if os.path.lexists(target) and not overwrite:
+                raise McpToolError(f"{target} exists and was not replaced: pass "
+                                   "another path, or overwrite: true to replace it")
+            self._log(ui_tr_now("Creating a {size} NextZXOS image: {path}").format(
+                size=size_label, path=target))
+            try:
+                info = create_nextzxos_image_task(
+                    execute=self._execute_any, target=target, size_token=token,
+                    cache_dir=os.path.join(ZXNU_DATA_ROOT, "downloads", NEXTZXOS_CACHE_DIRNAME),
+                    progress=lambda _p: None, status=lambda _s: None,
+                    cancel_event=threading.Event(), log=self._log,
+                    blocker=getattr(host, "_image_write_blocker", None))
+            except Exception as ex:                        # noqa: BLE001
+                logging.error("MCP: NextZXOS image creation failed: %s", ex)
+                self._log(ui_tr_now("Failed creating the NextZXOS image: {error}").format(
+                    error=ex))
+                raise McpToolError(f"image not created: {ex}") from ex
+            self._log(ui_tr_now(
+                "NextZXOS image created: {path} (System/Next {version}, {size})").format(
+                    path=target, version=info.version, size=size_label))
+            out = {"ok": True, "image": target, "version": info.version,
+                   "distribution": info.name, "size": size_label, "loaded": False}
+            if load:
+                ok, msg = self.image_load(target, 180.0)
+                out["loaded"] = ok
+                out["message"] = msg
+            return out
+
+        def image_mame_check(self, path):
+            p = path or host.right_disk_image_path or ""
+            if not p:
+                raise McpToolError("no image loaded and no path given")
+            p = os.path.abspath(p)
+            if not os.path.isfile(p):
+                raise McpToolError(f"no such file: {p}")
+            usage = read_image_fat_usage(p)
+            verdict = mame_bootable_verdict(usage)
+            out = {"path": p, "verdict": verdict, "mame_bootable": verdict == "ok"}
+            if usage is not None:
+                out.update(fat_bits=int(usage.fat_bits), total_clusters=int(usage.total_clusters),
+                           free_clusters=int(usage.free_clusters),
+                           cluster_bytes=int(usage.cluster_bytes),
+                           bytes_in_use=image_bytes_in_use(usage))
+            out["reason"] = {
+                "ok": "the Next firmware under MAME reads this FAT layout",
+                "fat32-small": "FAT32 with fewer than 65,525 clusters: the Next firmware's "
+                               "card driver reads it as FAT16 under MAME and boots nothing "
+                               "(CSpect boots it); rebuild it with image_make_mame_bootable",
+                "unknown": "not a FAT volume this app can read",
+            }[verdict]
+            return out
+
+        def image_rebuild(self, source, target, size_label, load, overwrite=False):
+            self._hdfmonkey_or_raise()
+            src = source or host.right_disk_image_path or ""
+            if not src:
+                raise McpToolError("no image loaded and no source given")
+            src = os.path.abspath(src)
+            if not os.path.isfile(src):
+                raise McpToolError(f"no such file: {src}")
+            size_label, token, size_bytes = self._size(size_label)
+            tgt = os.path.abspath(target)
+            keyer = getattr(host, "_image_state_key", None) or os.path.normcase
+            if keyer(tgt) == keyer(src):
+                raise McpToolError("target must not be the source image")
+            if os.path.lexists(tgt) and not overwrite:
+                raise McpToolError(f"{tgt} exists and was not replaced: pass another "
+                                   "target, or overwrite: true to replace it")
+            usage = read_image_fat_usage(src)
+            if not size_fits(usage, size_bytes):
+                raise McpToolError(
+                    f"a {size_label} image cannot hold the "
+                    f"{human_size(image_bytes_in_use(usage))} in use on {src}: pick a larger size")
+            self._log(ui_tr_now("Rebuilding {source} as a {size} FAT32 image: {path}").format(
+                source=src, size=size_label, path=tgt))
+            try:
+                count = make_image_mame_bootable_task(
+                    execute=self._execute_any, source=src, target=tgt, size_token=token,
+                    work_dir=os.path.join(ZXNU_DATA_ROOT, "downloads", NEXTZXOS_CACHE_DIRNAME),
+                    progress=lambda _p: None, status=lambda _s: None,
+                    cancel_event=threading.Event(), log=self._log,
+                    blocker=getattr(host, "_image_write_blocker", None))
+            except Exception as ex:                        # noqa: BLE001
+                logging.error("MCP: image rebuild failed: %s", ex)
+                self._log(ui_tr_now("Failed rebuilding the image: {error}").format(error=ex))
+                raise McpToolError(f"image not rebuilt: {ex}") from ex
+            self._log(ui_tr_now(
+                "Image rebuilt for MAME: {path} ({count} files, {size})").format(
+                    path=tgt, count=count, size=size_label))
+            out = {"ok": True, "source": src, "target": tgt, "files": count,
+                   "size": size_label, "loaded": False}
+            if load:
+                ok, msg = self.image_load(tgt, 180.0)
                 out["loaded"] = ok
                 out["message"] = msg
             return out

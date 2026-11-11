@@ -216,7 +216,9 @@ def test_toast_tripwire():
                   # the .sync5 auto-deploy offer/toasts (9.7.8):
                   "zxnu_sync5_img.py",
                   # the MCP server's console lines and toasts (9.7.57):
-                  "zxnu_mcp_ops.py"):
+                  "zxnu_mcp_ops.py",
+                  # Create NextZXOS Image / MAME-bootable rebuild (9.7.65):
+                  "zxnu_nextzxos_image.py"):
         tree = ast.parse(open(os.path.join(repo, fname), encoding="utf-8").read())
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):

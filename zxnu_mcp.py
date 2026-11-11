@@ -802,6 +802,17 @@ def stdio_main(argv=None, stdin=None, stdout=None, environ=None):
 #   image_download(size, dest_dir, load, overwrite) -> dict
 #       {"zip","image","loaded"}; with overwrite False it raises rather than
 #       replace a zip or an image already in dest_dir, before fetching
+#   image_create(path, size_label, load, overwrite) -> dict          (9.7.65)
+#       {"image","version","distribution","size","loaded"}: a fresh FAT32
+#       image of "2 GB"/"4 GB"/"8 GB" from the latest System/Next
+#       distribution; raises rather than replace an existing path unless
+#       overwrite; needs hdfmonkey
+#   image_mame_check(path) -> dict                   "" = the loaded image;
+#       {"verdict": "ok"|"fat32-small"|"unknown", "mame_bootable", the FAT
+#       numbers, "reason"}
+#   image_rebuild(source, target, size_label, load, overwrite) -> dict
+#       {"source","target","files","size","loaded"}: every file of source
+#       copied into a fresh FAT32 target; "" source = the loaded image
 #   image_path() -> str                               "" when none is loaded
 #   hdfmonkey(verb, argv) -> (rc, stdout, stderr)     on the LOADED image
 #   image_refresh(path)                               re-list a folder in the explorer
@@ -852,7 +863,8 @@ lists the seated machines, next_ls/next_get/next_put move files, \
 next_deploy pushes a build, verifies it (CRC-32 computed ON the Next) and \
 makes the Next leave listen mode - with the autoexec loop from \
 extra/autoexec.bas on the card the Next then runs it.
-- Emulator: image_load (or image_download_nextzxos), image_put to place \
+- Emulator: image_load (or image_download_nextzxos, or image_create_nextzxos \
+for a fresh card from the latest distribution), image_put to place \
 files on the card, emulator_start("MAME", file=...) / \
 emulator_start("CSpect", file=...) to boot the image and start a .nex.
 - Software: catalog_latest / catalog_search / catalog_random list what \
@@ -1095,6 +1107,83 @@ def build_mcp_tools(host):
         # lets through) must never read as consent.
         overwrite = args.get("overwrite") is True
         return host.image_download(size, dest, bool(load), overwrite)
+
+    IMAGE_SIZES = ("2 GB", "4 GB", "8 GB")
+
+    def _size_or_raise(args):
+        size = args.get("size") or "2 GB"
+        if size not in IMAGE_SIZES:
+            raise McpToolError(f"size must be one of {', '.join(IMAGE_SIZES)}, not {size!r}")
+        return size
+
+    @tool("image_create_nextzxos",
+          "Create a fresh SD-card image holding the latest System/Next "
+          "distribution from specnext.com (the 'Create NextZXOS Image' "
+          "button). Reads the latest-distribution page, downloads the "
+          "distribution zip it names (checked against the SHA-1 the page "
+          "prints, cached under <data folder>/downloads/nextzxos), creates the "
+          "image with hdfmonkey as FAT32 - whatever the size, so MAME boots it "
+          "as well as CSpect - copies the distribution in and, by default, "
+          "loads it. Minutes: a ~75 MB download plus a 2-8 GB image. Needs "
+          "hdfmonkey. An existing file at path is never replaced unless "
+          "overwrite is true.",
+          {"path": param("string", "where to write the image, e.g. D:/next/nextzxos-2gb.img"),
+           "size": param("string", "image size", enum=["2 GB", "4 GB", "8 GB"],
+                         default="2 GB"),
+           "load": param("boolean", "load the new image when done", default=True),
+           "overwrite": param("boolean", "replace a file already at path. Everything on "
+                              "that image is lost: set it only when the user asked to "
+                              "replace it", default=False)},
+          required=("path",))
+    def image_create_nextzxos(args):
+        path = str(args.get("path") or "").strip()
+        if not path:
+            raise McpToolError("path is required")
+        size = _size_or_raise(args)
+        load = args.get("load", True)
+        overwrite = args.get("overwrite") is True
+        return host.image_create(path, size, bool(load), overwrite)
+
+    @tool("image_mame_check",
+          "Whether MAME can boot an SD-card image: its FAT type and cluster "
+          "count. A FAT32 image under 65,525 clusters (the official 26.11a "
+          "'image for emulators': 1 GB with 32 KB clusters) is read as FAT16 "
+          "by the Next firmware's card driver under MAME and never gets past "
+          "'Error opening menu.ini/.def'; CSpect, which never runs that "
+          "firmware, boots it. Verdict 'ok', 'fat32-small' (rebuild it with "
+          "image_make_mame_bootable) or 'unknown' (not a FAT image this app "
+          "can read).",
+          {"path": param("string", "the image to check (default: the loaded one)")})
+    def image_mame_check(args):
+        return host.image_mame_check(str(args.get("path") or "").strip())
+
+    @tool("image_make_mame_bootable",
+          "Rebuild an SD-card image as a fresh FAT32 image MAME boots (the "
+          "'Make this image MAME-bootable' action): lists the source with "
+          "hdfmonkey, copies every file out, creates target at the chosen "
+          "size (2, 4 or 8 GB; FAT32 whatever the size) and copies them in. "
+          "The fix for a FAT32 image under 65,525 clusters - run "
+          "image_mame_check first, an image whose verdict is 'ok' needs no "
+          "rebuild. Source defaults to the loaded image; target is never "
+          "replaced unless overwrite is true. Minutes for a full card.",
+          {"target": param("string", "where to write the rebuilt image, e.g. D:/next/card-mame.img"),
+           "source": param("string", "the image to rebuild (default: the loaded one)"),
+           "size": param("string", "size of the rebuilt image", enum=["2 GB", "4 GB", "8 GB"],
+                         default="2 GB"),
+           "load": param("boolean", "load the rebuilt image when done", default=False),
+           "overwrite": param("boolean", "replace a file already at target. Everything on "
+                              "that image is lost: set it only when the user asked to "
+                              "replace it", default=False)},
+          required=("target",))
+    def image_make_mame_bootable(args):
+        target = str(args.get("target") or "").strip()
+        if not target:
+            raise McpToolError("target is required")
+        source = str(args.get("source") or "").strip()
+        size = _size_or_raise(args)
+        load = args.get("load", False)
+        overwrite = args.get("overwrite") is True
+        return host.image_rebuild(source, target, size, bool(load), overwrite)
 
     def _hdf(verb, argv):
         rc, out, err = host.hdfmonkey(verb, list(argv))
