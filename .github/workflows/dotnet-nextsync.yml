@@ -3,8 +3,19 @@
 # it with the tag as its version and attach NextSyncListener-<tag>.zip plus
 # the .nupkg to the draft GitHub release that release.yml creates for the
 # same tag. The package goes to NuGet ONLY when that release is published
-# (the `release: published` event), with the NUGET_API_KEY secret - the
-# workflow never publishes a draft.
+# (the `release: published` event) - the workflow never publishes a draft.
+#
+# NuGet authentication is Trusted Publishing (OIDC), publish.yml's PyPI
+# pattern: no stored API key (nuget.org marks those "not recommended").
+# NuGet/login exchanges the job's GitHub OIDC token for a one-hour API key
+# against a trust policy on nuget.org. One-time setup there (account menu ->
+# Trusted Publishing -> add a policy): Repository Owner `jclauzel`,
+# Repository `ZX-Next-Unite`, Workflow File `dotnet-nextsync.yml` (the file
+# name only), Environment left EMPTY (this job uses none). A new policy is
+# temporarily active for 7 days; the first successful login binds it to the
+# repository's immutable GitHub ids and makes it permanent (the window can be
+# restarted from the same page). Without a policy the login step fails and
+# the step after it says what to configure.
 #
 # Deliberately separate from release.yml, the same way flatpak.yml is: the
 # release asset contract with the in-app self-updater (one .exe, the linux
@@ -152,6 +163,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write   # GitHub OIDC token issuance, exchanged by NuGet/login
     steps:
       - uses: actions/checkout@v7
         with:
@@ -172,15 +184,24 @@ jobs:
           tag='${{ github.event.release.tag_name }}'
           dotnet pack "$LIBRARY" --configuration Release --no-build -p:Version="${tag#v}" -o dist
           ls -l dist/
+      - name: NuGet login (OIDC -> a one-hour API key, no stored secret)
+        id: login
+        uses: NuGet/login@v1
+        with:
+          # The nuget.org PROFILE NAME of the package owner (the account menu's
+          # name), never an email address. Move it to a repository variable
+          # (${{ vars.NUGET_USER }}) if the owner ever changes or becomes an
+          # organization.
+          user: juliangrooves
       - name: Push to nuget.org
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         shell: bash
         run: |
-          if [ -z "$NUGET_API_KEY" ]; then
-            echo "::warning::NUGET_API_KEY is not set - the package was built but not pushed. Add the secret (repository Settings -> Secrets and variables -> Actions) and re-run this job, or push dist/*.nupkg by hand."
-            exit 0
-          fi
-          # --skip-duplicate: a re-run of an already-pushed version is not a failure.
-          dotnet nuget push dist/*.nupkg --api-key "$NUGET_API_KEY" \
+          # The key lives an hour: requested in the step just above, used at
+          # once. The .snupkg beside the .nupkg goes with it. --skip-duplicate:
+          # a re-run of an already-pushed version is not a failure.
+          dotnet nuget push dist/*.nupkg --api-key '${{ steps.login.outputs.NUGET_API_KEY }}' \
             --source https://api.nuget.org/v3/index.json --skip-duplicate
+      - name: What to do when the login was refused
+        if: failure() && steps.login.outcome == 'failure'
+        run: |
+          echo "::error::nuget.org refused the OIDC login - there is no active trust policy for this repository. On nuget.org (account menu -> Trusted Publishing) add a policy: Repository Owner jclauzel, Repository ZX-Next-Unite, Workflow File dotnet-nextsync.yml, Environment empty - or restart its 7-day window if it went inactive - then re-run this job. The package in the dist artifact of the build job can also be pushed by hand."

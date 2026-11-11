@@ -253,8 +253,12 @@ tag it packs the library with the tag as its version and attaches
 `NextSyncListener-<tag>.zip` and the `.nupkg` to the draft GitHub release
 that `release.yml` creates (non-blocking: it waits for the draft and
 degrades to a warning). The package is pushed to NuGet only when the release
-is **published**, using a `NUGET_API_KEY` repository secret - the workflow
-skips the push with a warning when the secret is absent.
+is **published**, through NuGet **Trusted Publishing** (OIDC, the same
+pattern as the app's PyPI publish): no API key is stored anywhere. The
+one-time setup is a trust policy on nuget.org (account menu → *Trusted
+Publishing*): Repository Owner `jclauzel`, Repository `ZX-Next-Unite`,
+Workflow File `dotnet-nextsync.yml`, Environment empty. A new policy is
+active for 7 days; the first successful login makes it permanent.
 
 The asset names stay clear of the app's self-updater contract on purpose
 (no `.exe`, no `linux` `.tar.gz`).
