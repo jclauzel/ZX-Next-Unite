@@ -155,7 +155,7 @@ def test_tables():
     check("the basic set is the asked one", basic == {
         "zxnu_update_check", "ui_language", "wizard", "desktop_theme",
         "delete_to_recycle_bin", "re_autostart", "nextsync_verify_crc",
-        "search_sort", "general_font", "retro_log_font", "mame_update_check",
+        "search_sort", "general_font", "retro_log_font", "mame_rom", "mame_update_check",
         "mame_rs232_esp", "cspect_update_check", "cspect_discard_restricted_updates",
         "cspect_rs232_esp", "rs232_esp_port", "rs232_esp_ip", "itchio_tab",
         "http_bridge", "http_bridge_trace", "mcp_server", "mcp_server_hint"},
@@ -165,8 +165,9 @@ def test_tables():
           and "http_bridge_token" in rows and "mcp_server_token" in rows)
     check("every group keeps at least one basic row (no box vanishes in Basic)",
           all(set(m) & basic for _t, m in groups.values()))
-    check("the verbose switch, the ROM, the parameters, the colours wait behind Advanced",
-          not ({"rs232_esp_verbose", "mame_rom", "mame_params", "cspect_params",
+    check("the verbose switch, the parameters, the colours wait behind Advanced (the MAME ROM is Basic since 9.7.64)",
+          "mame_rom" in basic and
+          not ({"rs232_esp_verbose", "mame_params", "cspect_params",
                 "color_background", "reset_theme", "crash_log"} & basic))
 
 

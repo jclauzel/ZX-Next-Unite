@@ -28,7 +28,7 @@ from PySide6.QtGui import QColor
 from zxnu_mcp import MCP_DEFAULT_PORT  # noqa: F401  (re-exported by the star import)
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.63"
+ZX_NEXT_UNITE_VERSION = "9.7.64"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -1643,7 +1643,7 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              ("Mame:"),
              ("  Mame emulator brought to you by Holub for the ZX Spectrum Next can be installed following this documentation: https://wiki.specnext.dev/MAME:Installing"),
              ("  Official Windows Binary Packages can be found here: https://www.mamedev.org/release.html"),
-             ("  Put the file tbblue.zip that can be found here: https://github.com/Threetwosevensixseven/NexCreator/raw/master/bootroms/tbblue.zip into MAME's roms folder."),
+             ("  Put the file tbblue.zip (the Next boot ROM package: six boot-*.bin files built from the GPLv3 FPGA sources) into MAME's roms folder. How to build it: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md"),
              ("  Important note: Don't extract the tbblue.zip file; MAME will look for the zip file when the 'tbblue' machine is selected."),
              (""),
              ("CSpect:"),
@@ -2710,6 +2710,16 @@ MAME_HARD_DISK_PARAMETER = "-hard1"
 # files are missing". Surfaced after a successful install and when a launch
 # fails for that reason.
 MAME_INSTALL_WIKI_URL = "https://wiki.specnext.dev/MAME:Installing"
+# The boot ROM package itself, tbblue.zip: the repo's own guide to building it
+# from the GPLv3 FPGA sources - which six boot-*.bin go in it and why, since
+# the pair MAME shipped as v3.02.04 from 0.267 on turned out to be a release
+# candidate and the Next driver's upstream (holub/mame, 2026-07) wants the
+# final pair under those names with the RC pair as boot-30204rc*.bin. Every
+# "boot ROM missing" message and the Help tab link HERE (2026-11): the Help
+# used to name a third-party copy on GitHub (NexCreator) that is gone (404),
+# and the wiki page's own copy sits behind an anti-robot check and predates
+# the six-file package. The wiki URL above stays for MAME itself.
+MAME_ROM_HOWTO_URL = "https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md"
 
 # Flatpak launch support (Linux). When the user enables "Launch Mame with
 # Flatpak" (SETTING_MAME_FLATPAK), MAME is started via the Flatpak CLI instead of
