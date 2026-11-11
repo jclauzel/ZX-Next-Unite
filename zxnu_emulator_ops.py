@@ -2049,29 +2049,30 @@ def build_emulator_ops(
                 _refresh_emulator_launchability()
             # MAME aborts when the ZX Spectrum Next boot ROM (TBBLUE, e.g.
             # boot-30204.bin) is absent — a manual step the auto-install
-            # deliberately leaves to the user. Point them at the guide.
+            # deliberately leaves to the user. Point them at the repo's own
+            # guide to building tbblue.zip (MAME_ROM_HOWTO_URL): the wiki's
+            # copy predates the six-file package a newer driver wants.
             if _launch_state["missing_files"]:
                 add_main_log_window(ui_tr_now(
                     "MAME can't start: the ZX Spectrum Next boot ROM (TBBLUE) "
-                    "is missing. This step is manual — see {url} and follow "
-                    "\"Get TBBLUE (the Next 'boot ROM')\". Put the file "
-                    "tbblue.zip into MAME's roms folder (downloads\\mame\\roms) "
-                    "— DON'T extract it — and try again. You must provide a "
-                    "legally acquired, licensed ROM.").format(
-                        url=MAME_INSTALL_WIKI_URL))
+                    "is missing. This step is manual — see {url} for how to "
+                    "build tbblue.zip. Put that file into MAME's roms folder "
+                    "(downloads\\mame\\roms) — DON'T extract it — and try "
+                    "again. You must provide a legally acquired, licensed "
+                    "ROM.").format(url=MAME_ROM_HOWTO_URL))
                 logging.warning(
                     "MAME launch failed: TBBLUE boot ROM missing. See "
-                    f"{MAME_INSTALL_WIKI_URL}")
+                    f"{MAME_ROM_HOWTO_URL}")
                 try:
                     host._show_toast(
                         "⚠  MAME needs the Next boot ROM",
                         ui_tr_now(
                             "MAME can't run without the TBBLUE boot ROM — "
-                            "a manual step.\r\nSee {url} → \"Get TBBLUE\"."
+                            "a manual step.\r\nHow to build tbblue.zip: {url}"
                             "\r\nPut tbblue.zip into MAME's roms folder "
                             "(downloads\\mame\\roms) — DON'T extract it."
                             "\r\nUse only a legally acquired, licensed "
-                            "ROM.").format(url=MAME_INSTALL_WIKI_URL),
+                            "ROM.").format(url=MAME_ROM_HOWTO_URL),
                         variant="yellow", duration_ms=12000)
                 except Exception:
                     pass
@@ -2428,10 +2429,10 @@ def build_emulator_ops(
             "'🕹  Launch Mame' button."))
         add_main_log_window(ui_tr_now(
             "MAME install ▸ NEXT STEP (manual): add the TBBLUE boot ROM. See "
-            "{url} → \"Get TBBLUE (the Next 'boot ROM')\". Put the file "
-            "tbblue.zip into MAME's roms folder ({roms}) — DON'T extract it. "
-            "You must provide a legally acquired, licensed ROM.").format(
-                url=MAME_INSTALL_WIKI_URL, roms=roms_dir))
+            "{url} for how to build tbblue.zip. Put that file into MAME's "
+            "roms folder ({roms}) — DON'T extract it. You must provide a "
+            "legally acquired, licensed ROM.").format(
+                url=MAME_ROM_HOWTO_URL, roms=roms_dir))
         logging.info(f"Successfully installed MAME: {detected}")
         try:
             host._show_toast(
@@ -2439,11 +2440,11 @@ def build_emulator_ops(
                 ui_tr_now(
                     "MAME is installed — no restart needed.\r\n"
                     "Manual step: add the TBBLUE boot ROM.\r\n"
-                    "See {url} → \"Get TBBLUE\".\r\n"
+                    "How to build tbblue.zip: {url}\r\n"
                     "Put tbblue.zip into MAME's roms folder\r\n({roms})\r\n"
                     "— DON'T extract it.\r\n"
                     "Use only a legally acquired, licensed ROM.").format(
-                        url=MAME_INSTALL_WIKI_URL, roms=roms_dir),
+                        url=MAME_ROM_HOWTO_URL, roms=roms_dir),
                 variant="green", duration_ms=12000)
         except Exception:
             pass

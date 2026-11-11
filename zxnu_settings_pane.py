@@ -152,7 +152,9 @@ SETTINGS_TAB_GROUPS = (
 # the tab was too much: the update checks, the language, Wizzy, the theme,
 # the Recycle Bin, the Remote Explorer autostart and its CRC check, the
 # search order, the two font sizes, the emulators' update checks and their
-# RS232 ESP switches with the port and the address, the itch.io tab, the
+# RS232 ESP switches with the port and the address, the MAME machine (ROM /
+# system - Basic since 9.7.64, a KS3 owner picks specnext_ks3 first thing),
+# the itch.io tab, the
 # HTTP bridge and the MCP server - each WITHOUT its "Require bearer token"
 # row, which Julien moved behind Advanced on seeing the first cut.
 # Everything else waits behind Advanced.
@@ -167,6 +169,7 @@ SETTINGS_BASIC_ROWS = frozenset((
     "search_sort",
     "general_font",
     "retro_log_font",
+    "mame_rom",             # the MAME machine (tbblue / specnext_ks1..3) - Basic since 9.7.64
     "mame_update_check",
     "mame_rs232_esp",
     "cspect_update_check",

@@ -683,10 +683,10 @@ CATALOGS = {
             "Actualización de CSpect ▸ iniciando descarga e instalación de {name} ({file}) desde itch.io en {folder}.",
         "ERROR: could not build {name}: {error}":
             "ERROR: no se pudo crear {name}: {error}",
-        "MAME can't start: the ZX Spectrum Next boot ROM (TBBLUE) is missing. This step is manual — see {url} and follow \"Get TBBLUE (the Next 'boot ROM')\". Put the file tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it — and try again. You must provide a legally acquired, licensed ROM.":
-            "MAME no puede arrancar: falta la ROM de arranque del ZX Spectrum Next (TBBLUE). Este paso es manual — consulta {url} y sigue \"Get TBBLUE (the Next 'boot ROM')\". Pon el archivo tbblue.zip en la carpeta roms de MAME (downloads\\mame\\roms) — NO lo extraigas — e inténtalo de nuevo. Debes usar una ROM adquirida legalmente y con licencia.",
-        "MAME install ▸ NEXT STEP (manual): add the TBBLUE boot ROM. See {url} → \"Get TBBLUE (the Next 'boot ROM')\". Put the file tbblue.zip into MAME's roms folder ({roms}) — DON'T extract it. You must provide a legally acquired, licensed ROM.":
-            "Instalación de MAME ▸ SIGUIENTE PASO (manual): añade la ROM de arranque TBBLUE. Consulta {url} → \"Get TBBLUE (the Next 'boot ROM')\". Pon el archivo tbblue.zip en la carpeta roms de MAME ({roms}) — NO lo extraigas. Debes usar una ROM adquirida legalmente y con licencia.",
+        "MAME can't start: the ZX Spectrum Next boot ROM (TBBLUE) is missing. This step is manual — see {url} for how to build tbblue.zip. Put that file into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it — and try again. You must provide a legally acquired, licensed ROM.":
+            "MAME no puede arrancar: falta la ROM de arranque del ZX Spectrum Next (TBBLUE). Este paso es manual — consulta {url} para saber cómo construir tbblue.zip. Pon ese archivo en la carpeta roms de MAME (downloads\\mame\\roms) — NO lo extraigas — e inténtalo de nuevo. Debes usar una ROM adquirida legalmente y con licencia.",
+        "MAME install ▸ NEXT STEP (manual): add the TBBLUE boot ROM. See {url} for how to build tbblue.zip. Put that file into MAME's roms folder ({roms}) — DON'T extract it. You must provide a legally acquired, licensed ROM.":
+            "Instalación de MAME ▸ SIGUIENTE PASO (manual): añade la ROM de arranque TBBLUE. Consulta {url} para saber cómo construir tbblue.zip. Pon ese archivo en la carpeta roms de MAME ({roms}) — NO lo extraigas. Debes usar una ROM adquirida legalmente y con licencia.",
         "NextSync .sync5 dot command updated: v{old} -> v{new} — please copy the new build to your Next (it cannot be deployed automatically).":
             "Comando dot .sync5 de NextSync actualizado: v{old} -> v{new} — copia la nueva versión a tu Next (no puede desplegarse automáticamente).",
         "TIP: Did you know that if you have purchased CSpect from itch.io you can do a full end-to-end CSpect install from there?\n\nCSpect ships with hdfmonkey bundled inside it, so that route needs no separate hdfmonkey install — the app finds and uses the bundled copy automatically.\n\nSimply log into your itch.io account in the itch.io tab, navigate to CSpect and click Install.\n\nDo you still want to install hdfmonkey only, or abort and then make an end-to-end install of CSpect using itch.io?":
@@ -1730,8 +1730,8 @@ CATALOGS = {
             "  El emulador Mame llevado al ZX Spectrum Next por Holub puede instalarse siguiendo esta documentación: https://wiki.specnext.dev/MAME:Installing",
         "  Official Windows Binary Packages can be found here: https://www.mamedev.org/release.html":
             "  Los paquetes binarios oficiales para Windows están aquí: https://www.mamedev.org/release.html",
-        "  Put the file tbblue.zip that can be found here: https://github.com/Threetwosevensixseven/NexCreator/raw/master/bootroms/tbblue.zip into MAME's roms folder.":
-            "  Coloca el archivo tbblue.zip, que puedes encontrar aquí: https://github.com/Threetwosevensixseven/NexCreator/raw/master/bootroms/tbblue.zip en la carpeta roms de MAME.",
+        "  Put the file tbblue.zip (the Next boot ROM package: six boot-*.bin files built from the GPLv3 FPGA sources) into MAME's roms folder. How to build it: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md":
+            "  Coloca el archivo tbblue.zip (el paquete de ROM de arranque del Next: seis archivos boot-*.bin construidos a partir de las fuentes FPGA bajo GPLv3) en la carpeta roms de MAME. Cómo construirlo: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md",
         "  Important note: Don't extract the tbblue.zip file; MAME will look for the zip file when the 'tbblue' machine is selected.":
             "  Nota importante: no extraigas el archivo tbblue.zip; MAME buscará el zip cuando se seleccione la máquina 'tbblue'.",
         "  Mike Dailly's CSpect is a downloadable emulator for Windows, macOS, and Linux":
@@ -2322,10 +2322,10 @@ CATALOGS = {
             "Atualização do CSpect ▸ a iniciar transferência e instalação de {name} ({file}) do itch.io para {folder}.",
         "ERROR: could not build {name}: {error}":
             "ERRO: não foi possível criar {name}: {error}",
-        "MAME can't start: the ZX Spectrum Next boot ROM (TBBLUE) is missing. This step is manual — see {url} and follow \"Get TBBLUE (the Next 'boot ROM')\". Put the file tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it — and try again. You must provide a legally acquired, licensed ROM.":
-            "O MAME não consegue arrancar: falta a ROM de arranque do ZX Spectrum Next (TBBLUE). Este passo é manual — consulta {url} e segue \"Get TBBLUE (the Next 'boot ROM')\". Coloca o ficheiro tbblue.zip na pasta roms do MAME (downloads\\mame\\roms) — NÃO o extraias — e tenta de novo. Tens de usar uma ROM adquirida legalmente e licenciada.",
-        "MAME install ▸ NEXT STEP (manual): add the TBBLUE boot ROM. See {url} → \"Get TBBLUE (the Next 'boot ROM')\". Put the file tbblue.zip into MAME's roms folder ({roms}) — DON'T extract it. You must provide a legally acquired, licensed ROM.":
-            "Instalação do MAME ▸ PASSO SEGUINTE (manual): adiciona a ROM de arranque TBBLUE. Consulta {url} → \"Get TBBLUE (the Next 'boot ROM')\". Coloca o ficheiro tbblue.zip na pasta roms do MAME ({roms}) — NÃO o extraias. Tens de usar uma ROM adquirida legalmente e licenciada.",
+        "MAME can't start: the ZX Spectrum Next boot ROM (TBBLUE) is missing. This step is manual — see {url} for how to build tbblue.zip. Put that file into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it — and try again. You must provide a legally acquired, licensed ROM.":
+            "O MAME não consegue arrancar: falta a ROM de arranque do ZX Spectrum Next (TBBLUE). Este passo é manual — consulta {url} para saber como construir o tbblue.zip. Coloca esse ficheiro na pasta roms do MAME (downloads\\mame\\roms) — NÃO o extraias — e tenta de novo. Tens de usar uma ROM adquirida legalmente e licenciada.",
+        "MAME install ▸ NEXT STEP (manual): add the TBBLUE boot ROM. See {url} for how to build tbblue.zip. Put that file into MAME's roms folder ({roms}) — DON'T extract it. You must provide a legally acquired, licensed ROM.":
+            "Instalação do MAME ▸ PASSO SEGUINTE (manual): adiciona a ROM de arranque TBBLUE. Consulta {url} para saber como construir o tbblue.zip. Coloca esse ficheiro na pasta roms do MAME ({roms}) — NÃO o extraias. Tens de usar uma ROM adquirida legalmente e licenciada.",
         "NextSync .sync5 dot command updated: v{old} -> v{new} — please copy the new build to your Next (it cannot be deployed automatically).":
             "Comando dot .sync5 do NextSync atualizado: v{old} -> v{new} — copia a nova versão para o teu Next (não pode ser implantada automaticamente).",
         "TIP: Did you know that if you have purchased CSpect from itch.io you can do a full end-to-end CSpect install from there?\n\nCSpect ships with hdfmonkey bundled inside it, so that route needs no separate hdfmonkey install — the app finds and uses the bundled copy automatically.\n\nSimply log into your itch.io account in the itch.io tab, navigate to CSpect and click Install.\n\nDo you still want to install hdfmonkey only, or abort and then make an end-to-end install of CSpect using itch.io?":
@@ -3369,8 +3369,8 @@ CATALOGS = {
             "  O emulador Mame trazido ao ZX Spectrum Next por Holub pode ser instalado seguindo esta documentação: https://wiki.specnext.dev/MAME:Installing",
         "  Official Windows Binary Packages can be found here: https://www.mamedev.org/release.html":
             "  Os pacotes binários oficiais para Windows estão aqui: https://www.mamedev.org/release.html",
-        "  Put the file tbblue.zip that can be found here: https://github.com/Threetwosevensixseven/NexCreator/raw/master/bootroms/tbblue.zip into MAME's roms folder.":
-            "  Coloca o ficheiro tbblue.zip, que encontras aqui: https://github.com/Threetwosevensixseven/NexCreator/raw/master/bootroms/tbblue.zip na pasta roms do MAME.",
+        "  Put the file tbblue.zip (the Next boot ROM package: six boot-*.bin files built from the GPLv3 FPGA sources) into MAME's roms folder. How to build it: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md":
+            "  Coloca o ficheiro tbblue.zip (o pacote de ROM de arranque do Next: seis ficheiros boot-*.bin construídos a partir das fontes FPGA sob GPLv3) na pasta roms do MAME. Como o construir: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md",
         "  Important note: Don't extract the tbblue.zip file; MAME will look for the zip file when the 'tbblue' machine is selected.":
             "  Nota importante: não extraias o ficheiro tbblue.zip; o MAME procura o zip quando a máquina 'tbblue' é selecionada.",
         "  Mike Dailly's CSpect is a downloadable emulator for Windows, macOS, and Linux":
@@ -3957,10 +3957,10 @@ CATALOGS = {
             "Aktualizacja CSpect ▸ rozpoczynanie pobierania i instalacji {name} ({file}) z itch.io do {folder}.",
         "ERROR: could not build {name}: {error}":
             "BŁĄD: nie udało się utworzyć {name}: {error}",
-        "MAME can't start: the ZX Spectrum Next boot ROM (TBBLUE) is missing. This step is manual — see {url} and follow \"Get TBBLUE (the Next 'boot ROM')\". Put the file tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it — and try again. You must provide a legally acquired, licensed ROM.":
-            "MAME nie może wystartować: brakuje ROM-u rozruchowego ZX Spectrum Next (TBBLUE). Ten krok jest ręczny — zobacz {url} i wykonaj \"Get TBBLUE (the Next 'boot ROM')\". Umieść plik tbblue.zip w folderze roms MAME (downloads\\mame\\roms) — NIE rozpakowuj go — i spróbuj ponownie. Musisz użyć legalnie nabytego, licencjonowanego ROM-u.",
-        "MAME install ▸ NEXT STEP (manual): add the TBBLUE boot ROM. See {url} → \"Get TBBLUE (the Next 'boot ROM')\". Put the file tbblue.zip into MAME's roms folder ({roms}) — DON'T extract it. You must provide a legally acquired, licensed ROM.":
-            "Instalacja MAME ▸ NASTĘPNY KROK (ręczny): dodaj ROM rozruchowy TBBLUE. Zobacz {url} → \"Get TBBLUE (the Next 'boot ROM')\". Umieść plik tbblue.zip w folderze roms MAME ({roms}) — NIE rozpakowuj go. Musisz użyć legalnie nabytego, licencjonowanego ROM-u.",
+        "MAME can't start: the ZX Spectrum Next boot ROM (TBBLUE) is missing. This step is manual — see {url} for how to build tbblue.zip. Put that file into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it — and try again. You must provide a legally acquired, licensed ROM.":
+            "MAME nie może wystartować: brakuje ROM-u rozruchowego ZX Spectrum Next (TBBLUE). Ten krok jest ręczny — zobacz {url}, jak zbudować tbblue.zip. Umieść ten plik w folderze roms MAME (downloads\\mame\\roms) — NIE rozpakowuj go — i spróbuj ponownie. Musisz użyć legalnie nabytego, licencjonowanego ROM-u.",
+        "MAME install ▸ NEXT STEP (manual): add the TBBLUE boot ROM. See {url} for how to build tbblue.zip. Put that file into MAME's roms folder ({roms}) — DON'T extract it. You must provide a legally acquired, licensed ROM.":
+            "Instalacja MAME ▸ NASTĘPNY KROK (ręczny): dodaj ROM rozruchowy TBBLUE. Zobacz {url}, jak zbudować tbblue.zip. Umieść ten plik w folderze roms MAME ({roms}) — NIE rozpakowuj go. Musisz użyć legalnie nabytego, licencjonowanego ROM-u.",
         "NextSync .sync5 dot command updated: v{old} -> v{new} — please copy the new build to your Next (it cannot be deployed automatically).":
             "Polecenie dot .sync5 NextSync zaktualizowane: v{old} -> v{new} — skopiuj nową wersję na swojego Next (nie da się jej wdrożyć automatycznie).",
         "TIP: Did you know that if you have purchased CSpect from itch.io you can do a full end-to-end CSpect install from there?\n\nCSpect ships with hdfmonkey bundled inside it, so that route needs no separate hdfmonkey install — the app finds and uses the bundled copy automatically.\n\nSimply log into your itch.io account in the itch.io tab, navigate to CSpect and click Install.\n\nDo you still want to install hdfmonkey only, or abort and then make an end-to-end install of CSpect using itch.io?":
@@ -5004,8 +5004,8 @@ CATALOGS = {
             "  Emulator Mame przeniesiony na ZX Spectrum Next przez Holuba można zainstalować według tej dokumentacji: https://wiki.specnext.dev/MAME:Installing",
         "  Official Windows Binary Packages can be found here: https://www.mamedev.org/release.html":
             "  Oficjalne pakiety binarne dla Windows znajdziesz tutaj: https://www.mamedev.org/release.html",
-        "  Put the file tbblue.zip that can be found here: https://github.com/Threetwosevensixseven/NexCreator/raw/master/bootroms/tbblue.zip into MAME's roms folder.":
-            "  Umieść plik tbblue.zip, dostępny tutaj: https://github.com/Threetwosevensixseven/NexCreator/raw/master/bootroms/tbblue.zip w folderze roms MAME.",
+        "  Put the file tbblue.zip (the Next boot ROM package: six boot-*.bin files built from the GPLv3 FPGA sources) into MAME's roms folder. How to build it: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md":
+            "  Umieść plik tbblue.zip (pakiet ROM-u rozruchowego Nexta: sześć plików boot-*.bin zbudowanych ze źródeł FPGA na licencji GPLv3) w folderze roms MAME. Jak go zbudować: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md",
         "  Important note: Don't extract the tbblue.zip file; MAME will look for the zip file when the 'tbblue' machine is selected.":
             "  Ważna uwaga: nie rozpakowuj pliku tbblue.zip; MAME szuka zipa, gdy wybrana jest maszyna 'tbblue'.",
         "  Mike Dailly's CSpect is a downloadable emulator for Windows, macOS, and Linux":
@@ -5594,10 +5594,10 @@ CATALOGS = {
             "Обновление CSpect ▸ начало загрузки и установки {name} ({file}) с itch.io в {folder}.",
         "ERROR: could not build {name}: {error}":
             "ОШИБКА: не удалось создать {name}: {error}",
-        "MAME can't start: the ZX Spectrum Next boot ROM (TBBLUE) is missing. This step is manual — see {url} and follow \"Get TBBLUE (the Next 'boot ROM')\". Put the file tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it — and try again. You must provide a legally acquired, licensed ROM.":
-            "MAME не может запуститься: отсутствует загрузочная ROM ZX Spectrum Next (TBBLUE). Этот шаг выполняется вручную — см. {url} и раздел \"Get TBBLUE (the Next 'boot ROM')\". Поместите файл tbblue.zip в папку roms MAME (downloads\\mame\\roms) — НЕ распаковывайте его — и повторите попытку. Используйте только легально приобретённую лицензионную ROM.",
-        "MAME install ▸ NEXT STEP (manual): add the TBBLUE boot ROM. See {url} → \"Get TBBLUE (the Next 'boot ROM')\". Put the file tbblue.zip into MAME's roms folder ({roms}) — DON'T extract it. You must provide a legally acquired, licensed ROM.":
-            "Установка MAME ▸ СЛЕДУЮЩИЙ ШАГ (вручную): добавьте загрузочную ROM TBBLUE. См. {url} → \"Get TBBLUE (the Next 'boot ROM')\". Поместите файл tbblue.zip в папку roms MAME ({roms}) — НЕ распаковывайте его. Используйте только легально приобретённую лицензионную ROM.",
+        "MAME can't start: the ZX Spectrum Next boot ROM (TBBLUE) is missing. This step is manual — see {url} for how to build tbblue.zip. Put that file into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it — and try again. You must provide a legally acquired, licensed ROM.":
+            "MAME не может запуститься: отсутствует загрузочная ROM ZX Spectrum Next (TBBLUE). Этот шаг выполняется вручную — см. {url}, как собрать tbblue.zip. Поместите этот файл в папку roms MAME (downloads\\mame\\roms) — НЕ распаковывайте его — и повторите попытку. Используйте только легально приобретённую лицензионную ROM.",
+        "MAME install ▸ NEXT STEP (manual): add the TBBLUE boot ROM. See {url} for how to build tbblue.zip. Put that file into MAME's roms folder ({roms}) — DON'T extract it. You must provide a legally acquired, licensed ROM.":
+            "Установка MAME ▸ СЛЕДУЮЩИЙ ШАГ (вручную): добавьте загрузочную ROM TBBLUE. См. {url}, как собрать tbblue.zip. Поместите этот файл в папку roms MAME ({roms}) — НЕ распаковывайте его. Используйте только легально приобретённую лицензионную ROM.",
         "NextSync .sync5 dot command updated: v{old} -> v{new} — please copy the new build to your Next (it cannot be deployed automatically).":
             "Dot-команда NextSync .sync5 обновлена: v{old} -> v{new} — скопируйте новую сборку на Next (автоматическое развёртывание невозможно).",
         "TIP: Did you know that if you have purchased CSpect from itch.io you can do a full end-to-end CSpect install from there?\n\nCSpect ships with hdfmonkey bundled inside it, so that route needs no separate hdfmonkey install — the app finds and uses the bundled copy automatically.\n\nSimply log into your itch.io account in the itch.io tab, navigate to CSpect and click Install.\n\nDo you still want to install hdfmonkey only, or abort and then make an end-to-end install of CSpect using itch.io?":
@@ -6641,8 +6641,8 @@ CATALOGS = {
             "  Эмулятор Mame, принесённый на ZX Spectrum Next Holub, устанавливается по этой документации: https://wiki.specnext.dev/MAME:Installing",
         "  Official Windows Binary Packages can be found here: https://www.mamedev.org/release.html":
             "  Официальные двоичные пакеты для Windows находятся здесь: https://www.mamedev.org/release.html",
-        "  Put the file tbblue.zip that can be found here: https://github.com/Threetwosevensixseven/NexCreator/raw/master/bootroms/tbblue.zip into MAME's roms folder.":
-            "  Положите файл tbblue.zip, который можно взять здесь: https://github.com/Threetwosevensixseven/NexCreator/raw/master/bootroms/tbblue.zip в папку roms MAME.",
+        "  Put the file tbblue.zip (the Next boot ROM package: six boot-*.bin files built from the GPLv3 FPGA sources) into MAME's roms folder. How to build it: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md":
+            "  Положите файл tbblue.zip (пакет загрузочной ROM Next: шесть файлов boot-*.bin, собранных из исходников FPGA под GPLv3) в папку roms MAME. Как его собрать: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md",
         "  Important note: Don't extract the tbblue.zip file; MAME will look for the zip file when the 'tbblue' machine is selected.":
             "  Важное замечание: не распаковывайте файл tbblue.zip; MAME ищет именно zip, когда выбрана машина 'tbblue'.",
         "  Mike Dailly's CSpect is a downloadable emulator for Windows, macOS, and Linux":
@@ -7227,10 +7227,10 @@ CATALOGS = {
             "Aktualizace CSpectu ▸ zahájení stažení a instalace {name} ({file}) z itch.io do {folder}.",
         "ERROR: could not build {name}: {error}":
             "CHYBA: nepodařilo se vytvořit {name}: {error}",
-        "MAME can't start: the ZX Spectrum Next boot ROM (TBBLUE) is missing. This step is manual — see {url} and follow \"Get TBBLUE (the Next 'boot ROM')\". Put the file tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it — and try again. You must provide a legally acquired, licensed ROM.":
-            "MAME nemůže nastartovat: chybí zaváděcí ROM ZX Spectrum Next (TBBLUE). Tento krok je ruční — viz {url} a postup \"Get TBBLUE (the Next 'boot ROM')\". Vložte soubor tbblue.zip do složky roms MAME (downloads\\mame\\roms) — NEROZBALUJTE jej — a zkuste to znovu. Musíte použít legálně pořízenou licencovanou ROM.",
-        "MAME install ▸ NEXT STEP (manual): add the TBBLUE boot ROM. See {url} → \"Get TBBLUE (the Next 'boot ROM')\". Put the file tbblue.zip into MAME's roms folder ({roms}) — DON'T extract it. You must provide a legally acquired, licensed ROM.":
-            "Instalace MAME ▸ DALŠÍ KROK (ruční): přidejte zaváděcí ROM TBBLUE. Viz {url} → \"Get TBBLUE (the Next 'boot ROM')\". Vložte soubor tbblue.zip do složky roms MAME ({roms}) — NEROZBALUJTE jej. Musíte použít legálně pořízenou licencovanou ROM.",
+        "MAME can't start: the ZX Spectrum Next boot ROM (TBBLUE) is missing. This step is manual — see {url} for how to build tbblue.zip. Put that file into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it — and try again. You must provide a legally acquired, licensed ROM.":
+            "MAME nemůže nastartovat: chybí zaváděcí ROM ZX Spectrum Next (TBBLUE). Tento krok je ruční — viz {url}, jak sestavit tbblue.zip. Vložte tento soubor do složky roms MAME (downloads\\mame\\roms) — NEROZBALUJTE jej — a zkuste to znovu. Musíte použít legálně pořízenou licencovanou ROM.",
+        "MAME install ▸ NEXT STEP (manual): add the TBBLUE boot ROM. See {url} for how to build tbblue.zip. Put that file into MAME's roms folder ({roms}) — DON'T extract it. You must provide a legally acquired, licensed ROM.":
+            "Instalace MAME ▸ DALŠÍ KROK (ruční): přidejte zaváděcí ROM TBBLUE. Viz {url}, jak sestavit tbblue.zip. Vložte tento soubor do složky roms MAME ({roms}) — NEROZBALUJTE jej. Musíte použít legálně pořízenou licencovanou ROM.",
         "NextSync .sync5 dot command updated: v{old} -> v{new} — please copy the new build to your Next (it cannot be deployed automatically).":
             "Dot příkaz NextSync .sync5 aktualizován: v{old} -> v{new} — zkopírujte novou verzi na svůj Next (nelze ji nasadit automaticky).",
         "TIP: Did you know that if you have purchased CSpect from itch.io you can do a full end-to-end CSpect install from there?\n\nCSpect ships with hdfmonkey bundled inside it, so that route needs no separate hdfmonkey install — the app finds and uses the bundled copy automatically.\n\nSimply log into your itch.io account in the itch.io tab, navigate to CSpect and click Install.\n\nDo you still want to install hdfmonkey only, or abort and then make an end-to-end install of CSpect using itch.io?":
@@ -8274,8 +8274,8 @@ CATALOGS = {
             "  Emulátor Mame, který na ZX Spectrum Next přinesl Holub, nainstalujete podle této dokumentace: https://wiki.specnext.dev/MAME:Installing",
         "  Official Windows Binary Packages can be found here: https://www.mamedev.org/release.html":
             "  Oficiální binární balíčky pro Windows najdete zde: https://www.mamedev.org/release.html",
-        "  Put the file tbblue.zip that can be found here: https://github.com/Threetwosevensixseven/NexCreator/raw/master/bootroms/tbblue.zip into MAME's roms folder.":
-            "  Soubor tbblue.zip, který najdete zde: https://github.com/Threetwosevensixseven/NexCreator/raw/master/bootroms/tbblue.zip vložte do složky roms MAME.",
+        "  Put the file tbblue.zip (the Next boot ROM package: six boot-*.bin files built from the GPLv3 FPGA sources) into MAME's roms folder. How to build it: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md":
+            "  Vložte soubor tbblue.zip (balíček zaváděcí ROM Nextu: šest souborů boot-*.bin sestavených ze zdrojů FPGA pod GPLv3) do složky roms MAME. Jak jej sestavit: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md",
         "  Important note: Don't extract the tbblue.zip file; MAME will look for the zip file when the 'tbblue' machine is selected.":
             "  Důležitá poznámka: soubor tbblue.zip nerozbalujte; MAME hledá zip, když je vybrán stroj 'tbblue'.",
         "  Mike Dailly's CSpect is a downloadable emulator for Windows, macOS, and Linux":
@@ -8868,10 +8868,10 @@ CATALOGS = {
             "Mise à jour de CSpect ▸ démarrage du téléchargement et de l'installation de {name} ({file}) depuis itch.io vers {folder}.",
         "ERROR: could not build {name}: {error}":
             "ERREUR : impossible de créer {name} : {error}",
-        "MAME can't start: the ZX Spectrum Next boot ROM (TBBLUE) is missing. This step is manual — see {url} and follow \"Get TBBLUE (the Next 'boot ROM')\". Put the file tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it — and try again. You must provide a legally acquired, licensed ROM.":
-            "MAME ne peut pas démarrer : la ROM de démarrage du ZX Spectrum Next (TBBLUE) est absente. Cette étape est manuelle — voir {url} et suivre \"Get TBBLUE (the Next 'boot ROM')\". Placez le fichier tbblue.zip dans le dossier roms de MAME (downloads\\mame\\roms) — NE l'extrayez PAS — puis réessayez. Vous devez fournir une ROM acquise légalement et sous licence.",
-        "MAME install ▸ NEXT STEP (manual): add the TBBLUE boot ROM. See {url} → \"Get TBBLUE (the Next 'boot ROM')\". Put the file tbblue.zip into MAME's roms folder ({roms}) — DON'T extract it. You must provide a legally acquired, licensed ROM.":
-            "Installation de MAME ▸ ÉTAPE SUIVANTE (manuelle) : ajoutez la ROM de démarrage TBBLUE. Voir {url} → \"Get TBBLUE (the Next 'boot ROM')\". Placez le fichier tbblue.zip dans le dossier roms de MAME ({roms}) — NE l'extrayez PAS. Vous devez fournir une ROM acquise légalement et sous licence.",
+        "MAME can't start: the ZX Spectrum Next boot ROM (TBBLUE) is missing. This step is manual — see {url} for how to build tbblue.zip. Put that file into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it — and try again. You must provide a legally acquired, licensed ROM.":
+            "MAME ne peut pas démarrer : la ROM de démarrage du ZX Spectrum Next (TBBLUE) est absente. Cette étape est manuelle — voir {url} pour savoir comment construire tbblue.zip. Placez ce fichier dans le dossier roms de MAME (downloads\\mame\\roms) — NE l'extrayez PAS — puis réessayez. Vous devez fournir une ROM acquise légalement et sous licence.",
+        "MAME install ▸ NEXT STEP (manual): add the TBBLUE boot ROM. See {url} for how to build tbblue.zip. Put that file into MAME's roms folder ({roms}) — DON'T extract it. You must provide a legally acquired, licensed ROM.":
+            "Installation de MAME ▸ ÉTAPE SUIVANTE (manuelle) : ajoutez la ROM de démarrage TBBLUE. Voir {url} pour savoir comment construire tbblue.zip. Placez ce fichier dans le dossier roms de MAME ({roms}) — NE l'extrayez PAS. Vous devez fournir une ROM acquise légalement et sous licence.",
         "NextSync .sync5 dot command updated: v{old} -> v{new} — please copy the new build to your Next (it cannot be deployed automatically).":
             "Commande dot .sync5 de NextSync mise à jour : v{old} -> v{new} — copiez la nouvelle version sur votre Next (le déploiement automatique est impossible).",
         "TIP: Did you know that if you have purchased CSpect from itch.io you can do a full end-to-end CSpect install from there?\n\nCSpect ships with hdfmonkey bundled inside it, so that route needs no separate hdfmonkey install — the app finds and uses the bundled copy automatically.\n\nSimply log into your itch.io account in the itch.io tab, navigate to CSpect and click Install.\n\nDo you still want to install hdfmonkey only, or abort and then make an end-to-end install of CSpect using itch.io?":
@@ -9916,8 +9916,8 @@ CATALOGS = {
             "  L'émulateur Mame porté sur ZX Spectrum Next par Holub s'installe en suivant cette documentation : https://wiki.specnext.dev/MAME:Installing",
         "  Official Windows Binary Packages can be found here: https://www.mamedev.org/release.html":
             "  Les paquets binaires Windows officiels se trouvent ici : https://www.mamedev.org/release.html",
-        "  Put the file tbblue.zip that can be found here: https://github.com/Threetwosevensixseven/NexCreator/raw/master/bootroms/tbblue.zip into MAME's roms folder.":
-            "  Placez le fichier tbblue.zip, disponible ici : https://github.com/Threetwosevensixseven/NexCreator/raw/master/bootroms/tbblue.zip dans le dossier roms de MAME.",
+        "  Put the file tbblue.zip (the Next boot ROM package: six boot-*.bin files built from the GPLv3 FPGA sources) into MAME's roms folder. How to build it: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md":
+            "  Placez le fichier tbblue.zip (le paquet de ROM de démarrage du Next : six fichiers boot-*.bin construits à partir des sources FPGA sous GPLv3) dans le dossier roms de MAME. Comment le construire : https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md",
         "  Important note: Don't extract the tbblue.zip file; MAME will look for the zip file when the 'tbblue' machine is selected.":
             "  Note importante : ne décompressez pas le fichier tbblue.zip ; MAME cherche le zip quand la machine 'tbblue' est sélectionnée.",
         "  Mike Dailly's CSpect is a downloadable emulator for Windows, macOS, and Linux":
@@ -10126,10 +10126,10 @@ _TOAST_CATALOGS = {
         "Sent {ok}/{n} file(s) to SD card image:\n{dir}": "{ok}/{n} fichier(s) envoyé(s) vers l'image de carte SD :\n{dir}",
         "Port {port} is already in use.\nIs another ZX-Next-Unite instance (or a standalone NextSync server) already running?":
             "Le port {port} est déjà utilisé.\nUne autre instance de ZX-Next-Unite (ou un serveur NextSync autonome) est-elle déjà en cours d'exécution ?",
-        "MAME can't run without the TBBLUE boot ROM — a manual step.\r\nSee {url} → \"Get TBBLUE\".\r\nPut tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
-            "MAME ne peut pas fonctionner sans la ROM de démarrage TBBLUE — une étape manuelle.\r\nVoir {url} → « Get TBBLUE ».\r\nPlacez tbblue.zip dans le dossier roms de MAME (downloads\\mame\\roms) — NE PAS l'extraire.\r\nUtilisez uniquement une ROM acquise légalement et sous licence.",
-        "MAME is installed — no restart needed.\r\nManual step: add the TBBLUE boot ROM.\r\nSee {url} → \"Get TBBLUE\".\r\nPut tbblue.zip into MAME's roms folder\r\n({roms})\r\n— DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
-            "MAME est installé — aucun redémarrage nécessaire.\r\nÉtape manuelle : ajoutez la ROM de démarrage TBBLUE.\r\nVoir {url} → « Get TBBLUE ».\r\nPlacez tbblue.zip dans le dossier roms de MAME\r\n({roms})\r\n— NE PAS l'extraire.\r\nUtilisez uniquement une ROM acquise légalement et sous licence.",
+        "MAME can't run without the TBBLUE boot ROM — a manual step.\r\nHow to build tbblue.zip: {url}\r\nPut tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
+            "MAME ne peut pas fonctionner sans la ROM de démarrage TBBLUE — une étape manuelle.\r\nComment construire tbblue.zip : {url}\r\nPlacez tbblue.zip dans le dossier roms de MAME (downloads\\mame\\roms) — NE PAS l'extraire.\r\nUtilisez uniquement une ROM acquise légalement et sous licence.",
+        "MAME is installed — no restart needed.\r\nManual step: add the TBBLUE boot ROM.\r\nHow to build tbblue.zip: {url}\r\nPut tbblue.zip into MAME's roms folder\r\n({roms})\r\n— DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
+            "MAME est installé — aucun redémarrage nécessaire.\r\nÉtape manuelle : ajoutez la ROM de démarrage TBBLUE.\r\nComment construire tbblue.zip : {url}\r\nPlacez tbblue.zip dans le dossier roms de MAME\r\n({roms})\r\n— NE PAS l'extraire.\r\nUtilisez uniquement une ROM acquise légalement et sous licence.",
         "The archive was extracted but mame.exe could not be located in downloads/mame.":
             "L'archive a été extraite mais mame.exe est introuvable dans downloads/mame.",
         "CSpect {name} is installed — no restart needed.\r\n{extracted}":
@@ -10263,10 +10263,10 @@ _TOAST_CATALOGS = {
         "Sent {ok}/{n} file(s) to SD card image:\n{dir}": "{ok}/{n} archivo(s) enviado(s) a la imagen de la tarjeta SD:\n{dir}",
         "Port {port} is already in use.\nIs another ZX-Next-Unite instance (or a standalone NextSync server) already running?":
             "El puerto {port} ya está en uso.\n¿Hay otra instancia de ZX-Next-Unite (o un servidor NextSync independiente) ya en ejecución?",
-        "MAME can't run without the TBBLUE boot ROM — a manual step.\r\nSee {url} → \"Get TBBLUE\".\r\nPut tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
-            "MAME no puede funcionar sin la ROM de arranque TBBLUE — un paso manual.\r\nVea {url} → «Get TBBLUE».\r\nColoque tbblue.zip en la carpeta roms de MAME (downloads\\mame\\roms) — NO lo extraiga.\r\nUse solo una ROM adquirida legalmente y con licencia.",
-        "MAME is installed — no restart needed.\r\nManual step: add the TBBLUE boot ROM.\r\nSee {url} → \"Get TBBLUE\".\r\nPut tbblue.zip into MAME's roms folder\r\n({roms})\r\n— DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
-            "MAME está instalado — no hace falta reiniciar.\r\nPaso manual: añada la ROM de arranque TBBLUE.\r\nVea {url} → «Get TBBLUE».\r\nColoque tbblue.zip en la carpeta roms de MAME\r\n({roms})\r\n— NO lo extraiga.\r\nUse solo una ROM adquirida legalmente y con licencia.",
+        "MAME can't run without the TBBLUE boot ROM — a manual step.\r\nHow to build tbblue.zip: {url}\r\nPut tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
+            "MAME no puede funcionar sin la ROM de arranque TBBLUE — un paso manual.\r\nCómo construir tbblue.zip: {url}\r\nColoque tbblue.zip en la carpeta roms de MAME (downloads\\mame\\roms) — NO lo extraiga.\r\nUse solo una ROM adquirida legalmente y con licencia.",
+        "MAME is installed — no restart needed.\r\nManual step: add the TBBLUE boot ROM.\r\nHow to build tbblue.zip: {url}\r\nPut tbblue.zip into MAME's roms folder\r\n({roms})\r\n— DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
+            "MAME está instalado — no hace falta reiniciar.\r\nPaso manual: añada la ROM de arranque TBBLUE.\r\nCómo construir tbblue.zip: {url}\r\nColoque tbblue.zip en la carpeta roms de MAME\r\n({roms})\r\n— NO lo extraiga.\r\nUse solo una ROM adquirida legalmente y con licencia.",
         "The archive was extracted but mame.exe could not be located in downloads/mame.":
             "El archivo se extrajo pero no se encontró mame.exe en downloads/mame.",
         "CSpect {name} is installed — no restart needed.\r\n{extracted}":
@@ -10400,10 +10400,10 @@ _TOAST_CATALOGS = {
         "Sent {ok}/{n} file(s) to SD card image:\n{dir}": "{ok}/{n} ficheiro(s) enviado(s) para a imagem do cartão SD:\n{dir}",
         "Port {port} is already in use.\nIs another ZX-Next-Unite instance (or a standalone NextSync server) already running?":
             "A porta {port} já está a ser utilizada.\nHá outra instância do ZX-Next-Unite (ou um servidor NextSync autónomo) já em execução?",
-        "MAME can't run without the TBBLUE boot ROM — a manual step.\r\nSee {url} → \"Get TBBLUE\".\r\nPut tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
-            "O MAME não funciona sem a ROM de arranque TBBLUE — um passo manual.\r\nVeja {url} → «Get TBBLUE».\r\nColoque o tbblue.zip na pasta roms do MAME (downloads\\mame\\roms) — NÃO o extraia.\r\nUse apenas uma ROM adquirida legalmente e licenciada.",
-        "MAME is installed — no restart needed.\r\nManual step: add the TBBLUE boot ROM.\r\nSee {url} → \"Get TBBLUE\".\r\nPut tbblue.zip into MAME's roms folder\r\n({roms})\r\n— DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
-            "O MAME está instalado — não é preciso reiniciar.\r\nPasso manual: adicione a ROM de arranque TBBLUE.\r\nVeja {url} → «Get TBBLUE».\r\nColoque o tbblue.zip na pasta roms do MAME\r\n({roms})\r\n— NÃO o extraia.\r\nUse apenas uma ROM adquirida legalmente e licenciada.",
+        "MAME can't run without the TBBLUE boot ROM — a manual step.\r\nHow to build tbblue.zip: {url}\r\nPut tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
+            "O MAME não funciona sem a ROM de arranque TBBLUE — um passo manual.\r\nComo construir o tbblue.zip: {url}\r\nColoque o tbblue.zip na pasta roms do MAME (downloads\\mame\\roms) — NÃO o extraia.\r\nUse apenas uma ROM adquirida legalmente e licenciada.",
+        "MAME is installed — no restart needed.\r\nManual step: add the TBBLUE boot ROM.\r\nHow to build tbblue.zip: {url}\r\nPut tbblue.zip into MAME's roms folder\r\n({roms})\r\n— DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
+            "O MAME está instalado — não é preciso reiniciar.\r\nPasso manual: adicione a ROM de arranque TBBLUE.\r\nComo construir o tbblue.zip: {url}\r\nColoque o tbblue.zip na pasta roms do MAME\r\n({roms})\r\n— NÃO o extraia.\r\nUse apenas uma ROM adquirida legalmente e licenciada.",
         "The archive was extracted but mame.exe could not be located in downloads/mame.":
             "O arquivo foi extraído mas o mame.exe não foi encontrado em downloads/mame.",
         "CSpect {name} is installed — no restart needed.\r\n{extracted}":
@@ -10537,10 +10537,10 @@ _TOAST_CATALOGS = {
         "Sent {ok}/{n} file(s) to SD card image:\n{dir}": "Wysłano {ok}/{n} plik(ów) do obrazu karty SD:\n{dir}",
         "Port {port} is already in use.\nIs another ZX-Next-Unite instance (or a standalone NextSync server) already running?":
             "Port {port} jest już zajęty.\nCzy działa już inna instancja ZX-Next-Unite (lub samodzielny serwer NextSync)?",
-        "MAME can't run without the TBBLUE boot ROM — a manual step.\r\nSee {url} → \"Get TBBLUE\".\r\nPut tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
-            "MAME nie działa bez ROM-u startowego TBBLUE — krok ręczny.\r\nZobacz {url} → „Get TBBLUE\".\r\nUmieść tbblue.zip w folderze roms MAME (downloads\\mame\\roms) — NIE rozpakowuj go.\r\nUżywaj wyłącznie legalnie nabytego, licencjonowanego ROM-u.",
-        "MAME is installed — no restart needed.\r\nManual step: add the TBBLUE boot ROM.\r\nSee {url} → \"Get TBBLUE\".\r\nPut tbblue.zip into MAME's roms folder\r\n({roms})\r\n— DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
-            "MAME jest zainstalowany — restart nie jest potrzebny.\r\nKrok ręczny: dodaj ROM startowy TBBLUE.\r\nZobacz {url} → „Get TBBLUE\".\r\nUmieść tbblue.zip w folderze roms MAME\r\n({roms})\r\n— NIE rozpakowuj go.\r\nUżywaj wyłącznie legalnie nabytego, licencjonowanego ROM-u.",
+        "MAME can't run without the TBBLUE boot ROM — a manual step.\r\nHow to build tbblue.zip: {url}\r\nPut tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
+            "MAME nie działa bez ROM-u startowego TBBLUE — krok ręczny.\r\nJak zbudować tbblue.zip: {url}\r\nUmieść tbblue.zip w folderze roms MAME (downloads\\mame\\roms) — NIE rozpakowuj go.\r\nUżywaj wyłącznie legalnie nabytego, licencjonowanego ROM-u.",
+        "MAME is installed — no restart needed.\r\nManual step: add the TBBLUE boot ROM.\r\nHow to build tbblue.zip: {url}\r\nPut tbblue.zip into MAME's roms folder\r\n({roms})\r\n— DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
+            "MAME jest zainstalowany — restart nie jest potrzebny.\r\nKrok ręczny: dodaj ROM startowy TBBLUE.\r\nJak zbudować tbblue.zip: {url}\r\nUmieść tbblue.zip w folderze roms MAME\r\n({roms})\r\n— NIE rozpakowuj go.\r\nUżywaj wyłącznie legalnie nabytego, licencjonowanego ROM-u.",
         "The archive was extracted but mame.exe could not be located in downloads/mame.":
             "Archiwum zostało rozpakowane, ale nie znaleziono mame.exe w downloads/mame.",
         "CSpect {name} is installed — no restart needed.\r\n{extracted}":
@@ -10674,10 +10674,10 @@ _TOAST_CATALOGS = {
         "Sent {ok}/{n} file(s) to SD card image:\n{dir}": "Отправлено файлов: {ok}/{n} в образ SD-карты:\n{dir}",
         "Port {port} is already in use.\nIs another ZX-Next-Unite instance (or a standalone NextSync server) already running?":
             "Порт {port} уже занят.\nВозможно, уже запущена другая копия ZX-Next-Unite (или отдельный сервер NextSync)?",
-        "MAME can't run without the TBBLUE boot ROM — a manual step.\r\nSee {url} → \"Get TBBLUE\".\r\nPut tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
-            "MAME не работает без загрузочного ROM TBBLUE — это ручной шаг.\r\nСм. {url} → «Get TBBLUE».\r\nПоложите tbblue.zip в папку roms MAME (downloads\\mame\\roms) — НЕ распаковывайте его.\r\nИспользуйте только легально приобретённый лицензионный ROM.",
-        "MAME is installed — no restart needed.\r\nManual step: add the TBBLUE boot ROM.\r\nSee {url} → \"Get TBBLUE\".\r\nPut tbblue.zip into MAME's roms folder\r\n({roms})\r\n— DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
-            "MAME установлен — перезапуск не требуется.\r\nРучной шаг: добавьте загрузочный ROM TBBLUE.\r\nСм. {url} → «Get TBBLUE».\r\nПоложите tbblue.zip в папку roms MAME\r\n({roms})\r\n— НЕ распаковывайте его.\r\nИспользуйте только легально приобретённый лицензионный ROM.",
+        "MAME can't run without the TBBLUE boot ROM — a manual step.\r\nHow to build tbblue.zip: {url}\r\nPut tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
+            "MAME не работает без загрузочного ROM TBBLUE — это ручной шаг.\r\nКак собрать tbblue.zip: {url}\r\nПоложите tbblue.zip в папку roms MAME (downloads\\mame\\roms) — НЕ распаковывайте его.\r\nИспользуйте только легально приобретённый лицензионный ROM.",
+        "MAME is installed — no restart needed.\r\nManual step: add the TBBLUE boot ROM.\r\nHow to build tbblue.zip: {url}\r\nPut tbblue.zip into MAME's roms folder\r\n({roms})\r\n— DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
+            "MAME установлен — перезапуск не требуется.\r\nРучной шаг: добавьте загрузочный ROM TBBLUE.\r\nКак собрать tbblue.zip: {url}\r\nПоложите tbblue.zip в папку roms MAME\r\n({roms})\r\n— НЕ распаковывайте его.\r\nИспользуйте только легально приобретённый лицензионный ROM.",
         "The archive was extracted but mame.exe could not be located in downloads/mame.":
             "Архив распакован, но mame.exe не найден в downloads/mame.",
         "CSpect {name} is installed — no restart needed.\r\n{extracted}":
@@ -10811,10 +10811,10 @@ _TOAST_CATALOGS = {
         "Sent {ok}/{n} file(s) to SD card image:\n{dir}": "Odesláno {ok}/{n} souborů do obrazu SD karty:\n{dir}",
         "Port {port} is already in use.\nIs another ZX-Next-Unite instance (or a standalone NextSync server) already running?":
             "Port {port} je již obsazen.\nNeběží už jiná instance ZX-Next-Unite (nebo samostatný server NextSync)?",
-        "MAME can't run without the TBBLUE boot ROM — a manual step.\r\nSee {url} → \"Get TBBLUE\".\r\nPut tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
-            "MAME nefunguje bez zaváděcího ROM TBBLUE — ruční krok.\r\nViz {url} → „Get TBBLUE\".\r\nVložte tbblue.zip do složky roms MAME (downloads\\mame\\roms) — NEROZBALUJTE jej.\r\nPoužívejte pouze legálně získaný licencovaný ROM.",
-        "MAME is installed — no restart needed.\r\nManual step: add the TBBLUE boot ROM.\r\nSee {url} → \"Get TBBLUE\".\r\nPut tbblue.zip into MAME's roms folder\r\n({roms})\r\n— DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
-            "MAME je nainstalován — restart není potřeba.\r\nRuční krok: přidejte zaváděcí ROM TBBLUE.\r\nViz {url} → „Get TBBLUE\".\r\nVložte tbblue.zip do složky roms MAME\r\n({roms})\r\n— NEROZBALUJTE jej.\r\nPoužívejte pouze legálně získaný licencovaný ROM.",
+        "MAME can't run without the TBBLUE boot ROM — a manual step.\r\nHow to build tbblue.zip: {url}\r\nPut tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
+            "MAME nefunguje bez zaváděcího ROM TBBLUE — ruční krok.\r\nJak sestavit tbblue.zip: {url}\r\nVložte tbblue.zip do složky roms MAME (downloads\\mame\\roms) — NEROZBALUJTE jej.\r\nPoužívejte pouze legálně získaný licencovaný ROM.",
+        "MAME is installed — no restart needed.\r\nManual step: add the TBBLUE boot ROM.\r\nHow to build tbblue.zip: {url}\r\nPut tbblue.zip into MAME's roms folder\r\n({roms})\r\n— DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
+            "MAME je nainstalován — restart není potřeba.\r\nRuční krok: přidejte zaváděcí ROM TBBLUE.\r\nJak sestavit tbblue.zip: {url}\r\nVložte tbblue.zip do složky roms MAME\r\n({roms})\r\n— NEROZBALUJTE jej.\r\nPoužívejte pouze legálně získaný licencovaný ROM.",
         "The archive was extracted but mame.exe could not be located in downloads/mame.":
             "Archiv byl rozbalen, ale mame.exe se v downloads/mame nepodařilo najít.",
         "CSpect {name} is installed — no restart needed.\r\n{extracted}":

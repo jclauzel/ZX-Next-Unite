@@ -2896,7 +2896,7 @@ def inspect_phase7():
         win.settings_btn_color_background, win.settings_crash_log_enabled_checkbox,
         win.settings_http_token_checkbox, win.settings_http_token_edit,
         win.settings_mcp_token_checkbox, win.settings_mcp_token_generate_btn,
-        rom, params) if w is not None]
+        params) if w is not None]
     basic_rows = [w for w in (
         win.settings_zxnu_update_check_checkbox, win.settings_ui_language_combo,
         win.settings_wizard_checkbox, win.settings_desktop_theme_combo,
@@ -2907,7 +2907,7 @@ def inspect_phase7():
         win.settings_rs232_esp_ip_combo, win.settings_cspect_update_check_checkbox,
         win.settings_http_bridge_checkbox, win.settings_http_verbose_checkbox,
         win.settings_mcp_checkbox, win.settings_mcp_hint_label, win.settings_mcp_copy_btn,
-        discard, cs_esp, upd) if w is not None]
+        discard, cs_esp, upd, rom) if w is not None]   # rom: Basic since 9.7.64
     check("Advanced shows every row",
           all(not w.isHidden() for w in advanced_only + basic_rows),
           str([w.objectName() or type(w).__name__
