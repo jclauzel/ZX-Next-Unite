@@ -36,6 +36,7 @@ SUITES = [
     ("test_path_history.py",    120, None),
     ("test_packaging.py",       120, None),
     ("test_sync5_img_deploy.py", 120, None),
+    ("test_nextzxos_image.py",  120, None),
     ("test_hdfmonkey_discovery.py", 120, None),
     ("test_mame_install.py",     120, None),
     # Which ESP card the emulated Next gets in MAME (9.7.48): the

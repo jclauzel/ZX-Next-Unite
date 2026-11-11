@@ -28,7 +28,7 @@ from PySide6.QtGui import QColor
 from zxnu_mcp import MCP_DEFAULT_PORT  # noqa: F401  (re-exported by the star import)
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.64"
+ZX_NEXT_UNITE_VERSION = "9.7.65"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -816,7 +816,9 @@ CSPECT_NOT_FOUND_EXIT_CODES_POSIX = frozenset({126, 127})
 # read/write sharing, so nothing in the OS stops hdfmonkey rewriting the FAT
 # under a running NextZXOS. The frozen UI used to be the only thing that did.
 HDFMONKEY_WRITE_VERBS = frozenset({"put", "mkdir", "rm", "rmdir", "rename",
-                                   "format"})
+                                   "format",
+                                   # 9.7.65: the image creator / rebuild
+                                   "create", "putdir"})
 
 
 def cspect_popen_kwargs(cwd=None, windows=None):

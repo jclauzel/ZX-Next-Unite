@@ -218,6 +218,69 @@ def translate_widget_tree(root, lang):
 
 CATALOGS = {
     "es": {
+        # Create NextZXOS Image / Make this image MAME-bootable (9.7.65)
+        "Create NextZXOS Image":
+            "Crear imagen NextZXOS",
+        "Create a new SD card image (2, 4 or 8 GB) holding the latest\nSystem/Next distribution from specnext.com, FAT32 so that both\nCSpect and MAME boot it, and load it. Needs hdfmonkey.":
+            "Crea una nueva imagen de tarjeta SD (2, 4 u 8 GB) con la última\ndistribución System/Next de specnext.com, en FAT32 para que la arranquen\ntanto CSpect como MAME, y la carga. Necesita hdfmonkey.",
+        "Make this image MAME-bootable…":
+            "Hacer esta imagen arrancable en MAME…",
+        "Image size":
+            "Tamaño de la imagen",
+        "Size of the new SD card image:":
+            "Tamaño de la nueva imagen de tarjeta SD:",
+        "Save the new NextZXOS image":
+            "Guardar la nueva imagen NextZXOS",
+        "⚠  hdfmonkey needed":
+            "⚠  Se necesita hdfmonkey",
+        "hdfmonkey is needed to create or rebuild an image. Install it with the 'Download and install HDF Monkey' button (bottom right of the SD Card tab).":
+            "Se necesita hdfmonkey para crear o reconstruir una imagen. Instálalo con el botón 'Download and install HDF Monkey' (abajo a la derecha de la pestaña SD Card).",
+        "Creating a {size} NextZXOS image: {path}":
+            "Creando una imagen NextZXOS de {size}: {path}",
+        "cancelled":
+            "cancelado",
+        "Failed creating the NextZXOS image: {error}":
+            "Error al crear la imagen NextZXOS: {error}",
+        "❌  NextZXOS image not created":
+            "❌  Imagen NextZXOS no creada",
+        "NextZXOS image created: {path} (System/Next {version}, {size})":
+            "Imagen NextZXOS creada: {path} (System/Next {version}, {size})",
+        "✅  NextZXOS image created":
+            "✅  Imagen NextZXOS creada",
+        "{path}\r\nSystem/Next {version}, {size}, FAT32 - loading it now.":
+            "{path}\r\nSystem/Next {version}, {size}, FAT32 - cargándola ahora.",
+        "Load an image first.":
+            "Carga primero una imagen.",
+        "✅  This image is fine for MAME":
+            "✅  Esta imagen vale para MAME",
+        "{path}\r\nFAT{bits} with {clusters} clusters: the Next firmware under MAME reads it as it is.":
+            "{path}\r\nFAT{bits} con {clusters} clústeres: el firmware del Next bajo MAME la lee tal cual.",
+        "A {size} image cannot hold the {used} in use on {path}.":
+            "Una imagen de {size} no puede contener los {used} en uso en {path}.",
+        "❌  Image not rebuilt":
+            "❌  Imagen no reconstruida",
+        "The new image must not be the one being rebuilt: {path}":
+            "La nueva imagen no puede ser la que se reconstruye: {path}",
+        "Rebuilding {source} as a {size} FAT32 image: {path}":
+            "Reconstruyendo {source} como imagen FAT32 de {size}: {path}",
+        "Failed rebuilding the image: {error}":
+            "Error al reconstruir la imagen: {error}",
+        "Image rebuilt for MAME: {path} ({count} files, {size})":
+            "Imagen reconstruida para MAME: {path} ({count} archivos, {size})",
+        "✅  Image rebuilt for MAME":
+            "✅  Imagen reconstruida para MAME",
+        "{path}\r\n{count} files copied into a fresh {size} FAT32 image.":
+            "{path}\r\n{count} archivos copiados en una imagen FAT32 nueva de {size}.",
+        "Load it":
+            "Cargarla",
+        "Rebuild for MAME":
+            "Reconstruir para MAME",
+        "⚠  MAME can't boot this image":
+            "⚠  MAME no puede arrancar esta imagen",
+        "{path} is FAT32 with {clusters} clusters, fewer than the 65,525 FAT32 needs: the Next firmware under MAME reads it as FAT16 and stops at 'Error opening menu.ini/.def'. CSpect boots it. Rebuild it for MAME from the image explorer's menu.":
+            "{path} es FAT32 con {clusters} clústeres, menos de los 65.525 que FAT32 necesita: el firmware del Next bajo MAME la lee como FAT16 y se detiene en 'Error opening menu.ini/.def'. CSpect la arranca. Reconstrúyela para MAME desde el menú del explorador de imagen.",
+        "FAT32 with {clusters} clusters, fewer than the 65,525 FAT32 needs: the Next firmware under MAME reads it as FAT16 and stops. CSpect boots it.\r\nRebuild it as a fresh FAT32 image for MAME?":
+            "FAT32 con {clusters} clústeres, menos de los 65.525 que FAT32 necesita: el firmware del Next bajo MAME la lee como FAT16 y se detiene. CSpect la arranca.\r\n¿Reconstruirla como una imagen FAT32 nueva para MAME?",
         # ---- 9.6.0: per-emulator button colour ----
         "Set the {emulator} color…":
             "Establecer el color de {emulator}…",
@@ -1856,6 +1919,69 @@ CATALOGS = {
             "Copiado al portapapeles",
     },
     "pt": {
+        # Create NextZXOS Image / Make this image MAME-bootable (9.7.65)
+        "Create NextZXOS Image":
+            "Criar imagem NextZXOS",
+        "Create a new SD card image (2, 4 or 8 GB) holding the latest\nSystem/Next distribution from specnext.com, FAT32 so that both\nCSpect and MAME boot it, and load it. Needs hdfmonkey.":
+            "Cria uma nova imagem de cartão SD (2, 4 ou 8 GB) com a distribuição\nSystem/Next mais recente de specnext.com, em FAT32 para que tanto o CSpect\ncomo o MAME a arranquem, e carrega-a. Precisa do hdfmonkey.",
+        "Make this image MAME-bootable…":
+            "Tornar esta imagem arrancável no MAME…",
+        "Image size":
+            "Tamanho da imagem",
+        "Size of the new SD card image:":
+            "Tamanho da nova imagem de cartão SD:",
+        "Save the new NextZXOS image":
+            "Guardar a nova imagem NextZXOS",
+        "⚠  hdfmonkey needed":
+            "⚠  É preciso o hdfmonkey",
+        "hdfmonkey is needed to create or rebuild an image. Install it with the 'Download and install HDF Monkey' button (bottom right of the SD Card tab).":
+            "É preciso o hdfmonkey para criar ou reconstruir uma imagem. Instala-o com o botão 'Download and install HDF Monkey' (canto inferior direito do separador SD Card).",
+        "Creating a {size} NextZXOS image: {path}":
+            "A criar uma imagem NextZXOS de {size}: {path}",
+        "cancelled":
+            "cancelado",
+        "Failed creating the NextZXOS image: {error}":
+            "Falha ao criar a imagem NextZXOS: {error}",
+        "❌  NextZXOS image not created":
+            "❌  Imagem NextZXOS não criada",
+        "NextZXOS image created: {path} (System/Next {version}, {size})":
+            "Imagem NextZXOS criada: {path} (System/Next {version}, {size})",
+        "✅  NextZXOS image created":
+            "✅  Imagem NextZXOS criada",
+        "{path}\r\nSystem/Next {version}, {size}, FAT32 - loading it now.":
+            "{path}\r\nSystem/Next {version}, {size}, FAT32 - a carregá-la agora.",
+        "Load an image first.":
+            "Carrega primeiro uma imagem.",
+        "✅  This image is fine for MAME":
+            "✅  Esta imagem serve para o MAME",
+        "{path}\r\nFAT{bits} with {clusters} clusters: the Next firmware under MAME reads it as it is.":
+            "{path}\r\nFAT{bits} com {clusters} clusters: o firmware do Next sob o MAME lê-a tal como está.",
+        "A {size} image cannot hold the {used} in use on {path}.":
+            "Uma imagem de {size} não pode conter os {used} em uso em {path}.",
+        "❌  Image not rebuilt":
+            "❌  Imagem não reconstruída",
+        "The new image must not be the one being rebuilt: {path}":
+            "A nova imagem não pode ser a que está a ser reconstruída: {path}",
+        "Rebuilding {source} as a {size} FAT32 image: {path}":
+            "A reconstruir {source} como imagem FAT32 de {size}: {path}",
+        "Failed rebuilding the image: {error}":
+            "Falha ao reconstruir a imagem: {error}",
+        "Image rebuilt for MAME: {path} ({count} files, {size})":
+            "Imagem reconstruída para o MAME: {path} ({count} ficheiros, {size})",
+        "✅  Image rebuilt for MAME":
+            "✅  Imagem reconstruída para o MAME",
+        "{path}\r\n{count} files copied into a fresh {size} FAT32 image.":
+            "{path}\r\n{count} ficheiros copiados para uma imagem FAT32 nova de {size}.",
+        "Load it":
+            "Carregá-la",
+        "Rebuild for MAME":
+            "Reconstruir para o MAME",
+        "⚠  MAME can't boot this image":
+            "⚠  O MAME não consegue arrancar esta imagem",
+        "{path} is FAT32 with {clusters} clusters, fewer than the 65,525 FAT32 needs: the Next firmware under MAME reads it as FAT16 and stops at 'Error opening menu.ini/.def'. CSpect boots it. Rebuild it for MAME from the image explorer's menu.":
+            "{path} é FAT32 com {clusters} clusters, menos do que os 65.525 que o FAT32 exige: o firmware do Next sob o MAME lê-a como FAT16 e pára em 'Error opening menu.ini/.def'. O CSpect arranca-a. Reconstrói-a para o MAME a partir do menu do explorador de imagem.",
+        "FAT32 with {clusters} clusters, fewer than the 65,525 FAT32 needs: the Next firmware under MAME reads it as FAT16 and stops. CSpect boots it.\r\nRebuild it as a fresh FAT32 image for MAME?":
+            "FAT32 com {clusters} clusters, menos do que os 65.525 que o FAT32 exige: o firmware do Next sob o MAME lê-a como FAT16 e pára. O CSpect arranca-a.\r\nReconstruí-la como uma imagem FAT32 nova para o MAME?",
         # ---- 9.6.0: per-emulator button colour ----
         "Set the {emulator} color…":
             "Definir a cor do {emulator}…",
@@ -3495,6 +3621,69 @@ CATALOGS = {
             "Copiado para a área de transferência",
     },
     "pl": {
+        # Create NextZXOS Image / Make this image MAME-bootable (9.7.65)
+        "Create NextZXOS Image":
+            "Utwórz obraz NextZXOS",
+        "Create a new SD card image (2, 4 or 8 GB) holding the latest\nSystem/Next distribution from specnext.com, FAT32 so that both\nCSpect and MAME boot it, and load it. Needs hdfmonkey.":
+            "Tworzy nowy obraz karty SD (2, 4 lub 8 GB) z najnowszą dystrybucją\nSystem/Next ze specnext.com, w FAT32, aby uruchamiały go zarówno CSpect,\njak i MAME, i wczytuje go. Wymaga hdfmonkey.",
+        "Make this image MAME-bootable…":
+            "Uczyń ten obraz rozruchowym w MAME…",
+        "Image size":
+            "Rozmiar obrazu",
+        "Size of the new SD card image:":
+            "Rozmiar nowego obrazu karty SD:",
+        "Save the new NextZXOS image":
+            "Zapisz nowy obraz NextZXOS",
+        "⚠  hdfmonkey needed":
+            "⚠  Potrzebny hdfmonkey",
+        "hdfmonkey is needed to create or rebuild an image. Install it with the 'Download and install HDF Monkey' button (bottom right of the SD Card tab).":
+            "Do utworzenia lub przebudowy obrazu potrzebny jest hdfmonkey. Zainstaluj go przyciskiem 'Download and install HDF Monkey' (prawy dolny róg karty SD Card).",
+        "Creating a {size} NextZXOS image: {path}":
+            "Tworzenie obrazu NextZXOS {size}: {path}",
+        "cancelled":
+            "anulowano",
+        "Failed creating the NextZXOS image: {error}":
+            "Nie udało się utworzyć obrazu NextZXOS: {error}",
+        "❌  NextZXOS image not created":
+            "❌  Obraz NextZXOS nie został utworzony",
+        "NextZXOS image created: {path} (System/Next {version}, {size})":
+            "Utworzono obraz NextZXOS: {path} (System/Next {version}, {size})",
+        "✅  NextZXOS image created":
+            "✅  Obraz NextZXOS utworzony",
+        "{path}\r\nSystem/Next {version}, {size}, FAT32 - loading it now.":
+            "{path}\r\nSystem/Next {version}, {size}, FAT32 - wczytywanie.",
+        "Load an image first.":
+            "Najpierw wczytaj obraz.",
+        "✅  This image is fine for MAME":
+            "✅  Ten obraz jest dobry dla MAME",
+        "{path}\r\nFAT{bits} with {clusters} clusters: the Next firmware under MAME reads it as it is.":
+            "{path}\r\nFAT{bits} z {clusters} klastrami: firmware Nexta pod MAME czyta go bez zmian.",
+        "A {size} image cannot hold the {used} in use on {path}.":
+            "Obraz {size} nie pomieści {used} zajętych na {path}.",
+        "❌  Image not rebuilt":
+            "❌  Obraz nie został przebudowany",
+        "The new image must not be the one being rebuilt: {path}":
+            "Nowy obraz nie może być tym przebudowywanym: {path}",
+        "Rebuilding {source} as a {size} FAT32 image: {path}":
+            "Przebudowa {source} jako obrazu FAT32 {size}: {path}",
+        "Failed rebuilding the image: {error}":
+            "Nie udało się przebudować obrazu: {error}",
+        "Image rebuilt for MAME: {path} ({count} files, {size})":
+            "Obraz przebudowany dla MAME: {path} ({count} plików, {size})",
+        "✅  Image rebuilt for MAME":
+            "✅  Obraz przebudowany dla MAME",
+        "{path}\r\n{count} files copied into a fresh {size} FAT32 image.":
+            "{path}\r\n{count} plików skopiowano do nowego obrazu FAT32 {size}.",
+        "Load it":
+            "Wczytaj",
+        "Rebuild for MAME":
+            "Przebuduj dla MAME",
+        "⚠  MAME can't boot this image":
+            "⚠  MAME nie uruchomi tego obrazu",
+        "{path} is FAT32 with {clusters} clusters, fewer than the 65,525 FAT32 needs: the Next firmware under MAME reads it as FAT16 and stops at 'Error opening menu.ini/.def'. CSpect boots it. Rebuild it for MAME from the image explorer's menu.":
+            "{path} to FAT32 z {clusters} klastrami, mniej niż 65 525 wymaganych przez FAT32: firmware Nexta pod MAME czyta go jako FAT16 i zatrzymuje się na 'Error opening menu.ini/.def'. CSpect go uruchamia. Przebuduj go dla MAME z menu eksploratora obrazu.",
+        "FAT32 with {clusters} clusters, fewer than the 65,525 FAT32 needs: the Next firmware under MAME reads it as FAT16 and stops. CSpect boots it.\r\nRebuild it as a fresh FAT32 image for MAME?":
+            "FAT32 z {clusters} klastrami, mniej niż 65 525 wymaganych przez FAT32: firmware Nexta pod MAME czyta go jako FAT16 i zatrzymuje się. CSpect go uruchamia.\r\nPrzebudować go jako nowy obraz FAT32 dla MAME?",
         # ---- 9.6.0: per-emulator button colour ----
         "Set the {emulator} color…":
             "Ustaw kolor {emulator}…",
@@ -5131,6 +5320,69 @@ CATALOGS = {
             "Skopiowano do schowka",
     },
     "ru": {
+        # Create NextZXOS Image / Make this image MAME-bootable (9.7.65)
+        "Create NextZXOS Image":
+            "Создать образ NextZXOS",
+        "Create a new SD card image (2, 4 or 8 GB) holding the latest\nSystem/Next distribution from specnext.com, FAT32 so that both\nCSpect and MAME boot it, and load it. Needs hdfmonkey.":
+            "Создаёт новый образ SD-карты (2, 4 или 8 ГБ) с последним дистрибутивом\nSystem/Next с specnext.com, в FAT32, чтобы его загружали и CSpect, и MAME,\nи загружает его. Нужен hdfmonkey.",
+        "Make this image MAME-bootable…":
+            "Сделать этот образ загружаемым в MAME…",
+        "Image size":
+            "Размер образа",
+        "Size of the new SD card image:":
+            "Размер нового образа SD-карты:",
+        "Save the new NextZXOS image":
+            "Сохранить новый образ NextZXOS",
+        "⚠  hdfmonkey needed":
+            "⚠  Нужен hdfmonkey",
+        "hdfmonkey is needed to create or rebuild an image. Install it with the 'Download and install HDF Monkey' button (bottom right of the SD Card tab).":
+            "Для создания или пересборки образа нужен hdfmonkey. Установите его кнопкой 'Download and install HDF Monkey' (внизу справа на вкладке SD Card).",
+        "Creating a {size} NextZXOS image: {path}":
+            "Создание образа NextZXOS на {size}: {path}",
+        "cancelled":
+            "отменено",
+        "Failed creating the NextZXOS image: {error}":
+            "Не удалось создать образ NextZXOS: {error}",
+        "❌  NextZXOS image not created":
+            "❌  Образ NextZXOS не создан",
+        "NextZXOS image created: {path} (System/Next {version}, {size})":
+            "Образ NextZXOS создан: {path} (System/Next {version}, {size})",
+        "✅  NextZXOS image created":
+            "✅  Образ NextZXOS создан",
+        "{path}\r\nSystem/Next {version}, {size}, FAT32 - loading it now.":
+            "{path}\r\nSystem/Next {version}, {size}, FAT32 - загружается.",
+        "Load an image first.":
+            "Сначала загрузите образ.",
+        "✅  This image is fine for MAME":
+            "✅  Этот образ подходит для MAME",
+        "{path}\r\nFAT{bits} with {clusters} clusters: the Next firmware under MAME reads it as it is.":
+            "{path}\r\nFAT{bits}, {clusters} кластеров: прошивка Next под MAME читает его как есть.",
+        "A {size} image cannot hold the {used} in use on {path}.":
+            "Образ на {size} не вместит {used}, занятые на {path}.",
+        "❌  Image not rebuilt":
+            "❌  Образ не пересобран",
+        "The new image must not be the one being rebuilt: {path}":
+            "Новый образ не может быть тем, который пересобирается: {path}",
+        "Rebuilding {source} as a {size} FAT32 image: {path}":
+            "Пересборка {source} в образ FAT32 на {size}: {path}",
+        "Failed rebuilding the image: {error}":
+            "Не удалось пересобрать образ: {error}",
+        "Image rebuilt for MAME: {path} ({count} files, {size})":
+            "Образ пересобран для MAME: {path} ({count} файлов, {size})",
+        "✅  Image rebuilt for MAME":
+            "✅  Образ пересобран для MAME",
+        "{path}\r\n{count} files copied into a fresh {size} FAT32 image.":
+            "{path}\r\n{count} файлов скопировано в новый образ FAT32 на {size}.",
+        "Load it":
+            "Загрузить",
+        "Rebuild for MAME":
+            "Пересобрать для MAME",
+        "⚠  MAME can't boot this image":
+            "⚠  MAME не может загрузить этот образ",
+        "{path} is FAT32 with {clusters} clusters, fewer than the 65,525 FAT32 needs: the Next firmware under MAME reads it as FAT16 and stops at 'Error opening menu.ini/.def'. CSpect boots it. Rebuild it for MAME from the image explorer's menu.":
+            "{path} - это FAT32 с {clusters} кластерами, меньше 65 525, которые нужны FAT32: прошивка Next под MAME читает его как FAT16 и останавливается на 'Error opening menu.ini/.def'. CSpect его загружает. Пересоберите его для MAME из меню проводника образа.",
+        "FAT32 with {clusters} clusters, fewer than the 65,525 FAT32 needs: the Next firmware under MAME reads it as FAT16 and stops. CSpect boots it.\r\nRebuild it as a fresh FAT32 image for MAME?":
+            "FAT32 с {clusters} кластерами, меньше 65 525, которые нужны FAT32: прошивка Next под MAME читает его как FAT16 и останавливается. CSpect его загружает.\r\nПересобрать его в новый образ FAT32 для MAME?",
         # ---- 9.6.0: per-emulator button colour ----
         "Set the {emulator} color…":
             "Задать цвет {emulator}…",
@@ -6768,6 +7020,69 @@ CATALOGS = {
             "Скопировано в буфер обмена",
     },
     "cs": {
+        # Create NextZXOS Image / Make this image MAME-bootable (9.7.65)
+        "Create NextZXOS Image":
+            "Vytvořit obraz NextZXOS",
+        "Create a new SD card image (2, 4 or 8 GB) holding the latest\nSystem/Next distribution from specnext.com, FAT32 so that both\nCSpect and MAME boot it, and load it. Needs hdfmonkey.":
+            "Vytvoří nový obraz SD karty (2, 4 nebo 8 GB) s nejnovější distribucí\nSystem/Next ze specnext.com, ve FAT32, aby jej spustily CSpect i MAME,\na načte jej. Vyžaduje hdfmonkey.",
+        "Make this image MAME-bootable…":
+            "Udělat tento obraz spustitelným v MAME…",
+        "Image size":
+            "Velikost obrazu",
+        "Size of the new SD card image:":
+            "Velikost nového obrazu SD karty:",
+        "Save the new NextZXOS image":
+            "Uložit nový obraz NextZXOS",
+        "⚠  hdfmonkey needed":
+            "⚠  Je potřeba hdfmonkey",
+        "hdfmonkey is needed to create or rebuild an image. Install it with the 'Download and install HDF Monkey' button (bottom right of the SD Card tab).":
+            "K vytvoření nebo přestavbě obrazu je potřeba hdfmonkey. Nainstalujte jej tlačítkem 'Download and install HDF Monkey' (vpravo dole na kartě SD Card).",
+        "Creating a {size} NextZXOS image: {path}":
+            "Vytváří se obraz NextZXOS o velikosti {size}: {path}",
+        "cancelled":
+            "zrušeno",
+        "Failed creating the NextZXOS image: {error}":
+            "Vytvoření obrazu NextZXOS selhalo: {error}",
+        "❌  NextZXOS image not created":
+            "❌  Obraz NextZXOS nebyl vytvořen",
+        "NextZXOS image created: {path} (System/Next {version}, {size})":
+            "Obraz NextZXOS vytvořen: {path} (System/Next {version}, {size})",
+        "✅  NextZXOS image created":
+            "✅  Obraz NextZXOS vytvořen",
+        "{path}\r\nSystem/Next {version}, {size}, FAT32 - loading it now.":
+            "{path}\r\nSystem/Next {version}, {size}, FAT32 - načítá se.",
+        "Load an image first.":
+            "Nejprve načtěte obraz.",
+        "✅  This image is fine for MAME":
+            "✅  Tento obraz je pro MAME v pořádku",
+        "{path}\r\nFAT{bits} with {clusters} clusters: the Next firmware under MAME reads it as it is.":
+            "{path}\r\nFAT{bits} s {clusters} clustery: firmware Nextu pod MAME jej čte tak, jak je.",
+        "A {size} image cannot hold the {used} in use on {path}.":
+            "Obraz o velikosti {size} nepojme {used} použitých na {path}.",
+        "❌  Image not rebuilt":
+            "❌  Obraz nebyl přestavěn",
+        "The new image must not be the one being rebuilt: {path}":
+            "Nový obraz nesmí být ten, který se přestavuje: {path}",
+        "Rebuilding {source} as a {size} FAT32 image: {path}":
+            "Přestavba {source} na obraz FAT32 o velikosti {size}: {path}",
+        "Failed rebuilding the image: {error}":
+            "Přestavba obrazu selhala: {error}",
+        "Image rebuilt for MAME: {path} ({count} files, {size})":
+            "Obraz přestavěn pro MAME: {path} ({count} souborů, {size})",
+        "✅  Image rebuilt for MAME":
+            "✅  Obraz přestavěn pro MAME",
+        "{path}\r\n{count} files copied into a fresh {size} FAT32 image.":
+            "{path}\r\n{count} souborů zkopírováno do nového obrazu FAT32 o velikosti {size}.",
+        "Load it":
+            "Načíst",
+        "Rebuild for MAME":
+            "Přestavět pro MAME",
+        "⚠  MAME can't boot this image":
+            "⚠  MAME tento obraz nespustí",
+        "{path} is FAT32 with {clusters} clusters, fewer than the 65,525 FAT32 needs: the Next firmware under MAME reads it as FAT16 and stops at 'Error opening menu.ini/.def'. CSpect boots it. Rebuild it for MAME from the image explorer's menu.":
+            "{path} je FAT32 s {clusters} clustery, méně než 65 525, které FAT32 vyžaduje: firmware Nextu pod MAME jej čte jako FAT16 a zastaví se na 'Error opening menu.ini/.def'. CSpect jej spustí. Přestavte jej pro MAME z nabídky průzkumníka obrazu.",
+        "FAT32 with {clusters} clusters, fewer than the 65,525 FAT32 needs: the Next firmware under MAME reads it as FAT16 and stops. CSpect boots it.\r\nRebuild it as a fresh FAT32 image for MAME?":
+            "FAT32 s {clusters} clustery, méně než 65 525, které FAT32 vyžaduje: firmware Nextu pod MAME jej čte jako FAT16 a zastaví se. CSpect jej spustí.\r\nPřestavět jej na nový obraz FAT32 pro MAME?",
         # ---- 9.6.0: per-emulator button colour ----
         "Set the {emulator} color…":
             "Nastavit barvu {emulator}…",
@@ -8400,6 +8715,69 @@ CATALOGS = {
             "Zkopírováno do schránky",
     },
     "fr": {
+        # Create NextZXOS Image / Make this image MAME-bootable (9.7.65)
+        "Create NextZXOS Image":
+            "Créer une image NextZXOS",
+        "Create a new SD card image (2, 4 or 8 GB) holding the latest\nSystem/Next distribution from specnext.com, FAT32 so that both\nCSpect and MAME boot it, and load it. Needs hdfmonkey.":
+            "Crée une nouvelle image de carte SD (2, 4 ou 8 Go) contenant la dernière\ndistribution System/Next de specnext.com, en FAT32 pour que CSpect et MAME\nla démarrent, puis la charge. Nécessite hdfmonkey.",
+        "Make this image MAME-bootable…":
+            "Rendre cette image démarrable sous MAME…",
+        "Image size":
+            "Taille de l'image",
+        "Size of the new SD card image:":
+            "Taille de la nouvelle image de carte SD :",
+        "Save the new NextZXOS image":
+            "Enregistrer la nouvelle image NextZXOS",
+        "⚠  hdfmonkey needed":
+            "⚠  hdfmonkey nécessaire",
+        "hdfmonkey is needed to create or rebuild an image. Install it with the 'Download and install HDF Monkey' button (bottom right of the SD Card tab).":
+            "hdfmonkey est nécessaire pour créer ou reconstruire une image. Installez-le avec le bouton 'Download and install HDF Monkey' (en bas à droite de l'onglet SD Card).",
+        "Creating a {size} NextZXOS image: {path}":
+            "Création d'une image NextZXOS de {size} : {path}",
+        "cancelled":
+            "annulé",
+        "Failed creating the NextZXOS image: {error}":
+            "Échec de la création de l'image NextZXOS : {error}",
+        "❌  NextZXOS image not created":
+            "❌  Image NextZXOS non créée",
+        "NextZXOS image created: {path} (System/Next {version}, {size})":
+            "Image NextZXOS créée : {path} (System/Next {version}, {size})",
+        "✅  NextZXOS image created":
+            "✅  Image NextZXOS créée",
+        "{path}\r\nSystem/Next {version}, {size}, FAT32 - loading it now.":
+            "{path}\r\nSystem/Next {version}, {size}, FAT32 - chargement en cours.",
+        "Load an image first.":
+            "Chargez d'abord une image.",
+        "✅  This image is fine for MAME":
+            "✅  Cette image convient à MAME",
+        "{path}\r\nFAT{bits} with {clusters} clusters: the Next firmware under MAME reads it as it is.":
+            "{path}\r\nFAT{bits} avec {clusters} clusters : le firmware du Next sous MAME la lit telle quelle.",
+        "A {size} image cannot hold the {used} in use on {path}.":
+            "Une image de {size} ne peut pas contenir les {used} utilisés sur {path}.",
+        "❌  Image not rebuilt":
+            "❌  Image non reconstruite",
+        "The new image must not be the one being rebuilt: {path}":
+            "La nouvelle image ne peut pas être celle en cours de reconstruction : {path}",
+        "Rebuilding {source} as a {size} FAT32 image: {path}":
+            "Reconstruction de {source} en image FAT32 de {size} : {path}",
+        "Failed rebuilding the image: {error}":
+            "Échec de la reconstruction de l'image : {error}",
+        "Image rebuilt for MAME: {path} ({count} files, {size})":
+            "Image reconstruite pour MAME : {path} ({count} fichiers, {size})",
+        "✅  Image rebuilt for MAME":
+            "✅  Image reconstruite pour MAME",
+        "{path}\r\n{count} files copied into a fresh {size} FAT32 image.":
+            "{path}\r\n{count} fichiers copiés dans une nouvelle image FAT32 de {size}.",
+        "Load it":
+            "La charger",
+        "Rebuild for MAME":
+            "Reconstruire pour MAME",
+        "⚠  MAME can't boot this image":
+            "⚠  MAME ne peut pas démarrer cette image",
+        "{path} is FAT32 with {clusters} clusters, fewer than the 65,525 FAT32 needs: the Next firmware under MAME reads it as FAT16 and stops at 'Error opening menu.ini/.def'. CSpect boots it. Rebuild it for MAME from the image explorer's menu.":
+            "{path} est en FAT32 avec {clusters} clusters, moins que les 65 525 qu'exige FAT32 : le firmware du Next sous MAME la lit comme du FAT16 et s'arrête sur 'Error opening menu.ini/.def'. CSpect la démarre. Reconstruisez-la pour MAME depuis le menu de l'explorateur d'image.",
+        "FAT32 with {clusters} clusters, fewer than the 65,525 FAT32 needs: the Next firmware under MAME reads it as FAT16 and stops. CSpect boots it.\r\nRebuild it as a fresh FAT32 image for MAME?":
+            "FAT32 avec {clusters} clusters, moins que les 65 525 qu'exige FAT32 : le firmware du Next sous MAME la lit comme du FAT16 et s'arrête. CSpect la démarre.\r\nLa reconstruire en une nouvelle image FAT32 pour MAME ?",
         # ---- 9.6.0: per-emulator button colour ----
         "Set the {emulator} color…":
             "Définir la couleur de {emulator}…",

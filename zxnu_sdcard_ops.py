@@ -55,6 +55,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox,
 
 from zxnu_config import *
 from zxnu_workers import *
+from zxnu_nextzxos_image import (NEXTZXOS_CACHE_DIRNAME, NEXTZXOS_IMAGE_SIZE_CHOICES,
+                                 build_nextzxos_image_ops)
 from zxnu_i18n import ui_tr_now
 from zxnu_sdcard_explorer import (SdCardExplorerPane, IMG_PATH_ROLE,
                                   IMG_ISDIR_ROLE)
@@ -627,6 +629,14 @@ def build_sdcard_utils(
                     if _s5 is not None:
                         QTimer.singleShot(
                             900, lambda p=host.right_disk_image_path: _s5(p))
+                    # The MAME-bootable check (9.7.65): a FAT32 image under
+                    # 65,525 clusters (the 26.11a emulator image) gets a
+                    # yellow toast offering the rebuild. A beat after the
+                    # .sync5 offer so the two never land at once.
+                    _mc = getattr(host, "_nextzxos_mame_check", None)
+                    if _mc is not None:
+                        QTimer.singleShot(
+                            1500, lambda p=host.right_disk_image_path: _mc(p))
                     # Wizzy's one-time starter-pack suggestion (deferred a
                     # beat so the load UI settles first; the wizard itself
                     # gates on enabled/visible/once flags).
@@ -1325,7 +1335,10 @@ def build_sdcard_utils(
     host._image_write_refused_signals.refused.connect(
         _on_image_write_refused, Qt.QueuedConnection)
 
-    def execute_hdf_monkey(command_to_execute, image_path, additional_args="", silent=False, extra_argv=None, prompt_if_missing=True):
+    def execute_hdf_monkey(command_to_execute, image_path, additional_args="", silent=False, extra_argv=None, prompt_if_missing=True, options=None):
+        # ``options`` (9.7.65): hdfmonkey flags that go BETWEEN the verb and
+        # the image (``create --fat32 <image> <size>``); never quoted,
+        # never gated - the gate below looks at the IMAGE, as always.
         # Sentinel with a non-zero returncode in case we never reach subprocess.run
         exec_process = subprocess.CompletedProcess(args=[], returncode=-1)
         # Prefer a bundled hdfmonkey discovered under downloads/cspect
@@ -1359,7 +1372,7 @@ def build_sdcard_utils(
         ensure_hdfmonkey_executable(hdfmonkey_exe)
         try:
             img = image_path.strip('"')
-            argv = [hdfmonkey_exe, command_to_execute, img]
+            argv = [hdfmonkey_exe, command_to_execute] + list(options or []) + [img]
             if extra_argv is not None:
                 # Caller passes a clean list of path strings – no quoting/parsing needed
                 argv += extra_argv
@@ -1487,6 +1500,91 @@ def build_sdcard_utils(
     host.delete_files_button_show_confirmation_buttons = delete_files_button_show_confirmation_buttons
     host.download_nextzxos_image = download_nextzxos_image
     host.execute_hdf_monkey = execute_hdf_monkey
+
+    # ── Create NextZXOS Image / Make this image MAME-bootable (9.7.65) ──
+    # The work is zxnu_nextzxos_image (Qt-free, tested headlessly); these
+    # closures are its Qt: the two questions, the progress-dialog runner
+    # (the delete/rename pattern above) and the select-and-load tail the
+    # download wizard ends with.
+    def _ask_image_size(default_label):
+        labels = [label for label, _token, _bytes in NEXTZXOS_IMAGE_SIZE_CHOICES]
+        index = labels.index(default_label) if default_label in labels else 0
+        choice, ok = QInputDialog.getItem(
+            host, ui_tr_now("Image size"),
+            ui_tr_now("Size of the new SD card image:"), labels, index, False)
+        return choice if ok else None
+
+    def _ask_image_save_path(suggested):
+        path, _filter = QFileDialog.getSaveFileName(
+            host, ui_tr_now("Save the new NextZXOS image"), suggested,
+            "Disk Images (*.img);;All Files (*)")
+        return path
+
+    def _run_image_task(title, fn, on_done):
+        set_all_buttons_disabled()
+        dlg = HdfProgressDialog(title, host)
+        box = {}
+
+        def _body(signals, cancel_event):
+            try:
+                box["result"] = fn(
+                    progress=lambda p: signals.progress.emit(int(p)),
+                    status=lambda s: signals.status.emit(str(s)),
+                    cancel_event=cancel_event)
+            except Exception as exc:                       # noqa: BLE001
+                box["error"] = exc
+                raise
+
+        worker = HdfTaskWorker(_body)
+        dlg.cancel_requested.connect(worker.cancel)
+        worker.signals.progress.connect(dlg.set_progress)
+        worker.signals.status.connect(dlg.set_status)
+        worker.signals.error.connect(add_main_log_window)
+        worker.signals.cancelled.connect(dlg.mark_cancelled)
+
+        def _finished():
+            dlg.close()
+            set_all_buttons_enabled()
+            on_done(box.get("result"), box.get("error"),
+                    worker.cancel_event.is_set())
+
+        worker.signals.finished.connect(_finished)
+        host.threadpool.start(worker)
+        dlg.exec()
+
+    def _load_image_path(path):
+        """Select *path* into the image box and load it (the download
+        wizard's tail, 9.7.57)."""
+        global right_disk_image_explorer_path
+        global right_disk_image_path
+        host.imageinput.setCurrentText(normalize_sd_image_path(path))
+        configuration_dictionary[SETTING_HDDFILE] = host.imageinput.currentText()
+        right_disk_image_explorer_path = []
+        _set_right_disk_content([])
+        right_disk_image_path = ""
+        _set_right_disk_selected([])
+        image_clear_model()
+
+        def _on_loaded(success):
+            if success:
+                save_configuration_file()
+                if host.settings_warn_image_nearly_full_checkbox.isChecked():
+                    _warn_if_image_nearly_full(host.right_disk_image_path)
+        load_image(_on_loaded)
+
+    build_nextzxos_image_ops(
+        host,
+        execute_hdf_monkey=execute_hdf_monkey,
+        add_log=add_main_log_window,
+        show_toast=lambda *a, **k: host._show_toast(*a, **k),
+        ask_size=_ask_image_size,
+        ask_save_path=_ask_image_save_path,
+        run_task=_run_image_task,
+        hdfmonkey_present=lambda: bool(_hdfmonkey_binary_found()),
+        load_image_path=_load_image_path,
+        cache_dir=os.path.join(ZXNU_DATA_ROOT, "downloads", NEXTZXOS_CACHE_DIRNAME),
+        loaded_image=lambda: host.right_disk_image_path or "",
+    )
     host.execute_shell_command = execute_shell_command
     host.image_newfolder = image_newfolder
     host.image_newfolder_cancel = image_newfolder_cancel
@@ -3808,6 +3906,13 @@ def build_transfer_clipboard_ops(
             action_paste.setEnabled(_explorer_clipboard_has_items())
             action_paste.triggered.connect(
                 lambda: QTimer.singleShot(0, lambda: _explorer_paste_into_image(image_dest_dir())))
+
+        # Rebuild the loaded image as a fresh FAT32 one MAME boots (9.7.65):
+        # the fix for the 26.11a emulator image, offered on any image.
+        menu.addSeparator()
+        menu.addAction(
+            ui_tr_now("Make this image MAME-bootable…"),
+            lambda: QTimer.singleShot(0, lambda: host.make_image_mame_bootable()))
 
         menu.exec(host.image_treeview.viewport().mapToGlobal(pos))
 

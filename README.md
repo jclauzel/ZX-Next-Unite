@@ -43,6 +43,13 @@ emulator launch buttons below:
 
 ## Features
 
+- **Create NextZXOS Image** — one click builds a fresh 2, 4 or 8 GB SD card
+  image holding the latest System/Next distribution from specnext.com, FAT32
+  so that both CSpect and MAME boot it (9.7.65). And when an image MAME
+  cannot boot is loaded — the official 26.11a "image for emulators" is FAT32
+  with too few clusters for the Next firmware's card driver — the app says
+  so and offers to rebuild it as a fresh FAT32 image; the image explorer's
+  right-click menu has the same "Make this image MAME-bootable" action.
 - **Basic settings first** — the Settings tab opens in *Basic* mode (9.7.63),
   showing the dozen settings most people need; the Basic / Advanced switch at
   its top right shows everything, with the MAME, CSpect and RS232 ESP

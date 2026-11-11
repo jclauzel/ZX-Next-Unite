@@ -2750,10 +2750,25 @@ class MainWindow(QMainWindow):
         )
         self.downloadimage.clicked.connect(download_nextzxos_image)
 
+        # Create NextZXOS Image (9.7.65): a fresh FAT32 card of 2, 4 or 8 GB
+        # built from the latest System/Next distribution with hdfmonkey, so
+        # it needs hdfmonkey - shown and hidden with the other hdfmonkey
+        # controls (button_new_folder) at the five sites below. The work is
+        # host.create_nextzxos_image (zxnu_nextzxos_image via the SD card
+        # ops glue).
+        self.createimage = QPushButton("Create NextZXOS Image", self)
+        self.createimage.setToolTip(
+            "Create a new SD card image (2, 4 or 8 GB) holding the latest\n"
+            "System/Next distribution from specnext.com, FAT32 so that both\n"
+            "CSpect and MAME boot it, and load it. Needs hdfmonkey."
+        )
+        self.createimage.clicked.connect(lambda: self.create_nextzxos_image())
+
         self.horizontal1.addWidget(self.imageinput)
         self.horizontal1.addWidget(self.imageclear)
         self.horizontal1.addWidget(self.selectimage)
         self.horizontal1.addWidget(self.downloadimage)
+        self.horizontal1.addWidget(self.createimage)
 
         self.zx_next_unite_form.addRow(self.horizontal1)
 
@@ -4591,6 +4606,7 @@ class MainWindow(QMainWindow):
             # anywhere. The jjjs auto-download covers every platform, so this is
             # no longer Windows-only.
             self.button_new_folder.setVisible(False)
+            self.createimage.setVisible(False)
             self.button_delete_files.setVisible(False)
             # MAME doesn't need hdfmonkey: with hdfmonkey absent load_image()
             # isn't run at startup, so nothing would otherwise enable the MAME
@@ -4625,6 +4641,7 @@ class MainWindow(QMainWindow):
                     f"Found previously installed hdfmonkey: {_dl_hdfmonkey}")
                 self.download_and_install_hdfmonkey_button.setVisible(False)
                 self.button_new_folder.setVisible(True)
+                self.createimage.setVisible(True)
                 self.button_delete_files.setVisible(True)
                 if not _startup_load_started:
                     load_image(_warn_after_startup_load)
@@ -4645,6 +4662,7 @@ class MainWindow(QMainWindow):
                         path=_near_hdfmonkey))
                 self.download_and_install_hdfmonkey_button.setVisible(False)
                 self.button_new_folder.setVisible(True)
+                self.createimage.setVisible(True)
                 self.button_delete_files.setVisible(True)
                 if not _startup_load_started:
                     load_image(_warn_after_startup_load)
@@ -4700,6 +4718,7 @@ class MainWindow(QMainWindow):
                 # unnecessary; hide it and restore the image controls.
                 self.download_and_install_hdfmonkey_button.setVisible(False)
                 self.button_new_folder.setVisible(True)
+                self.createimage.setVisible(True)
                 self.button_delete_files.setVisible(True)
                 # Load the image now if startup couldn't (hdfmonkey was missing).
                 if not _startup_load_started:
@@ -4759,6 +4778,7 @@ class MainWindow(QMainWindow):
                     try:
                         self.download_and_install_hdfmonkey_button.setVisible(False)
                         self.button_new_folder.setVisible(True)
+                        self.createimage.setVisible(True)
                         self.button_delete_files.setVisible(True)
                     except RuntimeError:
                         pass
