@@ -264,8 +264,9 @@ the **[Wiki](https://github.com/jclauzel/ZX-Next-Unite/wiki)**:
   mkdir/rmdir/rm/rename, drives, free space, the version ident, CRC-32
   computed on the Next, release, quit. Ships with each release as
   `NextSyncListener-<tag>.zip` and on NuGet as `NextSyncListener`; proven
-  against an in-process fake Next, not yet on real hardware. API reference
-  and quick starts for both frameworks:
+  against an in-process fake Next and, for the handshake, listing and
+  status ops, on a real Next (put, get and CRC are not hardware-tested
+  yet). API reference and quick starts for both frameworks:
   [NextSync .NET library](https://github.com/jclauzel/ZX-Next-Unite/wiki/NextSync-.NET-library).
 
 ## License
