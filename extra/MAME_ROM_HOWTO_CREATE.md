@@ -1308,10 +1308,19 @@ on the image side: format the 1 GB volume as FAT16 (hdfmonkey's own choice
 for that size) or as FAT32 with 8 KB clusters, or make the image 2 GB.
 
 For MAME, meanwhile, either keep a zxnext.uk image or make your own card from
-the distribution: `hdfmonkey create next.img 1G` (or `2G`), then
-`hdfmonkey putdir next.img <unpacked sn-lite-26.11a folder> /` — both
-verified here to boot the 26.11a firmware, which lands on its display test
-card (`timing=8` in the distribution's `config.ini`; ENTER picks a mode).
+the distribution: `hdfmonkey create --fat32 next.img 2G` (or `1G`), then
+`hdfmonkey putdir next.img <unpacked sn-lite-26.11a folder> /`. That is what
+ZX-Next-Unite's **Create NextZXOS Image** button does, at 2, 4 or 8 GB. With
+hdfmonkey v0.5.7 jjjs, `--fat32` gives 131,005 clusters of 16 KB at `2G` and
+130,938 clusters of 8 KB at `1G`: both well above the FAT32 floor, and both
+among the volumes above that boot the 26.11a firmware, which lands on its
+display test card (`timing=8` in the distribution's `config.ini`; ENTER picks
+a mode). The flag goes before the image name (`create next.img 1G --fat32` is
+refused). Pass it even though hdfmonkey's own choice happens to be safe at
+exactly `1G` (FAT16, 65,517 clusters) and `2G` (FAT32, 131,005), measured
+2026-11-12: a size just under 2 GiB, such as `2147450000B`, gets a FAT16 of
+exactly 65,525 clusters, the one count that Microsoft's cluster-count rule
+calls FAT32, which is the 26.11a image's problem the other way round.
 ZX-Next-Unite's own image download keeps fetching the zxnext.uk image.
 
 ---
