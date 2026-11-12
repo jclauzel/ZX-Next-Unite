@@ -1645,7 +1645,7 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              ("Mame:"),
              ("  Mame emulator brought to you by Holub for the ZX Spectrum Next can be installed following this documentation: https://wiki.specnext.dev/MAME:Installing"),
              ("  Official Windows Binary Packages can be found here: https://www.mamedev.org/release.html"),
-             ("  Put the file tbblue.zip (the Next boot ROM package: six boot-*.bin files built from the GPLv3 FPGA sources) into MAME's roms folder. How to build it: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md"),
+             ("  Put the file tbblue.zip (the Next boot ROM package: four boot-*.bin files built from the GPLv3 FPGA sources) into MAME's roms folder. How to build it: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md"),
              ("  Important note: Don't extract the tbblue.zip file; MAME will look for the zip file when the 'tbblue' machine is selected."),
              (""),
              ("CSpect:"),
@@ -2713,14 +2713,17 @@ MAME_HARD_DISK_PARAMETER = "-hard1"
 # fails for that reason.
 MAME_INSTALL_WIKI_URL = "https://wiki.specnext.dev/MAME:Installing"
 # The boot ROM package itself, tbblue.zip: the repo's own guide to building it
-# from the GPLv3 FPGA sources - which six boot-*.bin go in it and why, since
-# the pair MAME shipped as v3.02.04 from 0.267 on turned out to be a release
-# candidate and the Next driver's upstream (holub/mame, 2026-07) wants the
-# final pair under those names with the RC pair as boot-30204rc*.bin. Every
+# from the GPLv3 FPGA sources - which four boot-*.bin go in it and why. The
+# pair MAME shipped as v3.02.04 from 0.267 on turned out to be a release
+# candidate; the package carries the FINAL pair under those names (what the
+# Next driver's upstream, holub/mame, has hashed since 2026-07), so official
+# MAME 0.289 shows a "ROMs incorrect" box and boots it. The RC pair is left
+# out on purpose (2026-11-12): MAME finds zip members by CRC before name, so
+# with it present official MAME booted the RC and never the final pair. Every
 # "boot ROM missing" message and the Help tab link HERE (2026-11): the Help
 # used to name a third-party copy on GitHub (NexCreator) that is gone (404),
 # and the wiki page's own copy sits behind an anti-robot check and predates
-# the six-file package. The wiki URL above stays for MAME itself.
+# the final pair. The wiki URL above stays for MAME itself.
 MAME_ROM_HOWTO_URL = "https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md"
 
 # Flatpak launch support (Linux). When the user enables "Launch Mame with
