@@ -24,11 +24,13 @@ Two actions on the SD Card tab, both needing hdfmonkey:
   and ``putdir``s the tree back. Measured on MAME 0.289: every FAT32 volume
   hdfmonkey creates at 2 GB and up boots the 26.11a firmware.
 
-**Why ``--fat32`` is always passed.** Left to itself hdfmonkey makes a FAT16
-volume of exactly 65,525 clusters for a 2 GB image - the one count a
-cluster-counting driver calls FAT32 - so the default would hand MAME the
-mirror image of the bug this fixes. FAT32 at 2 GB gives 131,005 clusters of
-16 KB; 4 and 8 GB more.
+**Why ``--fat32`` is always passed.** hdfmonkey's own choice of FAT type
+depends on the exact size: at ``2G`` it happens to pick FAT32 (131,005
+clusters, measured 2026-11-12 with v0.5.7 jjjs), but a size just under
+2 GiB such as ``2147450000B`` gets a FAT16 of exactly 65,525 clusters - the
+one count a cluster-counting driver calls FAT32, the mirror image of the bug
+this fixes. Passing the flag takes the type out of hdfmonkey's hands. FAT32
+at 2 GB gives 131,005 clusters of 16 KB; 4 and 8 GB more.
 
 Qt-free: every side effect is injected into ``build_nextzxos_image_ops``
 (the dialogs, the progress-dialog runner, the toasts, the log, the loader),
