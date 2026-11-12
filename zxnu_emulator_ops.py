@@ -2051,7 +2051,7 @@ def build_emulator_ops(
             # boot-30204.bin) is absent — a manual step the auto-install
             # deliberately leaves to the user. Point them at the repo's own
             # guide to building tbblue.zip (MAME_ROM_HOWTO_URL): the wiki's
-            # copy predates the six-file package a newer driver wants.
+            # copy predates the final v3.02.04 pair the guide packages.
             if _launch_state["missing_files"]:
                 add_main_log_window(ui_tr_now(
                     "MAME can't start: the ZX Spectrum Next boot ROM (TBBLUE) "

@@ -1793,8 +1793,8 @@ CATALOGS = {
             "  El emulador Mame llevado al ZX Spectrum Next por Holub puede instalarse siguiendo esta documentación: https://wiki.specnext.dev/MAME:Installing",
         "  Official Windows Binary Packages can be found here: https://www.mamedev.org/release.html":
             "  Los paquetes binarios oficiales para Windows están aquí: https://www.mamedev.org/release.html",
-        "  Put the file tbblue.zip (the Next boot ROM package: six boot-*.bin files built from the GPLv3 FPGA sources) into MAME's roms folder. How to build it: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md":
-            "  Coloca el archivo tbblue.zip (el paquete de ROM de arranque del Next: seis archivos boot-*.bin construidos a partir de las fuentes FPGA bajo GPLv3) en la carpeta roms de MAME. Cómo construirlo: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md",
+        "  Put the file tbblue.zip (the Next boot ROM package: four boot-*.bin files built from the GPLv3 FPGA sources) into MAME's roms folder. How to build it: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md":
+            "  Coloca el archivo tbblue.zip (el paquete de ROM de arranque del Next: cuatro archivos boot-*.bin construidos a partir de las fuentes FPGA bajo GPLv3) en la carpeta roms de MAME. Cómo construirlo: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md",
         "  Important note: Don't extract the tbblue.zip file; MAME will look for the zip file when the 'tbblue' machine is selected.":
             "  Nota importante: no extraigas el archivo tbblue.zip; MAME buscará el zip cuando se seleccione la máquina 'tbblue'.",
         "  Mike Dailly's CSpect is a downloadable emulator for Windows, macOS, and Linux":
@@ -3495,8 +3495,8 @@ CATALOGS = {
             "  O emulador Mame trazido ao ZX Spectrum Next por Holub pode ser instalado seguindo esta documentação: https://wiki.specnext.dev/MAME:Installing",
         "  Official Windows Binary Packages can be found here: https://www.mamedev.org/release.html":
             "  Os pacotes binários oficiais para Windows estão aqui: https://www.mamedev.org/release.html",
-        "  Put the file tbblue.zip (the Next boot ROM package: six boot-*.bin files built from the GPLv3 FPGA sources) into MAME's roms folder. How to build it: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md":
-            "  Coloca o ficheiro tbblue.zip (o pacote de ROM de arranque do Next: seis ficheiros boot-*.bin construídos a partir das fontes FPGA sob GPLv3) na pasta roms do MAME. Como o construir: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md",
+        "  Put the file tbblue.zip (the Next boot ROM package: four boot-*.bin files built from the GPLv3 FPGA sources) into MAME's roms folder. How to build it: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md":
+            "  Coloca o ficheiro tbblue.zip (o pacote de ROM de arranque do Next: quatro ficheiros boot-*.bin construídos a partir das fontes FPGA sob GPLv3) na pasta roms do MAME. Como o construir: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md",
         "  Important note: Don't extract the tbblue.zip file; MAME will look for the zip file when the 'tbblue' machine is selected.":
             "  Nota importante: não extraias o ficheiro tbblue.zip; o MAME procura o zip quando a máquina 'tbblue' é selecionada.",
         "  Mike Dailly's CSpect is a downloadable emulator for Windows, macOS, and Linux":
@@ -5193,8 +5193,8 @@ CATALOGS = {
             "  Emulator Mame przeniesiony na ZX Spectrum Next przez Holuba można zainstalować według tej dokumentacji: https://wiki.specnext.dev/MAME:Installing",
         "  Official Windows Binary Packages can be found here: https://www.mamedev.org/release.html":
             "  Oficjalne pakiety binarne dla Windows znajdziesz tutaj: https://www.mamedev.org/release.html",
-        "  Put the file tbblue.zip (the Next boot ROM package: six boot-*.bin files built from the GPLv3 FPGA sources) into MAME's roms folder. How to build it: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md":
-            "  Umieść plik tbblue.zip (pakiet ROM-u rozruchowego Nexta: sześć plików boot-*.bin zbudowanych ze źródeł FPGA na licencji GPLv3) w folderze roms MAME. Jak go zbudować: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md",
+        "  Put the file tbblue.zip (the Next boot ROM package: four boot-*.bin files built from the GPLv3 FPGA sources) into MAME's roms folder. How to build it: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md":
+            "  Umieść plik tbblue.zip (pakiet ROM-u rozruchowego Nexta: cztery pliki boot-*.bin zbudowane ze źródeł FPGA na licencji GPLv3) w folderze roms MAME. Jak go zbudować: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md",
         "  Important note: Don't extract the tbblue.zip file; MAME will look for the zip file when the 'tbblue' machine is selected.":
             "  Ważna uwaga: nie rozpakowuj pliku tbblue.zip; MAME szuka zipa, gdy wybrana jest maszyna 'tbblue'.",
         "  Mike Dailly's CSpect is a downloadable emulator for Windows, macOS, and Linux":
@@ -6893,8 +6893,8 @@ CATALOGS = {
             "  Эмулятор Mame, принесённый на ZX Spectrum Next Holub, устанавливается по этой документации: https://wiki.specnext.dev/MAME:Installing",
         "  Official Windows Binary Packages can be found here: https://www.mamedev.org/release.html":
             "  Официальные двоичные пакеты для Windows находятся здесь: https://www.mamedev.org/release.html",
-        "  Put the file tbblue.zip (the Next boot ROM package: six boot-*.bin files built from the GPLv3 FPGA sources) into MAME's roms folder. How to build it: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md":
-            "  Положите файл tbblue.zip (пакет загрузочной ROM Next: шесть файлов boot-*.bin, собранных из исходников FPGA под GPLv3) в папку roms MAME. Как его собрать: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md",
+        "  Put the file tbblue.zip (the Next boot ROM package: four boot-*.bin files built from the GPLv3 FPGA sources) into MAME's roms folder. How to build it: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md":
+            "  Положите файл tbblue.zip (пакет загрузочной ROM Next: четыре файла boot-*.bin, собранных из исходников FPGA под GPLv3) в папку roms MAME. Как его собрать: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md",
         "  Important note: Don't extract the tbblue.zip file; MAME will look for the zip file when the 'tbblue' machine is selected.":
             "  Важное замечание: не распаковывайте файл tbblue.zip; MAME ищет именно zip, когда выбрана машина 'tbblue'.",
         "  Mike Dailly's CSpect is a downloadable emulator for Windows, macOS, and Linux":
@@ -8589,8 +8589,8 @@ CATALOGS = {
             "  Emulátor Mame, který na ZX Spectrum Next přinesl Holub, nainstalujete podle této dokumentace: https://wiki.specnext.dev/MAME:Installing",
         "  Official Windows Binary Packages can be found here: https://www.mamedev.org/release.html":
             "  Oficiální binární balíčky pro Windows najdete zde: https://www.mamedev.org/release.html",
-        "  Put the file tbblue.zip (the Next boot ROM package: six boot-*.bin files built from the GPLv3 FPGA sources) into MAME's roms folder. How to build it: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md":
-            "  Vložte soubor tbblue.zip (balíček zaváděcí ROM Nextu: šest souborů boot-*.bin sestavených ze zdrojů FPGA pod GPLv3) do složky roms MAME. Jak jej sestavit: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md",
+        "  Put the file tbblue.zip (the Next boot ROM package: four boot-*.bin files built from the GPLv3 FPGA sources) into MAME's roms folder. How to build it: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md":
+            "  Vložte soubor tbblue.zip (balíček zaváděcí ROM Nextu: čtyři soubory boot-*.bin sestavené ze zdrojů FPGA pod GPLv3) do složky roms MAME. Jak jej sestavit: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md",
         "  Important note: Don't extract the tbblue.zip file; MAME will look for the zip file when the 'tbblue' machine is selected.":
             "  Důležitá poznámka: soubor tbblue.zip nerozbalujte; MAME hledá zip, když je vybrán stroj 'tbblue'.",
         "  Mike Dailly's CSpect is a downloadable emulator for Windows, macOS, and Linux":
@@ -10294,8 +10294,8 @@ CATALOGS = {
             "  L'émulateur Mame porté sur ZX Spectrum Next par Holub s'installe en suivant cette documentation : https://wiki.specnext.dev/MAME:Installing",
         "  Official Windows Binary Packages can be found here: https://www.mamedev.org/release.html":
             "  Les paquets binaires Windows officiels se trouvent ici : https://www.mamedev.org/release.html",
-        "  Put the file tbblue.zip (the Next boot ROM package: six boot-*.bin files built from the GPLv3 FPGA sources) into MAME's roms folder. How to build it: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md":
-            "  Placez le fichier tbblue.zip (le paquet de ROM de démarrage du Next : six fichiers boot-*.bin construits à partir des sources FPGA sous GPLv3) dans le dossier roms de MAME. Comment le construire : https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md",
+        "  Put the file tbblue.zip (the Next boot ROM package: four boot-*.bin files built from the GPLv3 FPGA sources) into MAME's roms folder. How to build it: https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md":
+            "  Placez le fichier tbblue.zip (le paquet de ROM de démarrage du Next : quatre fichiers boot-*.bin construits à partir des sources FPGA sous GPLv3) dans le dossier roms de MAME. Comment le construire : https://github.com/jclauzel/ZX-Next-Unite/blob/main/extra/MAME_ROM_HOWTO_CREATE.md",
         "  Important note: Don't extract the tbblue.zip file; MAME will look for the zip file when the 'tbblue' machine is selected.":
             "  Note importante : ne décompressez pas le fichier tbblue.zip ; MAME cherche le zip quand la machine 'tbblue' est sélectionnée.",
         "  Mike Dailly's CSpect is a downloadable emulator for Windows, macOS, and Linux":
