@@ -752,6 +752,92 @@ def test_drive_switching():
           and calls["extra_drives"] == ["DE"])
 
 
+def test_reconnect_never_lists_an_unconfirmed_drive():
+    """A KS3's second SD card (D:) can be gone at the next connection, and
+    opening a path on a missing drive hangs the Next. A remembered folder on
+    any drive but C: is therefore never listed at connect: the pane starts
+    on C: - always - and the folder stays one drive pick away."""
+    saved = {"10.0.0.67": "D:/HOME"}
+    w, calls = make_widget(
+        local_start_dir=tdir("ks3_root"), extra_drives="d",
+        remote_cwd_for=saved.get,
+        on_remote_cwd_changed=lambda p, a=None: (
+            saved.__setitem__(a, p) if a else None))
+
+    def touches(q, letter):
+        return [c for c in q if any(str(x).upper().startswith(letter + ":")
+                                    or str(x).upper() == letter
+                                    for x in c[1:])]
+
+    def reconnect(current, letters):
+        w.on_disconnected()
+        w.on_peers((1, [(1, "10.0.0.67")]))
+        calls["q"].clear()
+        calls["toasts"].clear()
+        w.on_connected()
+        w.on_drives(current, letters)
+        return drain(calls)
+
+    w.on_peers((1, [(1, "10.0.0.67")]))
+    w.on_connected()
+    w.on_drives("C", ["C", "M"])
+    q = drain(calls)
+    check("a D: folder: the first listing is C:/, nothing touches D",
+          ("ls", "C:/") in q and not touches(q, "D"), str(q))
+    check("...with a yellow toast naming the folder",
+          any(t[2] == "yellow" and "D:/HOME" in t[1] for t in calls["toasts"]),
+          str(calls["toasts"]))
+    w.on_listing("C:/", [])
+    check("the C: start is what is remembered from here on",
+          saved["10.0.0.67"] == "C:/", str(saved))
+    check("combo sits on C, D still offered",
+          w.next_drive_combo.currentText() == "C"
+          and w.next_drive_combo.findText("D") >= 0)
+    calls["q"].clear()
+    w.next_drive_combo.setCurrentText("D")
+    check("picking D goes back to the parked folder",
+          w._cwd == "D:/HOME" and ("ls", "D:/HOME") in drain(calls), w._cwd)
+    w.on_listing("D:/HOME", [])
+    calls["q"].clear()
+    w.next_drive_combo.setCurrentText("C")
+    w.on_listing("C:/", [])
+    w.next_drive_combo.setCurrentText("D")
+    check("the parked folder is used once", w._cwd == "D:/", w._cwd)
+
+    # Always: even when the dot was started from D: and reports it.
+    saved["10.0.0.67"] = "D:/HOME"
+    q = reconnect("D", ["C", "D", "M"])
+    check("a reported D is still not listed at connect",
+          ("ls", "C:/") in q and not touches(q, "D") and w._cwd == "C:/",
+          str(q))
+
+    # The RAM disk too: any drive other than C.
+    saved["10.0.0.67"] = "M:/tmp"
+    q = reconnect("C", ["C", "M"])
+    check("an M: folder also starts on C:",
+          ("ls", "C:/") in q and not touches(q, "M"), str(q))
+
+    # A dot too old to report drives.
+    saved["10.0.0.67"] = "D:/HOME"
+    q = reconnect("", [])
+    check("no drives reply: C:/ and never D",
+          ("ls", "C:/") in q and not touches(q, "D"), str(q))
+
+    # Going elsewhere on C: is remembered as usual.
+    w.on_listing("C:/games", [])
+    check("a folder browsed after the C: start is remembered",
+          saved["10.0.0.67"] == "C:/games", str(saved))
+
+    # C: and unprefixed folders are listed at once, with no toast.
+    q = reconnect("C", ["C", "M"])
+    check("a C: folder is restored", ("ls", "C:/games") in q
+          and not calls["toasts"], str(q))
+    saved["10.0.0.67"] = "/HOME"
+    q = reconnect("C", ["C", "M"])
+    check("an unprefixed folder is restored", ("ls", "/HOME") in q
+          and not calls["toasts"], str(q))
+
+
 def test_ls_failed_fallback():
     w, calls = make_widget(local_start_dir=tdir("lsf_root"))
     connect_widget(w, calls)
@@ -5084,6 +5170,7 @@ def main():
         test_emulator_colors()
         test_local_drive_combo()
         test_drive_switching()
+        test_reconnect_never_lists_an_unconfirmed_drive()
         test_ls_failed_fallback()
         test_sorting()
         test_splitter_size_restore()

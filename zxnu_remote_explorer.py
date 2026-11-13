@@ -461,6 +461,13 @@ def _posix_join(base, name):
     return posixpath.normpath(base + name)
 
 
+#: Where a Next pane starts when the folder it remembers is on any other
+#: drive: C: is the boot SD card, the one drive every Next always has. A
+#: second card (a KS3's D:) or an extra reader can be gone at the next
+#: connection, and opening a path on a missing drive hangs the Next.
+RE_SAFE_START_DIR = "C:/"
+
+
 def _re_drive_of(path):
     """Drive letter of a remote path ("M:/games" -> "M"), "" when unprefixed.
 
@@ -1462,6 +1469,9 @@ class RemoteExplorerWidget(QWidget):
         self._drives = []
         self._default_drive = ""             # the dot's current drive letter
         self._drive_combo_guard = False      # ignore programmatic combo changes
+        # A remembered folder on a drive other than C: (see on_connected):
+        # never listed at connect, used when the user picks that drive.
+        self._parked_dir = None
         # Free space per drive letter, from the dot's 'Z' reply (v5.2+):
         # letter -> free bytes (int), or None when the query failed / the dot
         # predates 'Z'. Free space is the ONLY storage metric a dotN can
@@ -2777,6 +2787,7 @@ class RemoteExplorerWidget(QWidget):
             self._free_space.clear()   # a reconnect re-reads it
             self._drives = []
             self._default_drive = ""
+            self._parked_dir = None
             self.next_drive_add.setEnabled(False)
             self._drive_combo_guard = True
             try:
@@ -2807,6 +2818,28 @@ class RemoteExplorerWidget(QWidget):
         _saved = (self._remote_cwd_for(_addr)
                   if (_addr and self._remote_cwd_for) else None)
         self._cwd = _saved or self._remote_start_dir or "/"
+        # A folder on any drive but C: is NEVER listed at connect: a second
+        # SD card (a KS3's D:) or an extra reader can be gone since the last
+        # connection, and opening a path on a missing drive hangs the Next.
+        # The pane starts on C: and keeps the folder for the drive combo,
+        # for this connection only (the C: start is what gets remembered):
+        # picking that drive - the user saying it is there - goes back to it.
+        self._parked_dir = None
+        _drv = _re_drive_of(self._cwd)
+        if _drv and _drv != "C":
+            _parked = _norm_remote_dir(self._cwd)
+            self._parked_dir = _parked
+            self._cwd = RE_SAFE_START_DIR
+            self._log(f"Last folder was {_parked}: drive {_drv}: may not be "
+                      f"there any more, so the pane starts on C:. Pick {_drv} "
+                      "in the drive list to go back to it.")
+            self._on_toast(
+                "Folder not restored",
+                ui_tr_now("The last folder was {path}. Drive {drive}: may "
+                          "not be there any more, so the pane started on "
+                          "C: - pick {drive} in the drive list to go back "
+                          "to it.").format(path=_parked, drive=_drv),
+                "yellow")
         # Ask which drives are mounted (dot v5.1+) before the first listing so
         # the drive switcher fills in as the pane appears. RAW on purpose (the
         # _query_free rule): its reply emits no op_done, so counting it while
@@ -4661,6 +4694,13 @@ class RemoteExplorerWidget(QWidget):
         if not drive or drive == _re_drive_of(self._cwd):
             return
         self._cwd = f"{drive}:/"
+        parked = self._parked_dir
+        if parked and _re_drive_of(parked) == drive:
+            # The folder a reconnect did not dare restore: the user now
+            # says the drive is there. A folder that is gone falls back to
+            # the drive root (on_ls_failed).
+            self._cwd = parked
+            self._parked_dir = None
         self.refresh()
         self._query_free(drive)   # free space of the newly selected drive
 
