@@ -838,6 +838,95 @@ def test_reconnect_never_lists_an_unconfirmed_drive():
           and not calls["toasts"], str(q))
 
 
+def test_probed_drives_drop_declared_extras():
+    """A .sync5 dot 5.9.15+ probes its drives the way the NextZXOS Browser
+    does, so its list IS what NextZXOS has mounted: the user-declared
+    '+ Drive' letters are not added to it, and '+ Drive' refuses a letter
+    the Next did not report (opening a path on it hangs the Next). Every
+    other listener keeps the old {C, M, current} + extras behaviour."""
+    def combo(w):
+        return [w.next_drive_combo.itemText(i)
+                for i in range(w.next_drive_combo.count())]
+
+    # A probing dot on a KS3 booted without its second card.
+    w, calls = make_widget(local_start_dir=tdir("probe_root"),
+                           extra_drives="df")
+    w.on_peers((1, [(1, "10.0.0.67")]))
+    w.on_connected()
+    w.on_ident("sync", "5.9.15")
+    w.on_drives("C", ["C", "M"])
+    check("probing dot: the combo is what the Next reported",
+          combo(w) == ["C", "M"], str(combo(w)))
+    check("...and the log does not point at '+ Drive'",
+          logged(calls, "the drives NextZXOS has mounted")
+          and not logged(calls, "use '+ Drive'"))
+    calls["q"].clear()
+    calls["toasts"].clear()
+    FakeInput.queue = [("d", True)]
+    FakeMsg.answer = QMessageBox.Yes
+    w._add_drive_clicked()
+    check("probing dot: '+ Drive' refuses an unmounted letter",
+          drain(calls) == [] and calls["extra_drives"] == []
+          and w.next_drive_combo.findText("D") < 0
+          and any(t[0] == "Drive not mounted" and t[2] == "yellow"
+                  for t in calls["toasts"]), str(calls["toasts"]))
+    w.next_drive_combo.setCurrentText("D")
+    check("...and nothing can list D:",
+          not [c for c in drain(calls) if "D:" in str(c)])
+
+    # The second card is there: the probe reports it.
+    w.on_disconnected()
+    w.on_peers((1, [(1, "10.0.0.67")]))
+    w.on_connected()
+    w.on_ident("sync", "5.9.15")
+    w.on_drives("C", ["C", "D", "M"])
+    check("probing dot: a mounted D: is offered, F: is not",
+          combo(w) == ["C", "D", "M"], str(combo(w)))
+
+    # An older dot keeps the declared extras, exactly as before.
+    w.on_disconnected()
+    w.on_peers((1, [(1, "10.0.0.67")]))
+    w.on_connected()
+    w.on_ident("sync", "5.9.14")
+    w.on_drives("C", ["C", "M"])
+    check("older dot: the declared extras are still merged",
+          combo(w) == ["C", "D", "F", "M"], str(combo(w)))
+
+    # ZX Next Remote (not the dot) keeps them too.
+    w.on_disconnected()
+    w.on_peers((1, [(1, "10.0.0.67")]))
+    w.on_connected()
+    w.on_ident("n2n", "1.11.0")
+    w.on_drives("C", ["C", "M"])
+    check("ZX Next Remote: the declared extras are still merged",
+          combo(w) == ["C", "D", "F", "M"], str(combo(w)))
+
+    # No ident answer at all: the old behaviour.
+    w.on_disconnected()
+    w.on_peers((1, [(1, "10.0.0.67")]))
+    w.on_connected()
+    w.on_ident("", "")
+    w.on_drives("C", ["C", "M"])
+    check("no ident: the declared extras are still merged",
+          combo(w) == ["C", "D", "F", "M"], str(combo(w)))
+
+    # A Sessions Off re-seat re-asks the version but not the drives: the
+    # ident alone must rebuild the list when the build now probes.
+    w.on_ident("sync", "5.9.15")
+    check("an ident that turns the dot into a probing one rebuilds the list",
+          combo(w) == ["C", "M"], str(combo(w)))
+
+    # A typed path on an unreported drive: refused, and not sent to '+ Drive'.
+    calls["q"].clear()
+    calls["log"].clear()
+    w.next_path_edit.setText("D:/games")
+    w._on_next_path_edit()
+    check("probing dot: a typed D: path is refused without the '+ Drive' hint",
+          not [c for c in drain(calls) if "D:" in str(c)]
+          and logged(calls, "Drive D: is not mounted on this Next")
+          and not logged(calls, "use '+ Drive' to add an extra SD"))
+
+
 def test_ls_failed_fallback():
     w, calls = make_widget(local_start_dir=tdir("lsf_root"))
     connect_widget(w, calls)
@@ -5171,6 +5260,7 @@ def main():
         test_local_drive_combo()
         test_drive_switching()
         test_reconnect_never_lists_an_unconfirmed_drive()
+        test_probed_drives_drop_declared_extras()
         test_ls_failed_fallback()
         test_sorting()
         test_splitter_size_restore()

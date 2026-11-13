@@ -468,6 +468,12 @@ def _posix_join(base, name):
 RE_SAFE_START_DIR = "C:/"
 
 
+#: The first .sync5 dot whose getdrives ('W') PROBES the letters D..P the
+#: way the NextZXOS Browser does (5.9.15): its list is what NextZXOS has
+#: mapped, so the user-declared "+ Drive" letters are not added to it.
+RE_SYNC_PROBED_DRIVES = (5, 9, 15)
+
+
 def _re_drive_of(path):
     """Drive letter of a remote path ("M:/games" -> "M"), "" when unprefixed.
 
@@ -4232,6 +4238,12 @@ class RemoteExplorerWidget(QWidget):
         # session tabs' update action reads the per-sid copy.
         if self._peer_active is not None:
             self._peer_idents[self._peer_active] = self._next_ident
+        # The drive list depends on the build (a 5.9.15+ dot's list is what
+        # NextZXOS has mounted, see _drives_probed): rebuild it when the
+        # answer can have changed it - e.g. a Sessions Off re-seat, which
+        # re-asks the version but not the drives.
+        if self._drives:
+            self._rebuild_drive_combo()
         self._update_next_path_label()
         self._maybe_prompt_update()
 
@@ -4348,7 +4360,12 @@ class RemoteExplorerWidget(QWidget):
             # Distrust a current-drive letter that isn't in the reported list
             # (a mis-decoded M_GETDRV byte must not become a bogus combo entry).
             self._default_drive = "C" if "C" in self._drives else self._drives[0]
-        if self._drives:
+        if self._drives and self._drives_probed():
+            self._log("Next drives: " + " ".join(self._known_drives())
+                      + (f" (current: {self._default_drive})"
+                         if self._default_drive else "")
+                      + " — the drives NextZXOS has mounted.")
+        elif self._drives:
             self._log("Next drives: " + " ".join(self._known_drives())
                       + (f" (current: {self._default_drive})"
                          if self._default_drive else "")
@@ -4593,12 +4610,28 @@ class RemoteExplorerWidget(QWidget):
         if not self.next_path_edit.isModified():
             self.next_path_edit.setText(self._cwd)
 
+    def _drives_probed(self):
+        """Whether the DRIVEN Next's drive list is what NextZXOS has mapped:
+        a .sync5 dot 5.9.15+ probes D..P (see RE_SYNC_PROBED_DRIVES). Any
+        other answer - an older dot, ZX Next Remote, no ident - is the old
+        {C, M, current} guarantee and keeps the user's extras."""
+        rtype, number = self._peer_idents.get(self._peer_active, ("", ""))
+        if (rtype or "").strip().lower() != "sync":
+            return False
+        ver = _parse_dot_version(number)
+        return bool(ver) and ver >= RE_SYNC_PROBED_DRIVES
+
     def _known_drives(self):
         """Every drive the combo offers: the dot-reported set plus the
         user-declared extras (only once the dot reported anything — an old
-        dot gives us no safe way to know extras will even parse)."""
+        dot gives us no safe way to know extras will even parse). A dot
+        that probes its drives (5.9.15+) reports exactly what NextZXOS has
+        mapped, so the extras are left out: a declared D: that is not
+        mapped is the letter that hangs the Next."""
         if not self._drives:
             return []
+        if self._drives_probed():
+            return list(self._drives)
         return sorted(set(self._drives) | set(self._extra_drives))
 
     def _rebuild_drive_combo(self):
@@ -4638,6 +4671,19 @@ class RemoteExplorerWidget(QWidget):
             return
         if letter in self._known_drives():
             self._select_drive(letter)
+            return
+        if self._drives_probed():
+            # The dot asked NextZXOS: this letter is not mapped, and opening
+            # a path on it hangs the Next. Nothing to declare.
+            self._log(f"Drive {letter}: is not mounted on this Next (it "
+                      "reports " + " ".join(self._drives) + "). Mount it on "
+                      "the Next, then reconnect.")
+            self._on_toast(
+                "Drive not mounted",
+                ui_tr_now("Drive {letter}: is not mounted on this Next.\n"
+                          "Mount it on the Next, then reconnect.").format(
+                              letter=letter),
+                "yellow")
             return
         if QMessageBox.warning(
                 self, ui_tr_now("Add Next drive"),
@@ -5134,8 +5180,12 @@ class RemoteExplorerWidget(QWidget):
         drive = _re_drive_of(path)
         known = self._known_drives()
         if drive and known and drive not in known:
-            self._log(f"Unknown Next drive {drive}: — use '+ Drive' to add "
-                      "an extra SD reader/partition letter first.")
+            if self._drives_probed():
+                self._log(f"Drive {drive}: is not mounted on this Next (it "
+                          "reports " + " ".join(known) + ").")
+            else:
+                self._log(f"Unknown Next drive {drive}: — use '+ Drive' to "
+                          "add an extra SD reader/partition letter first.")
             self.next_path_edit.setText(self._cwd)
             return
         self._cwd = path

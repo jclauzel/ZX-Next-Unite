@@ -10484,6 +10484,9 @@ _TOAST_CATALOGS = {
         "A Next operation failed": "Une opération sur le Next a échoué",
         "{n} Next operations failed": "{n} opérations sur le Next ont échoué",
         "Folder unavailable": "Dossier indisponible",
+        "Drive not mounted": "Lecteur non monté",
+        "Drive {letter}: is not mounted on this Next.\nMount it on the Next, then reconnect.":
+            "Le lecteur {letter}: n'est pas monté sur ce Next.\nMontez-le sur le Next, puis reconnectez-vous.",
         "Folder not restored": "Dossier non restauré",
         "The last folder was {path}. Drive {drive}: may not be there any more, so the pane started on C: - pick {drive} in the drive list to go back to it.":
             "Le dernier dossier était {path}. Le lecteur {drive}: n'est peut-être plus là, le volet a donc démarré sur C: - choisissez {drive} dans la liste des lecteurs pour y revenir.",
@@ -10624,6 +10627,9 @@ _TOAST_CATALOGS = {
         "A Next operation failed": "Falló una operación en el Next",
         "{n} Next operations failed": "Fallaron {n} operaciones en el Next",
         "Folder unavailable": "Carpeta no disponible",
+        "Drive not mounted": "Unidad no montada",
+        "Drive {letter}: is not mounted on this Next.\nMount it on the Next, then reconnect.":
+            "La unidad {letter}: no está montada en este Next.\nMóntala en el Next y vuelve a conectar.",
         "Folder not restored": "Carpeta no restaurada",
         "The last folder was {path}. Drive {drive}: may not be there any more, so the pane started on C: - pick {drive} in the drive list to go back to it.":
             "La última carpeta era {path}. Puede que la unidad {drive}: ya no esté, así que el panel empezó en C: - elige {drive} en la lista de unidades para volver a ella.",
@@ -10764,6 +10770,9 @@ _TOAST_CATALOGS = {
         "A Next operation failed": "Uma operação no Next falhou",
         "{n} Next operations failed": "{n} operações no Next falharam",
         "Folder unavailable": "Pasta indisponível",
+        "Drive not mounted": "Unidade não montada",
+        "Drive {letter}: is not mounted on this Next.\nMount it on the Next, then reconnect.":
+            "A unidade {letter}: não está montada neste Next.\nMonte-a no Next e volte a ligar.",
         "Folder not restored": "Pasta não restaurada",
         "The last folder was {path}. Drive {drive}: may not be there any more, so the pane started on C: - pick {drive} in the drive list to go back to it.":
             "A última pasta era {path}. A unidade {drive}: pode já não estar presente, por isso o painel começou em C: - escolha {drive} na lista de unidades para voltar a ela.",
@@ -10904,6 +10913,9 @@ _TOAST_CATALOGS = {
         "A Next operation failed": "Operacja na Next nie powiodła się",
         "{n} Next operations failed": "{n} operacji na Next nie powiodło się",
         "Folder unavailable": "Folder niedostępny",
+        "Drive not mounted": "Dysk niezamontowany",
+        "Drive {letter}: is not mounted on this Next.\nMount it on the Next, then reconnect.":
+            "Dysk {letter}: nie jest zamontowany w tym Next.\nZamontuj go w Next, a potem połącz ponownie.",
         "Folder not restored": "Folder nie został przywrócony",
         "The last folder was {path}. Drive {drive}: may not be there any more, so the pane started on C: - pick {drive} in the drive list to go back to it.":
             "Ostatni folder to {path}. Dysku {drive}: może już nie być, więc panel zaczął od C: - wybierz {drive} na liście dysków, aby do niego wrócić.",
@@ -11044,6 +11056,9 @@ _TOAST_CATALOGS = {
         "A Next operation failed": "Операция на Next не удалась",
         "{n} Next operations failed": "Не удалось {n} операций на Next",
         "Folder unavailable": "Папка недоступна",
+        "Drive not mounted": "Диск не подключён",
+        "Drive {letter}: is not mounted on this Next.\nMount it on the Next, then reconnect.":
+            "Диск {letter}: не подключён на этом Next.\nПодключите его на Next и переподключитесь.",
         "Folder not restored": "Папка не восстановлена",
         "The last folder was {path}. Drive {drive}: may not be there any more, so the pane started on C: - pick {drive} in the drive list to go back to it.":
             "Последняя папка была {path}. Диска {drive}: может уже не быть, поэтому панель открыта на C: - выберите {drive} в списке дисков, чтобы вернуться в неё.",
@@ -11184,6 +11199,9 @@ _TOAST_CATALOGS = {
         "A Next operation failed": "Operace na Nextu selhala",
         "{n} Next operations failed": "{n} operací na Nextu selhalo",
         "Folder unavailable": "Složka není dostupná",
+        "Drive not mounted": "Jednotka není připojena",
+        "Drive {letter}: is not mounted on this Next.\nMount it on the Next, then reconnect.":
+            "Jednotka {letter}: není na tomto Nextu připojena.\nPřipojte ji na Nextu a pak se znovu připojte.",
         "Folder not restored": "Složka nebyla obnovena",
         "The last folder was {path}. Drive {drive}: may not be there any more, so the pane started on C: - pick {drive} in the drive list to go back to it.":
             "Poslední složka byla {path}. Jednotka {drive}: už možná není přítomna, panel proto začal na C: - pro návrat vyberte {drive} v seznamu jednotek.",

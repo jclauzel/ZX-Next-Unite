@@ -64,9 +64,10 @@ $C000–$FFFF   (mmu6/7)              : NextZXOS (saved/restored by the crt)
 very top of mmu5; v5.2's `0xBF00` wasted the last 256 bytes, which nothing in
 the dotn crt or clib touches). The large buffers (`inbuf`,
 `scratch`, …) are file-scope statics so they land in the main bank and keep the
-stack small. Current layout (v5.9.14): main-bank content ends at `0xBA29`
-(`__BSS_END_head` in `syncdev.map`), leaving 1495 bytes of stack below `0xC000`
-(5.9.14 spent 51 on the slicing loop in `crc_run` that keeps the flock flying
+stack small. Current layout (v5.9.15): main-bank content ends at `0xBA59`
+(`__BSS_END_head` in `syncdev.map`), leaving 1447 bytes of stack below `0xC000`
+(5.9.15 spent 48 on the probing `listen_drives`; 5.9.14 was `0xBA29` / 1495,
+having spent 51 on the slicing loop in `crc_run` that keeps the flock flying
 through a CRC pass — 256-byte slices with the frame-gated `anim_tick` after the
 read and after every slice, so the longest gap between ticks is one read OR
 one slice, never both; the head page did not move, `crc_update` and
@@ -441,12 +442,23 @@ final `'B'`); the status ops (`mkdir`/`rmdir`/`rm`/`ren`/`release`) send one
 — the Next pulls with `"Get"` and the server serves the bytes, exactly like a
 normal download. `getdrives` (v5.1+) sends one `'O'` block carrying the current
 drive letter (M_GETDRV) then the letters `{C, M, current}` — C and M are
-guaranteed by NextZXOS and the current drive is mounted by definition. Drives
-are **never probed**: any file call on an unmounted letter (and any touch of
-the A:/B: floppy letters, and any M_P3DOS-routed call) remaps `$8000-$BFFF`
-mid-call and crashes the dotN — three separate real-hardware crashes confirmed
-this. Every `<path>` may carry an optional drive prefix (`m:/games`), and one
-without lands on the dot's current drive as before.
+guaranteed by NextZXOS and the current drive is mounted by definition. Until
+5.9.14 drives were **never probed**: any file call on an unmounted letter (and
+any touch of the A:/B: floppy letters, and any M_P3DOS-routed call) crashed
+the dotN — three separate real-hardware crashes confirmed this. **Since
+5.9.15 the letters D..P are probed the way the NextZXOS Browser's D key does
+it** (26.11a ROM 0 `$33DD`): each letter is made the default drive with
+M_GETSETDRV (the divMMC hook `free.c` already uses — never M_P3DOS) and counts
+only when reading the default back shows it took; the original drive is always
+put back. NextZXOS answers from its drive-mapping table (divMMC `$2310`): an
+unmapped letter is refused before any driver runs, and a FAT drive's select
+opens no path and reads no card. M: and the current drive are listed without
+a probe, A:/B: never touched. A card pulled after boot keeps its letter until
+a remount (NextZXOS has no media-change detection), so the PC still never
+opens a remembered folder on a drive other than C: by itself. The full
+analysis is in the ZXNextRemote repo, `extra/drives.md`. Every `<path>` may
+carry an optional drive prefix (`m:/games`), and one without lands on the
+dot's current drive as before.
 
 `release` (`'U'`, v5.9+) makes the dot close the OS's **own read handle on its
 `/dot/sync5` file** — the dotN loader gets it via M_GETHANDLE to stream the
@@ -706,6 +718,15 @@ update: staging c:/mydir/zxnextremote-n2n.nex.new (115200 bytes)
   mock Next), and the dot side is **hardware-confirmed release by release** on
   real Nexts and clones (most recently v5.9.0's release-and-swap flow, proven
   in both directions).
+- **5.9.15 confirmed on a KS3 (13 Nov 2026):** `getdrives` probes D..P
+  (see `-listen` above). Booted with ONE SD card, the dot answered
+  `current C, drives C M` and carried on (`ls C:/DOT`, `free C` straight
+  after): every unmapped letter D..P was refused cleanly by M_GETSETDRV, no
+  hang. Booted with TWO cards, it answered `current C, drives C D M`. The
+  default drive was C after both. Not yet seen on hardware: a `.P3D`/`.DSK`
+  mounted on a letter D..P (selecting such a drive logs the disk in from
+  the dotN's memory map; the stock CP/M image is `CPM-A.P3D` on A:, which
+  is never probed).
 - **5.9.14 confirmed on MAME (13 Oct 2026):** the flock keeps flying through a
   CRC pass (`crc_run` feeds the core in 256-byte slices with `anim_tick`
   between them). Measured through MAME's built-in `esp8266_at` card at
