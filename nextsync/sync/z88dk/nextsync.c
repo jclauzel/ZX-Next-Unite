@@ -14,7 +14,7 @@
 // version a controller reads over the wire can never drift from the
 // one printed on screen. On a bump ALSO update ZX_NEXT_UNITE_DOTN_VERSION
 // in zxnu_config.py (the app's refresh-your-.sync5 advisory).
-#define SYNC_VERSION "5.9.14"
+#define SYNC_VERSION "5.9.15"
 
 #define TIMEOUT 20000
 #define TIMEOUT_FLUSHUART 10000
@@ -1264,9 +1264,10 @@ void parse_speed_switches(char *dst)
 //         that OPENS a file or directory could be handed the freed handle
 //         number, which NextZXOS's exit tidy-up still closes.
 //   getdrives : one status block, 'O' + <current drive letter> + <drive
-//         letters> (e.g. "O" "C" "CM"). The list is {C, M, current}: C and M
-//         are guaranteed by NextZXOS, the current drive is mounted by
-//         definition. Never probed - file calls on unmounted drives crash.
+//         letters> (e.g. "O" "C" "CDM"). C, M and the current drive are
+//         always listed; since 5.9.15 every other letter D..P is PROBED the
+//         way the NextZXOS Browser's D key finds "the next available drive"
+//         (see listen_drives). No path is ever opened on a letter.
 //   rcpy : the whole copy runs ON the Next - no data crosses the wire, and
 //         because every esxDOS call takes drive-prefixed paths it works
 //         across partitions (c:/x -> m:/y) with no drive switching. The
@@ -1433,34 +1434,59 @@ void listen_status(char ok, unsigned char *inbuf, unsigned char *scratch)
 extern void listen_ls(char *path, unsigned char *inbuf, unsigned char *scratch);
 
 // getdrives: report the drives the PC may target, as one status block:
-// 'O' + <current drive letter> + <drive letters>.
+// 'O' + <current drive letter> + <drive letters>, in letter order.
 //
-// NO PROBING - the list is exactly {C, M, current}. Three real-hardware
-// crashes taught us every path-touching probe is fatal in a dotN:
-//  * esx_dos_get_drive/M_P3DOS: +3DOS remaps $8000-$BFFF (our code+stack);
-//  * any path on A:/B:, the +3DOS floppy drives: same remap via the floppy
-//    driver;
-//  * opendir on an UNMOUNTED letter (e.g. "D:/" with no D: partition):
-//    NextZXOS's drive resolution for a missing drive dies the same way -
-//    only MOUNTED drives answer file calls safely, so "probe to see what is
-//    mounted" is a contradiction.
-// What IS safe: M_GETDRV (sync_getdrive, divMMC hook - proven on hardware),
-// and NextZXOS guarantees C: (boot SD) and M: (RAM disk) always exist. The
-// current drive is mounted by definition, so launching the dot from another
-// partition (e.g. D:) still exposes it to the PC.
+// C: (boot SD) and M: (RAM disk) are listed as before, and so is the
+// current drive (mounted by definition). Since 5.9.15 the other letters
+// D..P (never A/B, the +3DOS floppies) are PROBED, the way the NextZXOS
+// Browser's D key finds "the next available drive" (26.11a ROM 0 $33DD):
+// make the letter the default drive and see whether NextZXOS accepts it.
+// The answer comes from the divMMC kernel's 16-entry drive table ($2310):
+// an unmapped letter is refused before any driver runs, and a FAT drive's
+// select only copies its saved folder record - no path is opened, no card
+// is read. M_GETSETDRV is the divMMC hook free.c already uses (never
+// M_P3DOS, which crashes this dotN). A letter counts only when reading the
+// default drive back shows it really became current, so a refusal that the
+// hook might report without carry still reads as "not there". The
+// original default drive is ALWAYS put back.
+//
+// What this cannot see (nothing in NextZXOS can): a card pulled AFTER boot
+// keeps its letter until a remount. The PC still never opens a remembered
+// folder on such a drive by itself.
+//
+// Never probed: what opening a PATH on an unmapped letter did (the crash
+// behind the old {C, M, current} rule) - that is a different call.
+//
+// The two M_GETSETDRV wrappers are declared exactly as z88dk's
+// <arch/zxn/esxdos.h> declares them (that header stays out of this file:
+// its macros clash with syncsys.h's); the header maps esx_m_setdrv to the
+// fastcall form used here.
+extern unsigned char esx_m_getdrv(void);
+extern unsigned char esx_m_setdrv_fastcall(unsigned char drive) __z88dk_fastcall;
+
 void listen_drives(unsigned char *inbuf, unsigned char *scratch)
 {
-    unsigned char n = 0, cur;
+    unsigned char n = 0, cur, saved, l, idx;
 
     g_packetno = 0;
+    saved = esx_m_getdrv();
     cur = sync_getdrive();
     if (!cur) cur = 'C';
     scratch[2] = 'O';
     scratch[3] = cur;
-    scratch[4 + n++] = 'C';
-    if (cur != 'C' && cur != 'M')
-        scratch[4 + n++] = cur;
-    scratch[4 + n++] = 'M';
+    for (l = 'C'; l <= 'P'; l++)
+    {
+        if (l != 'C' && l != 'M' && l != cur)
+        {
+            idx = (unsigned char)(l - 'A');
+            if (esx_m_setdrv_fastcall((unsigned char)(idx << 3)) == 0xFF
+                || (esx_m_getdrv() >> 3) != idx)
+                continue;
+        }
+        scratch[4 + n++] = l;
+    }
+    if (saved != 0xFF)
+        esx_m_setdrv_fastcall(saved);   /* ALWAYS put the default back */
     send_block_rt(scratch, (unsigned short)(2 + n), inbuf);
 }
 
