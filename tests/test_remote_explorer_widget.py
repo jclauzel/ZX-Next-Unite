@@ -755,8 +755,10 @@ def test_drive_switching():
 def test_reconnect_never_lists_an_unconfirmed_drive():
     """A KS3's second SD card (D:) can be gone at the next connection, and
     opening a path on a missing drive hangs the Next. A remembered folder on
-    any drive but C: is therefore never listed at connect: the pane starts
-    on C: - always - and the folder stays one drive pick away."""
+    a drive the Next does not REPORT is therefore never listed at connect:
+    the pane starts on C: and the folder stays one drive pick away. (A
+    reported drive is resumed since 9.7.69: see
+    test_reconnect_asks_drives_then_resumes.)"""
     saved = {"10.0.0.67": "D:/HOME"}
     w, calls = make_widget(
         local_start_dir=tdir("ks3_root"), extra_drives="d",
@@ -804,18 +806,12 @@ def test_reconnect_never_lists_an_unconfirmed_drive():
     w.next_drive_combo.setCurrentText("D")
     check("the parked folder is used once", w._cwd == "D:/", w._cwd)
 
-    # Always: even when the dot was started from D: and reports it.
-    saved["10.0.0.67"] = "D:/HOME"
-    q = reconnect("D", ["C", "D", "M"])
-    check("a reported D is still not listed at connect",
-          ("ls", "C:/") in q and not touches(q, "D") and w._cwd == "C:/",
+    # A drive the Next does not report - whatever else it reports.
+    saved["10.0.0.67"] = "E:/HOME"
+    q = reconnect("C", ["C", "D", "M"])
+    check("an unreported E is not listed at connect",
+          ("ls", "C:/") in q and not touches(q, "E") and w._cwd == "C:/",
           str(q))
-
-    # The RAM disk too: any drive other than C.
-    saved["10.0.0.67"] = "M:/tmp"
-    q = reconnect("C", ["C", "M"])
-    check("an M: folder also starts on C:",
-          ("ls", "C:/") in q and not touches(q, "M"), str(q))
 
     # A dot too old to report drives.
     saved["10.0.0.67"] = "D:/HOME"
@@ -836,6 +832,138 @@ def test_reconnect_never_lists_an_unconfirmed_drive():
     q = reconnect("C", ["C", "M"])
     check("an unprefixed folder is restored", ("ls", "/HOME") in q
           and not calls["toasts"], str(q))
+
+
+def test_reconnect_asks_drives_then_resumes():
+    """9.7.69: a (re)connecting Next is asked for its drives BEFORE anything
+    is listed. A remembered folder on a drive the Next reports is resumed;
+    a folder that is gone, or a drive the Next refuses ('F'+DRV, a .sync5
+    dot 5.9.16+), sends the pane to C:/ and its root."""
+    saved = {"10.0.0.67": "D:/HOME"}
+    w, calls = make_widget(
+        local_start_dir=tdir("resume_root"),
+        remote_cwd_for=saved.get,
+        on_remote_cwd_changed=lambda p, a=None: (
+            saved.__setitem__(a, p) if a else None))
+
+    def connect():
+        w.on_disconnected()
+        w.on_peers((1, [(1, "10.0.0.67")]))
+        calls["q"].clear()
+        calls["toasts"].clear()
+        w.on_connected()
+        return drain(calls)
+
+    q = connect()
+    check("a D: folder: version and drives are asked, nothing is listed yet",
+          q == [("version",), ("drives",)], str(q))
+    w.on_ident("sync", "5.9.16")
+    w.on_drives("C", ["C", "D", "M"])
+    q = drain(calls)
+    check("D reported: the remembered folder is listed, C:/ is not",
+          ("ls", "D:/HOME") in q and ("ls", "C:/") not in q
+          and w._cwd == "D:/HOME", str(q))
+    check("...its free space is asked for D, with no toast",
+          ("free", "D") in q and not calls["toasts"], str(q))
+    w.on_listing("D:/HOME", [])
+    check("the resumed folder stays remembered, combo on D",
+          saved["10.0.0.67"] == "D:/HOME"
+          and w.next_drive_combo.currentText() == "D", str(saved))
+
+    # The folder is gone: C:/ and its root, never D:/.
+    q = connect()
+    w.on_ident("sync", "5.9.16")
+    w.on_drives("C", ["C", "D", "M"])
+    drain(calls)
+    w.on_ls_failed("D:/HOME")
+    q = drain(calls)
+    check("a resumed folder that is gone: back to C:/, not to D:/",
+          ("ls", "C:/") in q and ("ls", "D:/") not in q and w._cwd == "C:/",
+          str(q))
+    check("...with the 'no longer exists' toast naming C:/",
+          any("D:/HOME" in t[1] and "C:/" in t[1] for t in calls["toasts"]),
+          str(calls["toasts"]))
+    w.on_listing("C:/", [])
+    check("...and C:/ is what is remembered", saved["10.0.0.67"] == "C:/",
+          str(saved))
+
+    # Later, a folder the USER navigated into fails: that drive's root, as
+    # always (the C:/ rule is the reconnection's only).
+    w.next_drive_combo.setCurrentText("D")
+    w.on_listing("D:/", [])
+    drain(calls)
+    w.on_ls_failed("D:/gone")
+    q = drain(calls)
+    check("a browsed folder that fails still falls back to its drive root",
+          ("ls", "D:/") in q and w._cwd == "D:/", str(q))
+
+    # The Next refuses the drive: C:/, whatever the list said.
+    saved["10.0.0.67"] = "D:/HOME"
+    q = connect()
+    w.on_ident("sync", "5.9.16")
+    w.on_drives("C", ["C", "D", "M"])
+    drain(calls)
+    calls["toasts"].clear()
+    w.on_invalid_drive("D")          # the worker reports it first...
+    w.on_ls_failed("D:/HOME")        # ...then the listing's own failure
+    q = drain(calls)
+    check("invalid drive: one listing of C:/, nothing more on D",
+          [c for c in q if c[0] == "ls"] == [("ls", "C:/")]
+          and w._cwd == "C:/", str(q))
+    check("...one 'Drive not mounted' toast, no 'folder unavailable' one",
+          [t[0] for t in calls["toasts"]] == ["Drive not mounted"],
+          str(calls["toasts"]))
+
+    # An invalid drive on a command elsewhere leaves the pane alone.
+    w.on_listing("C:/", [])
+    drain(calls)
+    w.on_invalid_drive("E")
+    check("an invalid drive the pane is not on moves nothing",
+          w._cwd == "C:/" and not [c for c in drain(calls) if c[0] == "ls"])
+
+    # Not reported: never touched, parked (the 9.7.66 rule).
+    saved["10.0.0.67"] = "D:/HOME"
+    q = connect()
+    w.on_ident("sync", "5.9.16")
+    w.on_drives("C", ["C", "M"])
+    q = drain(calls)
+    check("D not reported: C:/ is listed and D never touched",
+          ("ls", "C:/") in q
+          and not [c for c in q if any(str(x).upper().startswith("D")
+                                       for x in c[1:])], str(q))
+    check("...with the yellow 'not restored' toast",
+          any(t[2] == "yellow" and "D:/HOME" in t[1] for t in calls["toasts"]),
+          str(calls["toasts"]))
+
+    # The RAM disk is a reported drive like any other.
+    saved["10.0.0.67"] = "M:/tmp"
+    q = connect()
+    w.on_drives("C", ["C", "M"])
+    q = drain(calls)
+    check("an M: folder is resumed (M is always reported)",
+          ("ls", "M:/tmp") in q and w._cwd == "M:/tmp", str(q))
+
+    # No drives answer at all (a listener too old for the command).
+    saved["10.0.0.67"] = "D:/HOME"
+    q = connect()
+    w.on_drives("", [])
+    q = drain(calls)
+    check("no drives reply: C:/, never D",
+          ("ls", "C:/") in q and ("ls", "D:/HOME") not in q, str(q))
+
+    # A C: folder does not wait for the drives answer.
+    saved["10.0.0.67"] = "C:/games"
+    q = connect()
+    check("a C: folder is listed at once, after version and drives",
+          q == [("version",), ("drives",), ("ls", "C:/games")], str(q))
+
+    # A link that drops while the answer is awaited leaves nothing behind.
+    saved["10.0.0.67"] = "D:/HOME"
+    connect()
+    w.on_disconnected()
+    w.on_drives("C", ["C", "D", "M"])
+    check("a drives answer after a disconnect lists nothing",
+          not [c for c in drain(calls) if c[0] == "ls"])
 
 
 def test_probed_drives_drop_declared_extras():
@@ -5260,6 +5388,7 @@ def main():
         test_local_drive_combo()
         test_drive_switching()
         test_reconnect_never_lists_an_unconfirmed_drive()
+        test_reconnect_asks_drives_then_resumes()
         test_probed_drives_drop_declared_extras()
         test_ls_failed_fallback()
         test_sorting()
