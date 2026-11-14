@@ -921,6 +921,12 @@ class RemoteExplorerSignals(QObject):
     # stop the whole batch and explain WHERE the setting lives, instead of
     # counting one generic failure and pressing on.
     os_protected = Signal(str, str)
+    # (letters): a command was refused with the marked 'F'+DRV block - its
+    # path names a drive NextZXOS has not mounted (.sync5 5.9.16). The
+    # letters are every drive the refused command named, e.g. "D" or "CD"
+    # for a ren/rcpy across two. The command ALSO gets its ordinary failure
+    # report; this only says why. Never emitted for a bridge command.
+    invalid_drive = Signal(str)
     # (current, letters): the Next's default drive + every mounted drive letter,
     # e.g. ("C", ["C", "M"]). ("", []) when the dot predates the 'W' command.
     drives       = Signal(str, object)
@@ -988,6 +994,39 @@ RE_OSP_ERROR = (
     "system. If the far side is ZX Next Remote, check its \"OS protection\" "
     "setting and customise the restricted directory list if appropriate."
 )
+
+
+#: .sync5 5.9.16: 'F' + this mark = "that drive letter is not mounted". A
+#: different refusal from OSP (an allowed drive, a protected folder), and a
+#: listener that does not know the mark reads the plain 'F' it always did.
+RE_NODRIVE_MARK = b"DRV"
+
+
+def _re_is_nodrive(payload):
+    """True if a reply PAYLOAD is the dot's invalid-drive refusal: 'F'
+    followed by the DRV marker."""
+    return (payload[0:1] == b"F" and
+            payload[1:1 + len(RE_NODRIVE_MARK)] == RE_NODRIVE_MARK)
+
+
+def _re_cmd_drive_letters(cmd):
+    """The drive letters a queued command's paths name ("D", "CD", ""), or
+    None for a bridge command (it carries a BridgeReply and must stay
+    silent to the pane)."""
+    out = ""
+    cmd = tuple(cmd or ())
+    if any(isinstance(item, BridgeReply) for item in cmd):
+        return None
+    # Only the paths on the NEXT count: a get's third item and a put's
+    # second are folders and files on this PC ("C:/Users/...").
+    op = cmd[0] if cmd else ""
+    paths = (cmd[1:2] if op == "get" else cmd[2:3] if op == "put"
+             else cmd[1:])
+    for item in paths:
+        if (isinstance(item, str) and len(item) > 1 and item[1] == ":"
+                and item[0].isalpha() and item[0].upper() not in out):
+            out += item[0].upper()
+    return out
 
 
 def _re_is_osp(payload):
@@ -2425,6 +2464,18 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
             return "put " + str(c[2])
         return "%s %s" % (c[0], c[1] if len(c) > 1 else "")
 
+    def _say_invalid_drive(c):
+        # One line for the file log and one signal for the pane; a bridge
+        # command (letters None) and a command naming no letter say nothing.
+        try:
+            letters = _re_cmd_drive_letters(c)
+        except Exception:
+            letters = None
+        if letters:
+            logging.info("NextSync listen: the Next refused %s: drive not "
+                         "mounted (%s)", c[0] if c else "?", letters)
+            sig.invalid_drive.emit(letters)
+
     def _retry_eligible():
         return (inflight is not None and not stashed
                 and inflight_attempt < RE_LINK_RETRIES and _single_seat())
@@ -2476,9 +2527,23 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
         # pulls go through _re_pull_call below, which adds the transfer
         # clock).
         nonlocal alive_at
+        seen = []
+
+        def _watch(payload, _handler=handler):
+            # .sync5 5.9.16: note an invalid-drive refusal on its way to
+            # the arm's own handler, which reads it as the plain 'F' it is.
+            if _re_is_nodrive(payload):
+                seen.append(1)
+            return _handler(payload)
         try:
             conn_.settimeout(RE_REPLY_TIMEOUT if timeout is None else timeout)
-            r = _re_recv_reply(conn_, handler, late_ok)
+            r = _re_recv_reply(conn_, _watch, late_ok)
+            if seen:
+                try:
+                    _cur = cmd      # the command this Poll is serving
+                except NameError:
+                    _cur = None
+                _say_invalid_drive(_cur)
         except socket.timeout:
             return False
         finally:
@@ -3165,6 +3230,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                 if fail_payload is not None:
                     _idle(b"Ok")
                     if pending and pending[0] == "put":
+                        if _re_is_nodrive(fail_payload):
+                            _say_invalid_drive(("put-refused",) + tuple(pending[1:]))
                         _put_finish(False, osp=_re_is_osp(fail_payload))
                         pending = None
                         put_data = b''

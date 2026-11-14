@@ -5017,6 +5017,25 @@ class RemoteExplorerWidget(QWidget):
         self._xnext_step(False)
         self._op_step_done()
 
+    def on_invalid_drive(self, letters):
+        """A .sync5 dot 5.9.16+ refused a command because its path names a
+        drive NextZXOS has not mounted ('F'+DRV). The command gets its own
+        failure report as usual; this says WHY, with the toast the drive
+        combo already uses for a letter the dot did not report."""
+        letters = [c for c in str(letters or "") if c.isalpha()]
+        if not letters:
+            return
+        unknown = [c for c in letters if c not in (self._drives or [])]
+        letter = (unknown or letters)[0]
+        self._log(f"Drive {letter}: is not mounted on this Next - the Next "
+                  "refused the command (invalid drive).")
+        self._on_toast(
+            "Drive not mounted",
+            ui_tr_now("Drive {letter}: is not mounted on this Next.\n"
+                      "Mount it on the Next, then reconnect.").format(
+                          letter=letter),
+            "yellow")
+
     def on_op_done(self, ok, op, path):
         self._log(f"{op} {path}: {'ok' if ok else 'FAILED'}")
         # A failed mkdir usually just means the folder already exists, so the many

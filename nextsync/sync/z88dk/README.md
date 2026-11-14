@@ -64,9 +64,9 @@ $C000–$FFFF   (mmu6/7)              : NextZXOS (saved/restored by the crt)
 very top of mmu5; v5.2's `0xBF00` wasted the last 256 bytes, which nothing in
 the dotn crt or clib touches). The large buffers (`inbuf`,
 `scratch`, …) are file-scope statics so they land in the main bank and keep the
-stack small. Current layout (v5.9.15): main-bank content ends at `0xBA59`
-(`__BSS_END_head` in `syncdev.map`), leaving 1447 bytes of stack below `0xC000`
-(5.9.15 spent 48 on the probing `listen_drives`; 5.9.14 was `0xBA29` / 1495,
+stack small. Current layout (v5.9.16): main-bank content ends at `0xBC1B`
+(`__BSS_END_head` in `syncdev.map`), leaving 997 bytes of stack below `0xC000`
+(5.9.16 spent 450 on the `Drives` banner line and the invalid-drive gate, as four small functions - inline in `main()` the same code cost 652; 5.9.15 was `0xBA59` / 1447, having spent 48 on the probing `listen_drives`; 5.9.14 was `0xBA29` / 1495,
 having spent 51 on the slicing loop in `crc_run` that keeps the flock flying
 through a CRC pass — 256-byte slices with the frame-gated `anim_tick` after the
 read and after every slice, so the longest gap between ticks is one read OR
@@ -718,6 +718,21 @@ update: staging c:/mydir/zxnextremote-n2n.nex.new (115200 bytes)
   mock Next), and the dot side is **hardware-confirmed release by release** on
   real Nexts and clones (most recently v5.9.0's release-and-swap flow, proven
   in both directions).
+- **5.9.16 (14 Nov 2026), NOT yet run on hardware:** the banner gains a
+  `Drives C D M` line right above the `Flow ...` line (every mode; the same
+  probe `getdrives` answers with), and `-listen` refuses a command whose
+  path names a drive letter that probe did not find. The refusal is one
+  status block `'F'` + `DRV`, sent before any esxDOS call sees the path
+  (opening a path on an unmapped letter is what crashes the dot). It covers
+  `ls`, `get` (followed by its final `'B'`), `put`, `mkdir`, `rmdir`, `rm`,
+  `ren` and `rcpy` (both paths), `rfsize` and `crc`; `free` takes a drive
+  specifier and already fails cleanly. A path with no `X:` prefix is on the
+  default drive and is never refused; A: and B: always are. The mark is
+  distinct from ZX Next Remote's `OSP` (OS protection), and a server that
+  knows neither reads the plain `'F'`. ZX-Next-Unite 9.7.68 names it
+  ("Drive D: is not mounted on this Next"); `nextsync5.py`, the HTTP bridge
+  and the .NET library report it as an ordinary failure. `-v` prints
+  `bad drive` on the Next.
 - **5.9.15 confirmed on a KS3 (13 Nov 2026):** `getdrives` probes D..P
   (see `-listen` above). Booted with ONE SD card, the dot answered
   `current C, drives C M` and carried on (`ls C:/DOT`, `free C` straight

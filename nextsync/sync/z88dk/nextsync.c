@@ -14,7 +14,7 @@
 // version a controller reads over the wire can never drift from the
 // one printed on screen. On a bump ALSO update ZX_NEXT_UNITE_DOTN_VERSION
 // in zxnu_config.py (the app's refresh-your-.sync5 advisory).
-#define SYNC_VERSION "5.9.15"
+#define SYNC_VERSION "5.9.16"
 
 #define TIMEOUT 20000
 #define TIMEOUT_FLUSHUART 10000
@@ -1254,6 +1254,11 @@ void parse_speed_switches(char *dst)
 //         entry = [1B flags][4B size, little-endian][1B namelen][name],
 //         flags bit0 = directory.
 //   get : send_file / send_dir ('N'/'D'/'E' per file), then a final 'B'.
+//   INVALID DRIVE (v5.9.16): ls/get/put/mkdir/rmdir/rm/ren/rcpy/rfsize/crc
+//         whose path (either path, for ren and rcpy) starts with a drive
+//         letter NextZXOS has not mounted is refused before the path is
+//         used: one status block 'F' + "DRV" (a get then sends its usual
+//         final 'B'). A server that does not know the mark reads the 'F'.
 //   mkdir/rmdir/rm/ren/release : one status block, 'O' (ok) or 'F' (fail).
 //         'ren' carries two NUL-separated paths in one frame (old then new).
 //   release ('U', v5.9+): the dot closes the OS's own read handle on its
@@ -1464,30 +1469,102 @@ extern void listen_ls(char *path, unsigned char *inbuf, unsigned char *scratch);
 extern unsigned char esx_m_getdrv(void);
 extern unsigned char esx_m_setdrv_fastcall(unsigned char drive) __z88dk_fastcall;
 
-void listen_drives(unsigned char *inbuf, unsigned char *scratch)
+//
+// 5.9.16: the probe is its own function, because two more readers want its
+// answer. main() prints the letters on a "Drives" line just before the Flow
+// line, in every mode, and -listen refuses a command whose path names a
+// letter that is not in g_drvmask (bit n = letter 'A'+n) - see drive_bad.
+// The mask is refreshed by every probe, i.e. at startup and at each 'W'.
+// NextZXOS maps drives only at boot or REMOUNT, so the startup answer does
+// not go stale under a running dot.
+//
+// probe_drives writes the current drive letter to out[0] and the mounted
+// letters, in order, from out[1]; it returns how many letters there are.
+unsigned short g_drvmask;
+
+unsigned char probe_drives(unsigned char *out)
 {
     unsigned char n = 0, cur, saved, l, idx;
 
-    g_packetno = 0;
     saved = esx_m_getdrv();
     cur = sync_getdrive();
     if (!cur) cur = 'C';
-    scratch[2] = 'O';
-    scratch[3] = cur;
+    out[0] = cur;
+    g_drvmask = 0;
     for (l = 'C'; l <= 'P'; l++)
     {
+        idx = (unsigned char)(l - 'A');
         if (l != 'C' && l != 'M' && l != cur)
         {
-            idx = (unsigned char)(l - 'A');
             if (esx_m_setdrv_fastcall((unsigned char)(idx << 3)) == 0xFF
                 || (esx_m_getdrv() >> 3) != idx)
                 continue;
         }
-        scratch[4 + n++] = l;
+        g_drvmask |= (unsigned short)1 << idx;
+        out[1 + n++] = l;
     }
     if (saved != 0xFF)
         esx_m_setdrv_fastcall(saved);   /* ALWAYS put the default back */
+    return n;
+}
+
+void listen_drives(unsigned char *inbuf, unsigned char *scratch)
+{
+    unsigned char n;
+
+    g_packetno = 0;
+    scratch[2] = 'O';
+    n = probe_drives(scratch + 3);
     send_block_rt(scratch, (unsigned short)(2 + n), inbuf);
+}
+
+// 1 when 'p' starts with a drive letter NextZXOS has not mounted (5.9.16).
+// A path with no "X:" prefix is on the default drive and always passes.
+// A: and B: (the +3DOS floppies) are never in the mask, so they are refused
+// here as well: opening a path on them, or on an unmapped letter, is what
+// crashes this dotN (hardware-measured), so the refusal has to come BEFORE
+// any esxDOS call sees the path.
+unsigned char drive_bad(char *p)
+{
+    unsigned char c;
+
+    if (!p[0] || p[1] != ':') return 0;
+    c = (unsigned char)(p[0] & 0xDF);
+    if (c < 'A' || c > 'P') return 1;
+    return !((g_drvmask >> (c - 'A')) & 1);
+}
+
+// The "Drives C D M" banner line (see main, just above the Flow line).
+void print_drives(unsigned char *scratch)
+{
+    scratch[4 + probe_drives(scratch + 3)] = 0;
+    *((unsigned char *)23692) = 255;
+    conprint("Drives ");
+    print((char *)scratch + 4);
+}
+
+// -listen's invalid-drive gate (see the dispatch in main): answers the
+// refusal itself and returns 1, or returns 0 and sends nothing. 'fn' holds
+// the 'al' payload bytes, NUL-terminated; ren/rcpy have a NUL inside.
+unsigned char listen_drive_refused(unsigned char op, char *fn, unsigned short al,
+                                   unsigned char *inbuf, unsigned char *scratch)
+{
+    unsigned short sp = 0;
+    const char *o = "LGPMRXVCSK";
+
+    while (*o && *o != op) o++;
+    if (!*o) return 0;
+    while (sp < al && fn[sp]) sp++;
+    if (!drive_bad(fn)
+        && !((op == 'V' || op == 'C') && sp < al && drive_bad(fn + sp + 1)))
+        return 0;
+    vprint("bad drive");
+    g_packetno = 0;
+    scratch[2] = 'F'; scratch[3] = 'D';
+    scratch[4] = 'R'; scratch[5] = 'V';
+    send_block_rt(scratch, 4, inbuf);
+    if (op == 'G') { scratch[2] = 'B'; send_block_rt(scratch, 1, inbuf); }
+    return 1;
 }
 
 // ident ('Y', v5.8.0): 'O' + "sync" + NUL + SYNC_VERSION, one status
@@ -2253,6 +2330,15 @@ int main(int arglen, char *rawcmd)
     //                      module's fault, and not the same link as esp:
     //                      that one is symmetric at ,0, this one is the
     //                      module still at ,3 with our bit clear.
+    // The drives NextZXOS has mounted, on a line of its own right above the
+    // Flow line (5.9.16): the same probe 'W' answers with, so what is shown
+    // here is what the PC will be told, and what -listen will accept.
+    // A function of its own, like the refusal below: code added INSIDE
+    // main() cost several times its size (zsdcc re-allocates the whole
+    // function; the first 5.9.16 cut spent 652 main-bank bytes that way,
+    // against 450 as functions).
+    print_drives(scratch);
+
     print(g_flow ? "Flow on"
                  : (g_flow_esp ? "Flow off esp"
                                : (g_flow_ate ? "Flow off ate" : "Flow off")));
@@ -2411,6 +2497,20 @@ connbreak:
                 }
 
                 if (op == 'Q') goto listen_noreply; // quit listen mode (server-sent)
+
+                // INVALID DRIVE (5.9.16). A command whose path names a drive
+                // letter NextZXOS has not mounted is refused before anything
+                // touches the path, with the status block 'F' + "DRV": a PC
+                // that knows the mark says "invalid drive", one that does not
+                // reads payload[0] and sees the plain 'F' it always did. The
+                // mark is NOT ZX Next Remote's "OSP" (OS protection): that
+                // one means "allowed drive, refused folder". ren and rcpy
+                // carry two paths (a NUL between them) and both are checked.
+                // A get has no failure frame, so its refusal is followed by
+                // the 'B' that ends an empty walk - ZX Next Remote's shape
+                // for a read it refuses. free ('Z') takes a drive specifier,
+                // not a path, and already fails cleanly on a bad one.
+                if (listen_drive_refused(op, fn, al, inbuf, scratch)) continue;
                 // idle: throttle before re-polling, animating meanwhile (the
                 // tick self-limits to one step per frame, so the sprites
                 // glide instead of stuttering once per poll).
