@@ -207,6 +207,9 @@ def test_widget():
     class Stub:
         def __init__(self, drives):
             self._drives = drives
+            self._invalid_drives = set()     # 9.7.69: the refused letters
+            self._connected = False          # no pane to move in this stub
+            self._cwd = "C:/"
             self.logs = []
             self.toasts = []
 

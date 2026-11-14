@@ -1478,6 +1478,12 @@ class RemoteExplorerWidget(QWidget):
         # A remembered folder on a drive other than C: (see on_connected):
         # never listed at connect, used when the user picks that drive.
         self._parked_dir = None
+        # 9.7.69, a (re)connection's folder restore: the folder waiting for
+        # the drives answer, the one being tried, and the drive letters the
+        # Next refused ('F'+DRV) during this connection.
+        self._resume_pending = None
+        self._resume_try = None
+        self._invalid_drives = set()
         # Free space per drive letter, from the dot's 'Z' reply (v5.2+):
         # letter -> free bytes (int), or None when the query failed / the dot
         # predates 'Z'. Free space is the ONLY storage metric a dotN can
@@ -2794,6 +2800,9 @@ class RemoteExplorerWidget(QWidget):
             self._drives = []
             self._default_drive = ""
             self._parked_dir = None
+            self._resume_pending = None
+            self._resume_try = None
+            self._invalid_drives = set()
             self.next_drive_add.setEnabled(False)
             self._drive_combo_guard = True
             try:
@@ -2830,22 +2839,22 @@ class RemoteExplorerWidget(QWidget):
         # The pane starts on C: and keeps the folder for the drive combo,
         # for this connection only (the C: start is what gets remembered):
         # picking that drive - the user saying it is there - goes back to it.
+        #
+        # 9.7.69: the Next is asked for its drives FIRST and nothing is
+        # listed until it has answered (on_drives -> _resume_after_drives).
+        # A drive the Next reports is tried: the folder if it is still
+        # there, C:/ if it is not (on_ls_failed) or if the Next refuses
+        # the drive (on_invalid_drive, a .sync5 dot 5.9.16+). A drive it
+        # does not report is never touched: the pane starts on C:/ and the
+        # folder is parked for the drive combo, as since 9.7.66.
         self._parked_dir = None
+        self._resume_pending = None
+        self._resume_try = None
+        self._invalid_drives = set()
         _drv = _re_drive_of(self._cwd)
         if _drv and _drv != "C":
-            _parked = _norm_remote_dir(self._cwd)
-            self._parked_dir = _parked
+            self._resume_pending = _norm_remote_dir(self._cwd)
             self._cwd = RE_SAFE_START_DIR
-            self._log(f"Last folder was {_parked}: drive {_drv}: may not be "
-                      f"there any more, so the pane starts on C:. Pick {_drv} "
-                      "in the drive list to go back to it.")
-            self._on_toast(
-                "Folder not restored",
-                ui_tr_now("The last folder was {path}. Drive {drive}: may "
-                          "not be there any more, so the pane started on "
-                          "C: - pick {drive} in the drive list to go back "
-                          "to it.").format(path=_parked, drive=_drv),
-                "yellow")
         # Ask which drives are mounted (dot v5.1+) before the first listing so
         # the drive switcher fills in as the pane appears. RAW on purpose (the
         # _query_free rule): its reply emits no op_done, so counting it while
@@ -2859,6 +2868,36 @@ class RemoteExplorerWidget(QWidget):
         # degrades, never kills the session).
         self._enqueue_raw(("version",))
         self._enqueue_raw(("drives",))
+        if self._resume_pending is None:
+            self.refresh()
+
+    def _resume_after_drives(self):
+        """The drives answer of a (re)connection whose remembered folder is
+        on a drive other than C: (9.7.69). Reported -> list the folder;
+        not reported (or no answer at all: a listener too old for the
+        command) -> start on C:/ and park the folder for the drive combo."""
+        target = self._resume_pending
+        self._resume_pending = None
+        if not target or not self._connected:
+            return
+        drive = _re_drive_of(target)
+        if drive in (self._drives or []):
+            self._log(f"Drive {drive}: is there - going back to {target}.")
+            self._resume_try = target
+            self._cwd = target
+        else:
+            self._parked_dir = target
+            self._cwd = RE_SAFE_START_DIR
+            self._log(f"Last folder was {target}: the Next does not report "
+                      f"drive {drive}:, so the pane starts on C:. Pick "
+                      f"{drive} in the drive list to go back to it.")
+            self._on_toast(
+                "Folder not restored",
+                ui_tr_now("The last folder was {path}. Drive {drive}: may "
+                          "not be there any more, so the pane started on "
+                          "C: - pick {drive} in the drive list to go back "
+                          "to it.").format(path=target, drive=drive),
+                "yellow")
         self.refresh()
 
     def on_disconnected(self):
@@ -4371,6 +4410,10 @@ class RemoteExplorerWidget(QWidget):
                          if self._default_drive else "")
                       + " — use '+ Drive' to add extra SD reader/partition "
                         "letters (they are remembered).")
+        # A connection waiting for this answer before its first listing
+        # (9.7.69): decide where the pane goes BEFORE the combo and the
+        # free-space query read the cwd.
+        self._resume_after_drives()
         self._rebuild_drive_combo()
         # Ask for the current drive's free space (dot v5.2+; older dots
         # degrade with a log line, exactly like getdrives itself).
@@ -4751,6 +4794,7 @@ class RemoteExplorerWidget(QWidget):
         self._query_free(drive)   # free space of the newly selected drive
 
     def on_listing(self, path, entries):
+        self._resume_try = None      # 9.7.69: the resumed folder answered
         self._cwd = (path if (path.startswith("/") or _re_drive_of(path))
                      else "/" + path)
         self._update_next_path_label()
@@ -4889,6 +4933,26 @@ class RemoteExplorerWidget(QWidget):
         pane recovers (and a missing drive root falls back to the default "/").
         """
         drive = _re_drive_of(path)
+        if drive and drive in self._invalid_drives:
+            # The Next refused the DRIVE (9.7.69): on_invalid_drive, which
+            # the worker reports first, already took the pane to C:/.
+            self._resume_try = None
+            return
+        if (self._resume_try and drive and drive != "C"
+                and _norm_remote_dir(path) == self._resume_try):
+            # The folder a reconnection tried to go back to is gone
+            # (9.7.69): C:/, not that drive's root.
+            self._resume_try = None
+            self._log(f"{path}: no such folder on the Next — returning to "
+                      f"{RE_SAFE_START_DIR}.")
+            self._on_toast("Folder unavailable",
+                           ui_tr_now("{path} no longer exists on the Next.\n"
+                                     "Returned to {root}.").format(
+                                         path=path, root=RE_SAFE_START_DIR),
+                           "yellow")
+            self._cwd = RE_SAFE_START_DIR
+            self.refresh()
+            return
         root = f"{drive}:/" if drive else "/"
         if (path or "/") in ("/", root):
             if (path or "/") == "/" or not drive:
@@ -5035,6 +5099,18 @@ class RemoteExplorerWidget(QWidget):
                       "Mount it on the Next, then reconnect.").format(
                           letter=letter),
             "yellow")
+        # 9.7.69: a pane sitting on that drive always goes back to C:/ and
+        # its root. The letter is remembered for this connection so the
+        # listing failure that follows the same refusal does not send the
+        # pane to that drive's root (on_ls_failed).
+        self._invalid_drives.add(letter)
+        if self._connected and _re_drive_of(self._cwd) == letter:
+            self._resume_try = None
+            self._parked_dir = None
+            self._cwd = RE_SAFE_START_DIR
+            self._log(f"Returning to {RE_SAFE_START_DIR}.")
+            self.refresh()
+            self._query_free("C")
 
     def on_op_done(self, ok, op, path):
         self._log(f"{op} {path}: {'ok' if ok else 'FAILED'}")
