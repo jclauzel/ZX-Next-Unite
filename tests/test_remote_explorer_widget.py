@@ -1020,14 +1020,62 @@ def test_probed_drives_drop_declared_extras():
     check("older dot: the declared extras are still merged",
           combo(w) == ["C", "D", "F", "M"], str(combo(w)))
 
-    # ZX Next Remote (not the dot) keeps them too.
+    # ZX Next Remote up to 1.11.0 answered with a list its user typed:
+    # it keeps them too, whichever flavor.
+    for flavor in ("n2n", "httpbridge", "zxnt"):
+        w.on_disconnected()
+        w.on_peers((1, [(1, "10.0.0.67")]))
+        w.on_connected()
+        w.on_ident(flavor, "1.11.0")
+        w.on_drives("C", ["C", "M"])
+        check(f"ZX Next Remote 1.11.0 ({flavor}): the declared extras are "
+              "still merged", combo(w) == ["C", "D", "F", "M"], str(combo(w)))
+
+    # ZX Next Remote 1.12.0+ probes at start, like the dot: its list is
+    # what NextZXOS has mounted, for every flavor.
+    for flavor, number in (("n2n", "1.12.0"), ("httpbridge", "1.12.0"),
+                           ("zxnt", "1.12.0"), ("N2N ", "1.12.1"),
+                           ("zxnt", "2.0.0")):
+        w.on_disconnected()
+        w.on_peers((1, [(1, "10.0.0.67")]))
+        w.on_connected()
+        calls["q"].clear()
+        calls["toasts"].clear()
+        w.on_ident(flavor, number)
+        w.on_drives("C", ["C", "M"])
+        check(f"ZX Next Remote {number} ({flavor.strip()}): the combo is "
+              "what the Next reported", combo(w) == ["C", "M"], str(combo(w)))
+    check("...and the log names the mounted drives",
+          logged(calls, "the drives NextZXOS has mounted"))
+    calls["q"].clear()
+    calls["toasts"].clear()
+    FakeInput.queue = [("d", True)]
+    FakeMsg.answer = QMessageBox.Yes
+    w._add_drive_clicked()
+    check("ZX Next Remote 1.12.0+: '+ Drive' refuses an unmounted letter",
+          drain(calls) == [] and calls["extra_drives"] == []
+          and w.next_drive_combo.findText("D") < 0
+          and any(t[0] == "Drive not mounted" and t[2] == "yellow"
+                  for t in calls["toasts"]), str(calls["toasts"]))
     w.on_disconnected()
     w.on_peers((1, [(1, "10.0.0.67")]))
     w.on_connected()
-    w.on_ident("n2n", "1.11.0")
-    w.on_drives("C", ["C", "M"])
-    check("ZX Next Remote: the declared extras are still merged",
-          combo(w) == ["C", "D", "F", "M"], str(combo(w)))
+    w.on_ident("zxnt", "1.12.0")
+    w.on_drives("C", ["C", "D", "M"])
+    check("ZX Next Remote 1.12.0: a mounted D: is offered, F: is not",
+          combo(w) == ["C", "D", "M"], str(combo(w)))
+
+    # A ZX Next Remote version that does not parse is unknown, not new;
+    # and another listener (QL Next Remote) is not a ZX Next Remote.
+    for rtype, number in (("n2n", "beta"), ("n2n", ""),
+                          ("qlnextremote", "1.12.0"), ("test", "9.9.9")):
+        w.on_disconnected()
+        w.on_peers((1, [(1, "10.0.0.67")]))
+        w.on_connected()
+        w.on_ident(rtype, number)
+        w.on_drives("C", ["C", "M"])
+        check(f"{rtype} {number!r}: not treated as probed",
+              combo(w) == ["C", "D", "F", "M"], str(combo(w)))
 
     # No ident answer at all: the old behaviour.
     w.on_disconnected()
