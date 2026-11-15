@@ -473,6 +473,12 @@ RE_SAFE_START_DIR = "C:/"
 #: mapped, so the user-declared "+ Drive" letters are not added to it.
 RE_SYNC_PROBED_DRIVES = (5, 9, 15)
 
+#: The first ZX Next Remote whose Listener does the same (1.12.0, all three
+#: flavors: httpbridge, n2n, zxnt). Up to 1.11.0 its answer was a list the
+#: user typed under its Settings -> Drives, which could name a drive that
+#: is not there, so those builds keep the extras like an old dot.
+RE_ZXNR_PROBED_DRIVES = (1, 12, 0)
+
 
 def _re_drive_of(path):
     """Drive letter of a remote path ("M:/games" -> "M"), "" when unprefixed.
@@ -4655,22 +4661,31 @@ class RemoteExplorerWidget(QWidget):
 
     def _drives_probed(self):
         """Whether the DRIVEN Next's drive list is what NextZXOS has mapped:
-        a .sync5 dot 5.9.15+ probes D..P (see RE_SYNC_PROBED_DRIVES). Any
-        other answer - an older dot, ZX Next Remote, no ident - is the old
-        {C, M, current} guarantee and keeps the user's extras."""
+        a .sync5 dot 5.9.15+ probes D..P (see RE_SYNC_PROBED_DRIVES), and so
+        does a ZX Next Remote Listener 1.12.0+, whichever flavor answers
+        (RE_ZXNR_PROBED_DRIVES). Any other answer - an older dot, an older
+        ZX Next Remote, another listener, no ident, a version that does not
+        parse - is the old guarantee and keeps the user's extras: unknown
+        is never "probed"."""
         rtype, number = self._peer_idents.get(self._peer_active, ("", ""))
-        if (rtype or "").strip().lower() != "sync":
+        rtype = (rtype or "").strip().lower()
+        if rtype == "sync":
+            floor = RE_SYNC_PROBED_DRIVES
+        elif rtype in ZXNR_IDENT_TYPES:
+            floor = RE_ZXNR_PROBED_DRIVES
+        else:
             return False
         ver = _parse_dot_version(number)
-        return bool(ver) and ver >= RE_SYNC_PROBED_DRIVES
+        return bool(ver) and ver >= floor
 
     def _known_drives(self):
         """Every drive the combo offers: the dot-reported set plus the
         user-declared extras (only once the dot reported anything — an old
-        dot gives us no safe way to know extras will even parse). A dot
-        that probes its drives (5.9.15+) reports exactly what NextZXOS has
-        mapped, so the extras are left out: a declared D: that is not
-        mapped is the letter that hangs the Next."""
+        dot gives us no safe way to know extras will even parse). A
+        listener that probes its drives (the dot 5.9.15+, ZX Next Remote
+        1.12.0+) reports exactly what NextZXOS has mapped, so the extras
+        are left out: a declared D: that is not mapped is the letter that
+        hangs the Next."""
         if not self._drives:
             return []
         if self._drives_probed():
