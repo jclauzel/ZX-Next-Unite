@@ -5096,6 +5096,22 @@ class RemoteExplorerWidget(QWidget):
         self._xnext_step(False)
         self._op_step_done()
 
+    def on_next_aborted(self, kind, path):
+        """The user of a ZX Next Remote 1.14.0+ pressed BREAK during a
+        transfer and answered Yes. The Next already removed its partial
+        file (a put) or the worker removed this PC's (a get); the command
+        gets its own failure report as usual. This stops what is still
+        queued - the Cancel button's own path - and says why."""
+        self._log(f"{kind} {path}: aborted on the Next (BREAK).")
+        self._on_toast(
+            "Transfer aborted on the Next",
+            ui_tr_now("The transfer of {name} was stopped on the Next "
+                      "(BREAK). The partial file was removed.").format(
+                          name=posixpath.basename(str(path).rstrip("/"))
+                          or str(path)),
+            "yellow")
+        self._on_op_cancel()
+
     def on_invalid_drive(self, letters):
         """A .sync5 dot 5.9.16+ refused a command because its path names a
         drive NextZXOS has not mounted ('F'+DRV). The command gets its own

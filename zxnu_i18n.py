@@ -10485,6 +10485,11 @@ _TOAST_CATALOGS = {
         "{n} Next operations failed": "{n} opérations sur le Next ont échoué",
         "Folder unavailable": "Dossier indisponible",
         "Drive not mounted": "Lecteur non monté",
+        "Transfer aborted on the Next": "Transfert interrompu sur le Next",
+        "Cleared partially transferred file: {path}":
+            "Fichier partiellement transféré supprimé : {path}",
+        "The transfer of {name} was stopped on the Next (BREAK). The partial file was removed.":
+            "Le transfert de {name} a été arrêté sur le Next (BREAK). Le fichier partiel a été supprimé.",
         "Drive {letter}: is not mounted on this Next.\nMount it on the Next, then reconnect.":
             "Le lecteur {letter}: n'est pas monté sur ce Next.\nMontez-le sur le Next, puis reconnectez-vous.",
         "Folder not restored": "Dossier non restauré",
@@ -10628,6 +10633,11 @@ _TOAST_CATALOGS = {
         "{n} Next operations failed": "Fallaron {n} operaciones en el Next",
         "Folder unavailable": "Carpeta no disponible",
         "Drive not mounted": "Unidad no montada",
+        "Transfer aborted on the Next": "Transferencia interrumpida en el Next",
+        "Cleared partially transferred file: {path}":
+            "Archivo transferido parcialmente eliminado: {path}",
+        "The transfer of {name} was stopped on the Next (BREAK). The partial file was removed.":
+            "La transferencia de {name} se detuvo en el Next (BREAK). El archivo parcial se ha eliminado.",
         "Drive {letter}: is not mounted on this Next.\nMount it on the Next, then reconnect.":
             "La unidad {letter}: no está montada en este Next.\nMóntala en el Next y vuelve a conectar.",
         "Folder not restored": "Carpeta no restaurada",
@@ -10771,6 +10781,11 @@ _TOAST_CATALOGS = {
         "{n} Next operations failed": "{n} operações no Next falharam",
         "Folder unavailable": "Pasta indisponível",
         "Drive not mounted": "Unidade não montada",
+        "Transfer aborted on the Next": "Transferência interrompida no Next",
+        "Cleared partially transferred file: {path}":
+            "Ficheiro parcialmente transferido removido: {path}",
+        "The transfer of {name} was stopped on the Next (BREAK). The partial file was removed.":
+            "A transferência de {name} foi parada no Next (BREAK). O ficheiro parcial foi removido.",
         "Drive {letter}: is not mounted on this Next.\nMount it on the Next, then reconnect.":
             "A unidade {letter}: não está montada neste Next.\nMonte-a no Next e volte a ligar.",
         "Folder not restored": "Pasta não restaurada",
@@ -10914,6 +10929,11 @@ _TOAST_CATALOGS = {
         "{n} Next operations failed": "{n} operacji na Next nie powiodło się",
         "Folder unavailable": "Folder niedostępny",
         "Drive not mounted": "Dysk niezamontowany",
+        "Transfer aborted on the Next": "Transfer przerwany na Next",
+        "Cleared partially transferred file: {path}":
+            "Usunięto częściowo przesłany plik: {path}",
+        "The transfer of {name} was stopped on the Next (BREAK). The partial file was removed.":
+            "Transfer pliku {name} został zatrzymany na Next (BREAK). Częściowy plik został usunięty.",
         "Drive {letter}: is not mounted on this Next.\nMount it on the Next, then reconnect.":
             "Dysk {letter}: nie jest zamontowany w tym Next.\nZamontuj go w Next, a potem połącz ponownie.",
         "Folder not restored": "Folder nie został przywrócony",
@@ -11057,6 +11077,11 @@ _TOAST_CATALOGS = {
         "{n} Next operations failed": "Не удалось {n} операций на Next",
         "Folder unavailable": "Папка недоступна",
         "Drive not mounted": "Диск не подключён",
+        "Transfer aborted on the Next": "Передача прервана на Next",
+        "Cleared partially transferred file: {path}":
+            "Частично переданный файл удалён: {path}",
+        "The transfer of {name} was stopped on the Next (BREAK). The partial file was removed.":
+            "Передача {name} остановлена на Next (BREAK). Частичный файл удалён.",
         "Drive {letter}: is not mounted on this Next.\nMount it on the Next, then reconnect.":
             "Диск {letter}: не подключён на этом Next.\nПодключите его на Next и переподключитесь.",
         "Folder not restored": "Папка не восстановлена",
@@ -11200,6 +11225,11 @@ _TOAST_CATALOGS = {
         "{n} Next operations failed": "{n} operací na Nextu selhalo",
         "Folder unavailable": "Složka není dostupná",
         "Drive not mounted": "Jednotka není připojena",
+        "Transfer aborted on the Next": "Přenos přerušen na Nextu",
+        "Cleared partially transferred file: {path}":
+            "Částečně přenesený soubor byl odstraněn: {path}",
+        "The transfer of {name} was stopped on the Next (BREAK). The partial file was removed.":
+            "Přenos souboru {name} byl zastaven na Nextu (BREAK). Částečný soubor byl odstraněn.",
         "Drive {letter}: is not mounted on this Next.\nMount it on the Next, then reconnect.":
             "Jednotka {letter}: není na tomto Nextu připojena.\nPřipojte ji na Nextu a pak se znovu připojte.",
         "Folder not restored": "Složka nebyla obnovena",

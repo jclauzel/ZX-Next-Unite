@@ -927,6 +927,11 @@ class RemoteExplorerSignals(QObject):
     # for a ren/rcpy across two. The command ALSO gets its ordinary failure
     # report; this only says why. Never emitted for a bridge command.
     invalid_drive = Signal(str)
+    # (kind, path): the Next's user pressed BREAK during the "get" or "put"
+    # of *path* and answered Yes (ZX Next Remote 1.14.0, 'F'/'B' + BRK).
+    # Emitted BEFORE the command's ordinary failure report, so the pane can
+    # drop what is still queued. Never emitted for a bridge command.
+    next_aborted = Signal(str, str)
     # (current, letters): the Next's default drive + every mounted drive letter,
     # e.g. ("C", ["C", "M"]). ("", []) when the dot predates the 'W' command.
     drives       = Signal(str, object)
@@ -1007,6 +1012,20 @@ def _re_is_nodrive(payload):
     followed by the DRV marker."""
     return (payload[0:1] == b"F" and
             payload[1:1 + len(RE_NODRIVE_MARK)] == RE_NODRIVE_MARK)
+
+
+#: ZX Next Remote 1.14.0: the user pressed BREAK on the Next and answered
+#: Yes - the file in flight is void. A put's refusal is 'F' + this mark; a
+#: get's terminal block is 'B' + this mark (and the file's 'E' never came).
+#: A reader that does not know the mark sees the plain 'F' / 'B'.
+RE_ABORT_MARK = b"BRK"
+
+
+def _re_is_abort(payload):
+    """True if a reply PAYLOAD says the Next's user aborted the transfer:
+    'F' or 'B' followed by the BRK marker."""
+    return (payload[0:1] in (b"F", b"B") and
+            payload[1:1 + len(RE_ABORT_MARK)] == RE_ABORT_MARK)
 
 
 def _re_cmd_drive_letters(cmd):
@@ -2934,7 +2953,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                 put_pkt = 0
                 put_retry = put_restart = 0
                 pending = ("put", _newp, None, jid)
-                _re_sendpacket(conn, b"P" + _newp.encode(), 0)
+                _re_sendpacket(conn, re_put_command(
+                    _newp, len(put_data), sess_ident), 0)
                 # the Next pulls the bytes via "Get" (served below);
                 # _put_finish chains upd_verify when the last byte goes.
 
@@ -3018,7 +3038,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                 put_pkt = 0
                 put_retry = put_restart = 0
                 pending = ("put", remote, None, jid, "extra")
-                _re_sendpacket(conn, b"P" + remote.encode(), 0)
+                _re_sendpacket(conn, re_put_command(
+                    remote, len(put_data), sess_ident), 0)
                 # the Next pulls the bytes via "Get"; _put_finish chains
                 # upd_extra_verify (or the retry) when the last byte goes.
             # rmtree walk state: sub-commands the worker generates for itself
@@ -3271,6 +3292,10 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                     if pending and pending[0] == "put":
                         if _re_is_nodrive(fail_payload):
                             _say_invalid_drive(("put-refused",) + tuple(pending[1:]))
+                        if (_re_is_abort(fail_payload) and pending[2] is None
+                                and len(pending) == 3):
+                            # a pane put (no bridge sink, no macro job)
+                            sig.next_aborted.emit("put", pending[1])
                         _put_finish(False, osp=_re_is_osp(fail_payload))
                         pending = None
                         put_data = b''
@@ -3441,9 +3466,31 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         remote, dest_dir = cmd[1], cmd[2]
                         os.makedirs(dest_dir, exist_ok=True)
                         st = {'f': None, 'name': None, 'bytes': 0, 'last': None,
-                              'count': 0, 'osp': False}
+                              'count': 0, 'osp': False, 'cut': False,
+                              'abort': False}
                         xfer.update(kind='get', done=0, total=0, files=0,
                                     path=remote, said=False, live=True)
+
+                        def _drop_part(_st=st):
+                            # NO HALF FILES (9.7.72): a download whose 'E'
+                            # never came - the link went, the stream was
+                            # cut, the Next's user aborted - is a prefix.
+                            # It goes, and the console says so by name.
+                            if not _st['f']:
+                                return
+                            _st['f'].close()
+                            _st['f'] = None
+                            _st['cut'] = True
+                            try:
+                                os.remove(_st['last'])
+                            except OSError:
+                                logging.exception(
+                                    "could not remove the cut-short "
+                                    "download %r", _st['last'])
+                                return
+                            sig.log.emit(ui_tr_now(
+                                "Cleared partially transferred file: "
+                                "{path}").format(path=_st['last']))
 
                         def _h(payload, _st=st, _dd=dest_dir, _remote=remote):
                             o = payload[0:1]
@@ -3491,9 +3538,11 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                     _st['f'].close()
                                     _st['f'] = None
                             elif o == b'B':
-                                if _st['f']:
-                                    _st['f'].close()
-                                    _st['f'] = None
+                                if _re_is_abort(payload):
+                                    _st['abort'] = True
+                                # The stream ended with a file still
+                                # open: the get failed.
+                                _drop_part()
                                 return True
                             return False
                         _re_sendpacket(conn, b"G" + remote.encode(), 0)
@@ -3504,10 +3553,14 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         finally:
                             # Closed on the retry path too (_ReLinkDead): a
                             # half-written file left open here would refuse
-                            # the retried get's own open on Windows.
-                            if st['f']:
-                                st['f'].close()
-                                st['f'] = None
+                            # the retried get's own open on Windows. And
+                            # REMOVED since 9.7.72: a link that dies under a
+                            # download used to leave its prefix on disk.
+                            _drop_part()
+                        if st['abort'] or st['cut']:
+                            ok = False
+                        if st['abort'] and not reply:
+                            sig.next_aborted.emit("get", remote)
                         if st['osp']:
                             # Read-protected source: the same 401 relay and
                             # os_protected toast a blocked write draws, not a
@@ -3520,7 +3573,9 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         elif reply:
                             reply.put({'ok': bool(ok), 'count': st['count'],
                                        'last': st['last']}
-                                      if ok else {'ok': False, 'error': 'get failed'})
+                                      if ok else {'ok': False, 'error': (
+                                          'aborted on the Next' if st['abort']
+                                          else 'get failed')})
                         elif ok:
                             sig.got.emit(remote, st['last'] or dest_dir)
                         else:

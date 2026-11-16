@@ -460,6 +460,11 @@ def mock_update_next(sock, ops, staged, scenario, verify_bytes,
         op, arg = cmd[0:1], cmd[1:].decode()
         if op == b'I':
             continue
+        if op == b'P' and "\x00" in arg:
+            # 9.7.72: a put's size rides after a NUL for a ZXNR 1.13.0+
+            # listener, which reads the path as a C string.
+            UPDATE_PUTS_RAW.append(arg)
+            arg = arg.split("\x00", 1)[0]
         ops.append((op.decode(), arg))
         is_extra = not arg.endswith(".new") and op in (b'P', b'K', b'G', b'X')
         if op == b'Q':
@@ -600,6 +605,17 @@ def mock_update_next(sock, ops, staged, scenario, verify_bytes,
                 break
         else:
             push(b'F', 0)                # unexpected op: refuse loudly
+
+def _free_port():
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    p = s.getsockname()[1]
+    s.close()
+    return p
+
+
+UPDATE_PUTS_RAW = []      # every sized put command mock_update_next saw
+
 
 def run_update_scenario(port, cmds, scenario, verify_bytes,
                         ident=b'Osync' + bytes([0]) + b'9.9.9', k_mode="ok",
@@ -1372,6 +1388,28 @@ def main():
               "quit ('Q'+'X'), dot_update(True) once")
     else:
         print("FAIL updot-zxnr: ops=", ops, "upd=", upd, "puts=", puts)
+        ok = False
+
+    # 9.7.72: the staging put tells a 1.13.0+ Listener the build's size,
+    # from the ident the session already holds (asked here by 'version';
+    # the widget asks it on every connect). Everything else is unchanged.
+    del UPDATE_PUTS_RAW[:]
+    ops, staged, upd, puts, logs = run_update_scenario(
+        _free_port(), [("version",),
+            ("update_dot", zx_file, "c:/apps", "9.9.9",
+             "zxnextremote-n2n.nex", "ZXNextRemote", True)],
+        "ok", zx_blob, ident=b'On2n' + bytes([0]) + b'1.13.0')
+    if (ops == [('Y', ""), ('P', zb + ".new"), ('K', zb + ".new"), ('U', ""),
+                ('X', zb + ".bak"), ('V', zb + "\x00" + zb + ".bak"),
+                ('V', zb + ".new\x00" + zb), ('Q', "X")]
+            and UPDATE_PUTS_RAW == [zb + ".new\x00%08X" % len(zx_blob)]
+            and staged == [(zb + ".new", zx_blob)]
+            and len(upd) == 1 and upd[0][0] and not puts):
+        print("PASS updot-zxnr-size: a 1.13.0 Listener's staging put "
+              "carries the build's size")
+    else:
+        print("FAIL updot-zxnr-size: ops=", ops, "raw=", UPDATE_PUTS_RAW,
+              "upd=", upd)
         ok = False
 
     # ...a ZXNR 1.0.7 listener predates the crc op: the read-back path,
