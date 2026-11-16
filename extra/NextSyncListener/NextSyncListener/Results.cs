@@ -302,9 +302,60 @@ namespace NextSync.Listener
             get { return CrcFloors.PeerAnswersCrc(Type, Version); }
         }
 
+        /// <summary>
+        /// True when this listener reads a file's size off a put: ZX Next Remote
+        /// 1.13.0 or later, any flavor. Its transfer display turns the size into
+        /// a percentage. See <see cref="PutSize"/>.
+        /// </summary>
+        public bool ReadsPutSize
+        {
+            get { return PutSize.PeerReadsIt(Type, Version); }
+        }
+
         public override string ToString()
         {
             return Type + " " + Version;
+        }
+    }
+
+    /// <summary>
+    /// A put's size on the wire: <c>P</c> + path + NUL + eight upper-case hex
+    /// digits. ZX Next Remote 1.13.0's Listener reads it for its transfer
+    /// display; without it the Listener counts kilobytes. The size is sent only
+    /// to a listener whose own <c>'Y'</c> answer proves it reads the suffix -
+    /// never to the .sync5 dot, QLNextRemote or an unknown listener - and only
+    /// when the session already knows that answer (call
+    /// <c>QueryIdentAsync</c> once after a Next connects).
+    /// </summary>
+    public static class PutSize
+    {
+        private static readonly int[] Floor = { 1, 13, 0 };
+
+        /// <summary>The longest path that still carries the size: the Listener's command buffer holds 254 bytes.</summary>
+        public const int MaxPathBytes = 254 - 9;
+
+        /// <summary>True for a ZX Next Remote flavor (<c>httpbridge</c>, <c>n2n</c>, <c>zxnt</c>) at 1.13.0 or later.</summary>
+        public static bool PeerReadsIt(string type, string version)
+        {
+            var kind = (type ?? "").Trim().ToLowerInvariant();
+            if (kind != "httpbridge" && kind != "n2n" && kind != "zxnt") return false;
+            var v = CrcFloors.ParseVersion(version);
+            return v != null && v.Length == 3 && CrcFloors.Compare(v, Floor) >= 0;
+        }
+
+        /// <summary>The put command's payload for <paramref name="path"/>: with the size when <paramref name="ident"/> reads it, bare otherwise.</summary>
+        public static byte[] Command(string path, long size, NextIdent ident)
+        {
+            var bare = System.Text.Encoding.UTF8.GetBytes("P" + path);
+            if (ident == null || !ident.ReadsPutSize || bare.Length - 1 > MaxPathBytes
+                || size < 0 || size > 0xFFFFFFFFL)
+                return bare;
+            var tail = System.Text.Encoding.ASCII.GetBytes(
+                size.ToString("X8", System.Globalization.CultureInfo.InvariantCulture));
+            var cmd = new byte[bare.Length + 1 + tail.Length];
+            Array.Copy(bare, cmd, bare.Length);
+            Array.Copy(tail, 0, cmd, bare.Length + 1, tail.Length);
+            return cmd;
         }
     }
 

@@ -102,6 +102,7 @@ SUITES = [
     # fake peers over real sockets, with every other brand as a twin.
     ("test_qlnr_stale_seat.py", 240, None),
     ("test_invalid_drive.py",    60, None),   # .sync5 5.9.16: the 'F'+DRV refusal
+    ("test_put_size.py",         90, None),   # 9.7.71: a put's size for ZXNR 1.13.0+
     # The same three pieces for a ZX Spectrum Next dialing from another
     # machine (9.7.47): its fakes patch _re_same_host to count as real
     # hardware. ~280 s on its own (with the write-chain, bridge-hold and

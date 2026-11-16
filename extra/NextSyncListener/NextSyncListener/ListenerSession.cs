@@ -679,7 +679,9 @@ namespace NextSync.Listener
             pendingPut = req;
             inflight = null;    // owned by pendingPut from here
             Log("put: " + (req.LocalPath ?? "<bytes>") + " -> " + req.Path + " (" + data.Length + " bytes)");
-            SendFrame("P" + req.Path, 0);
+            // The size rides along for a ZX Next Remote 1.13.0+ Listener's
+            // transfer display - from the CACHED ident only (PutSize).
+            SendFrame(PutSize.Command(req.Path, data.Length, ident), 0);
             // the Next now pulls the bytes via "Get" (served by ServeGet)
         }
 
