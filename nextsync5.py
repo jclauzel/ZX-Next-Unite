@@ -1099,14 +1099,42 @@ def _listen_get(conn, dest_root):
                 st['f'] = None
                 print(f'{timestamp()} | get: wrote {st["name"]} ({st["bytes"]} bytes)')
         elif op == b'B':
+            aborted = payload[1:4] == b'BRK'
             if st['f']:
+                # The stream ended with a file still open: its 'E' never
+                # came, so what is on disk is a prefix (9.7.72) - a ZX Next
+                # Remote 1.14.0+ user who pressed BREAK ('B'+BRK), or a
+                # stream cut short. No half files: it goes, the get failed.
                 st['f'].close()
                 st['f'] = None
+                st['cut'] = True
+                try:
+                    os.remove(st['last'])
+                except OSError:
+                    pass
+                print(f'{timestamp()} | get: {st["name"]} was '
+                      + ('aborted on the Next (BREAK)' if aborted
+                         else 'cut short'))
+                print(f'{timestamp()} | Cleared partially transferred file: '
+                      f'{st["last"]}')
+            elif aborted:
+                st['cut'] = True
+                print(f'{timestamp()} | get: aborted on the Next (BREAK)')
             return True
         return False
     _listen_get_result = _listen_recv_reply(conn, handle)
     if st['f']:
+        # the link went under the file: its prefix goes too (9.7.72)
         st['f'].close()
+        st['cut'] = True
+        try:
+            os.remove(st['last'])
+            print(f'{timestamp()} | Cleared partially transferred file: '
+                  f'{st["last"]}')
+        except OSError:
+            pass
+    if st.get('cut'):
+        _listen_get_result = False
     return (_listen_get_result, st['count'], st['last'], st['osp'])
 
 def _fmt_size(nbytes):
@@ -1477,7 +1505,8 @@ def _listen_session_inner(conn, stats, _test_commands=None):
         put_pkt = 0
         pending_put = (remote, None, "update")   # 3rd slot = the staging put
         _in_transfer = True
-        sendpacket(conn, b"P" + remote.encode(), 0)
+        sendpacket(conn, _put_command(
+            remote, len(put_data), _listen_state.get('ident')), 0)
         # the Next pulls the bytes with "Get" (served below); the
         # completion paths chain updc_verify / updc_fail.
 
@@ -1546,7 +1575,8 @@ def _listen_session_inner(conn, stats, _test_commands=None):
         put_pkt = 0
         pending_put = (remote, None, "extra")    # 3rd slot = an extra
         _in_transfer = True
-        sendpacket(conn, b"P" + remote.encode(), 0)
+        sendpacket(conn, _put_command(
+            remote, len(put_data), _listen_state.get('ident')), 0)
 
     def _upd_extra_put_failed(why_plain):
         # A refused / abandoned extra put: sent again up to the retry cap,
