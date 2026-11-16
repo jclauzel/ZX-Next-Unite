@@ -191,9 +191,31 @@ def test_wire():
           cmd == want and whole, cmd)
 
 
+def test_twins():
+    # nextsync5.py imports no app module: its copies are kept by hand.
+    import nextsync5
+    check("nextsync5: the same floor and path bound",
+          nextsync5.PUT_SIZE_FLOOR == zxnu_workers.RE_PUT_SIZE_FLOOR
+          and nextsync5.PUT_SIZE_MAX_PATH == zxnu_workers.RE_PUT_SIZE_MAX_PATH)
+    edge = "c:/" + "x" * (zxnu_workers.RE_PUT_SIZE_MAX_PATH - 3)
+    idents = [None, False, ("", ""), ("sync", "9.9.9"), ("qlnt", "9.9.9"),
+              ("n2n", "1.12.3"), ("n2n", "1.13.0"), (" ZXNT ", "1.13.1"),
+              ("httpbridge", "2.0.0"), ("n2n", "1.13"), ("n2n", "beta")]
+    same = all(nextsync5._put_command(p, n, i) == re_put_command(p, n, i)
+               for i in idents for p in ("c:/a.bin", edge, edge + "y")
+               for n in (0, 0x1ABCD, 1 << 32))
+    check("nextsync5: the same command for every ident, path and size", same)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    src = open(os.path.join(root, "nextsync5.py"), encoding="utf-8").read()
+    check("nextsync5: the console put uses it, from the cached ident",
+          "_put_command(\n                    remote, len(put_data), "
+          "_listen_state.get('ident'))" in src.replace("\r\n", "\n"))
+
+
 def main():
     QCoreApplication.instance() or QCoreApplication(sys.argv)
     test_helpers()
+    test_twins()
     test_wire()
     print("RESULT:", "ALL CHECKS PASSED" if not FAILS else "FAILED: %s" % FAILS)
     return 1 if FAILS else 0

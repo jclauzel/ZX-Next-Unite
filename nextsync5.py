@@ -636,6 +636,37 @@ CRC_FLOORS = {"sync": (5, 9, 2), "httpbridge": (1, 0, 8), "n2n": (1, 0, 8),
               "zxnt": (1, 6, 0), "qlnextremote": (0, 1, 0),
               "qlnt": (0, 1, 0)}
 
+# A put's SIZE for a ZX Next Remote 1.13.0+ Listener (9.7.71): P + path +
+# NUL + eight upper-case hex digits, which its transfer display turns into a
+# percentage. Sent only when the cached 'version' answer proves the listener
+# reads it - never to the dot, QLNextRemote or an unknown listener, and no
+# 'version' is asked for it. Hand-kept twins of zxnu_workers.RE_PUT_SIZE_FLOOR
+# / RE_PUT_SIZE_MAX_PATH / re_peer_reads_put_size / re_put_command (pinned by
+# tests/test_put_size.py).
+PUT_SIZE_FLOOR = (1, 13, 0)
+PUT_SIZE_MAX_PATH = 254 - 9        # MAX_REMOTE_PATH (defined below) - 9
+
+
+def _peer_reads_put_size(ident):
+    if not ident:
+        return False
+    if (ident[0] or "").strip().lower() not in ZXNR_FLAVORS:
+        return False
+    try:
+        v = tuple(int(p) for p in str(ident[1] or "").strip().split("."))
+    except ValueError:
+        return False
+    return len(v) == 3 and v >= PUT_SIZE_FLOOR
+
+
+def _put_command(remote, size, ident):
+    path = remote.encode()
+    if (_peer_reads_put_size(ident) and len(path) <= PUT_SIZE_MAX_PATH
+            and 0 <= size <= 0xFFFFFFFF):
+        return b"P" + path + b"\x00" + (b"%08X" % size)
+    return b"P" + path
+
+
 def _peer_answers_crc(ident):
     """True when a cached 'version' answer ``(type, number)`` names a
     listener that answers 'K'. None/False (never asked / unsupported), an
@@ -1679,7 +1710,8 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                 if remote.endswith('/') or remote.endswith('\\'):
                     remote = remote + os.path.basename(a1)
                 print(f'{timestamp()} | put: {a1} -> {remote} ({len(put_data)} bytes)')
-                sendpacket(conn, b"P" + remote.encode(), 0)
+                sendpacket(conn, _put_command(
+                    remote, len(put_data), _listen_state.get('ident')), 0)
                 _in_transfer = True
                 pending_put = (remote, reply)
                 # the Next now pulls the bytes with "Get" (served below); success

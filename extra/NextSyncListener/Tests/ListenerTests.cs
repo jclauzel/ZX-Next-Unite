@@ -437,6 +437,49 @@ namespace NextSync.Listener.Tests
         }
 
         [Fact]
+        public void Put_carries_the_size_only_for_a_listener_known_to_read_it()
+        {
+            string sized = "/ho/up.bin\0" + PutBytes.Length.ToString("X8");
+            using (var h = new Harness(n => n.Ident = Encoding.ASCII.GetBytes("On2n\01.13.0")))
+            {
+                // Nobody asked the version yet: the put goes bare, and no 'Y' is sent for it.
+                var put = Wait.For(h.Listener.PutAsync(PutBytes, "/ho/first.bin"));
+                Assert.True(put.Ok, put.Error);
+                Assert.True(h.Next.WaitForFile("/ho/first.bin"));
+                Assert.Equal("/ho/first.bin", h.Next.LastPutCommand);
+
+                Assert.True(Wait.For(h.Listener.QueryIdentAsync()).Ident.ReadsPutSize);
+                put = Wait.For(h.Listener.PutAsync(PutBytes, "/ho/up.bin"));
+                Assert.True(put.Ok, put.Error);
+                Assert.Equal("/ho/up.bin", put.RemotePath);
+                Assert.True(h.Next.WaitForFile("/ho/up.bin"), "the file lands under its own name");
+                Assert.Equal(sized, h.Next.LastPutCommand);
+            }
+            foreach (var ident in new[] { "On2n\01.12.3", "Osync\09.9.9", "Oqlnextremote\01.7.0" })
+            {
+                using (var h = new Harness(n => n.Ident = Encoding.ASCII.GetBytes(ident)))
+                {
+                    Wait.For(h.Listener.QueryIdentAsync());
+                    var put = Wait.For(h.Listener.PutAsync(PutBytes, "/ho/up.bin"));
+                    Assert.True(put.Ok, put.Error);
+                    Assert.True(h.Next.WaitForFile("/ho/up.bin"));
+                    Assert.Equal("/ho/up.bin", h.Next.LastPutCommand);
+                }
+            }
+            Assert.True(PutSize.PeerReadsIt(" ZXNT ", "1.13.0"));
+            Assert.True(PutSize.PeerReadsIt("httpbridge", "2.0.0"));
+            Assert.False(PutSize.PeerReadsIt("n2n", "1.13"));
+            Assert.False(PutSize.PeerReadsIt("n2n", "beta"));
+            Assert.False(PutSize.PeerReadsIt("", ""));
+            var zx = new NextIdent("zxnt", "1.13.0");
+            string edge = "c:/" + new string('x', PutSize.MaxPathBytes - 3);
+            Assert.Equal(254, PutSize.Command(edge, 1, zx).Length - 1);
+            Assert.Equal(edge.Length + 1, PutSize.Command(edge + "y", 1, zx).Length - 1 + 0);
+            Assert.Equal(9, PutSize.Command("c:/a.bin", 1L << 32, zx).Length);
+            Assert.Equal(9, PutSize.Command("c:/a.bin", 5, null).Length);
+        }
+
+        [Fact]
         public void Ident_is_answered_by_a_new_listener_and_silent_on_an_old_one()
         {
             using (var h = new Harness())

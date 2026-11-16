@@ -232,6 +232,12 @@ builds answer `K`), `OsProtection` (the marker and its explanation),
   and the reply awaited. Every other opcode keeps the old reading, where the
   raw poll means "I do not know that opcode" (how an old dot answers `Y`,
   `K`, `U`, `W`, `Z`): `NotSupported`, and the session carries on.
+- **A put's size** (`PutSize`): a ZX Next Remote 1.13.0+ Listener shows a
+  transfer as a percentage when the put tells it the file's size
+  (`P` + path + NUL + eight upper-case hex digits). The size is sent only
+  when the session's cached ident says the listener reads it
+  (`Ident.ReadsPutSize`), so call `QueryIdentAsync()` once after a Next
+  connects; every other listener gets the bare put.
 - **Verification** (`VerifyPuts`): the ident is queried once per session if
   nobody asked, `K` is sent only to a build known to answer it, and silence,
   `F` or a malformed digest keep the file and report the put done but

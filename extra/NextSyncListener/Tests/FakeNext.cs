@@ -62,6 +62,8 @@ namespace NextSync.Listener.Tests
         public readonly List<string> Rcpy = new List<string>();
         public string Ren;
         public string PutFail;
+        /// <summary>The last put command's argument exactly as sent, NUL and size included.</summary>
+        public volatile string LastPutCommand;
         public string Quit;                 // "" plain, "X" marked, null = never
         public byte[] ByeAnswer;
         public bool Released;
@@ -193,8 +195,19 @@ namespace NextSync.Listener.Tests
                         ServeGet(arg);
                         break;
                     case 'P':
-                        if (!ServePut(arg, argNp)) return;
-                        break;
+                        {
+                            // A listener reads the path as a C string: whatever
+                            // follows a NUL (a put's size, 1.13.0) is not the name.
+                            LastPutCommand = arg;
+                            int z = arg.IndexOf('\0');
+                            if (z >= 0)
+                            {
+                                arg = arg.Substring(0, z);
+                                argNp = arg.Length >= 2 && arg[1] == ':' ? arg.Substring(2) : arg;
+                            }
+                            if (!ServePut(arg, argNp)) return;
+                            break;
+                        }
                     case 'V':
                         {
                             var parts = arg.Split(new[] { '\0' }, 2);
