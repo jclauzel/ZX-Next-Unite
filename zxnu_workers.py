@@ -1596,6 +1596,45 @@ def re_peer_answers_crc(rtype, number):
     return bool(v) and v >= floor
 
 
+#: The first ZX Next Remote whose Listener reads a file's SIZE off a put
+#: (9.7.71): `P` + path + NUL + eight upper-case hex digits. It uses the
+#: size for its transfer display (the runner's percentage); without it the
+#: Listener counts kilobytes. Sent ONLY to a listener whose own 'Y' answer
+#: proves it reads the suffix: the .sync5 dot and older ZXNR builds were
+#: read to stop at the NUL, but nothing here was run against every other
+#: listener (QLNextRemote, third parties), so unknown is never sent it.
+RE_PUT_SIZE_FLOOR = (1, 13, 0)
+#: A put whose path plus the nine extra bytes would pass this is sent bare:
+#: the Listener's command buffer is RE_MAX_REMOTE_PATH long and a suffix cut
+#: short would be worse than none.
+RE_PUT_SIZE_MAX_PATH = RE_MAX_REMOTE_PATH - 9
+
+
+def re_peer_reads_put_size(ident):
+    """True when a session's cached 'Y' ident (type, number) - or None -
+    names a ZX Next Remote Listener at RE_PUT_SIZE_FLOOR or later."""
+    if not ident:
+        return False
+    rtype, number = ident[0], ident[1]
+    if (rtype or "").strip().lower() not in ZXNR_NEX_FLAVORS:
+        return False
+    try:
+        v = tuple(int(p) for p in str(number or "").strip().split("."))
+    except ValueError:
+        return False
+    return len(v) == 3 and v >= RE_PUT_SIZE_FLOOR
+
+
+def re_put_command(remote, size, ident):
+    """The payload of a put command: b'P' + path, plus NUL + the size as
+    eight hex digits when the listener is known to read it."""
+    path = remote.encode()
+    if (re_peer_reads_put_size(ident) and len(path) <= RE_PUT_SIZE_MAX_PATH
+            and 0 <= size <= 0xFFFFFFFF):
+        return b"P" + path + b"\x00" + (b"%08X" % size)
+    return b"P" + path
+
+
 def re_verify_wait(size_bytes):
     """Seconds to wait for ONE 'K' answer over a file of size_bytes."""
     return min(3600.0, RE_VERIFY_WAIT_FLOOR
@@ -3515,7 +3554,11 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         if remote.endswith('/') or remote.endswith('\\'):
                             remote = remote + os.path.basename(local)
                         pending = ("put", remote, reply)
-                        _re_sendpacket(conn, b"P" + remote.encode(), 0)
+                        # 9.7.71: the size rides along for a ZX Next Remote
+                        # 1.13.0+ Listener's transfer display. The CACHED
+                        # ident only - never a 'Y' asked for this.
+                        _re_sendpacket(conn, re_put_command(
+                            remote, len(put_data), sess_ident), 0)
                         # the Next now pulls the bytes via "Get" (served below)
                     elif op in ("mkdir", "rmdir", "rm"):
                         opc = {"mkdir": b"M", "rmdir": b"R", "rm": b"X"}[op]
