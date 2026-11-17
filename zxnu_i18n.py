@@ -10564,6 +10564,8 @@ _TOAST_CATALOGS = {
         "Remote zip": "Compression distante",
         "Remote zip failed": "Échec de la compression distante",
         "Found: {emulators}.": "Détecté : {emulators}.",
+        "Abort the operation in progress?": "Abandonner l'opération en cours ?",
+        "No": "Non",
         "\u26a0  Search path not valid":
             "\u26a0  Chemin de recherche non valide",
         "This search path does not exist any more and was skipped (Settings, Advanced mode):\n{paths}":
@@ -10732,6 +10734,8 @@ _TOAST_CATALOGS = {
         "Remote zip": "Compresión remota",
         "Remote zip failed": "Falló la compresión remota",
         "Found: {emulators}.": "Encontrado: {emulators}.",
+        "Abort the operation in progress?": "¿Anular la operación en curso?",
+        "No": "No",
         "\u26a0  Search path not valid":
             "\u26a0  Ruta de búsqueda no válida",
         "This search path does not exist any more and was skipped (Settings, Advanced mode):\n{paths}":
@@ -10900,6 +10904,8 @@ _TOAST_CATALOGS = {
         "Remote zip": "Compressão remota",
         "Remote zip failed": "Falha na compressão remota",
         "Found: {emulators}.": "Encontrado: {emulators}.",
+        "Abort the operation in progress?": "Anular a operação em curso?",
+        "No": "Não",
         "\u26a0  Search path not valid":
             "\u26a0  Caminho de pesquisa inválido",
         "This search path does not exist any more and was skipped (Settings, Advanced mode):\n{paths}":
@@ -11068,6 +11074,8 @@ _TOAST_CATALOGS = {
         "Remote zip": "Zdalne pakowanie",
         "Remote zip failed": "Zdalne pakowanie nie powiodło się",
         "Found: {emulators}.": "Znaleziono: {emulators}.",
+        "Abort the operation in progress?": "Przerwać trwającą operację?",
+        "No": "Nie",
         "\u26a0  Search path not valid":
             "\u26a0  Nieprawidłowa ścieżka wyszukiwania",
         "This search path does not exist any more and was skipped (Settings, Advanced mode):\n{paths}":
@@ -11236,6 +11244,8 @@ _TOAST_CATALOGS = {
         "Remote zip": "Удалённое архивирование",
         "Remote zip failed": "Удалённое архивирование не удалось",
         "Found: {emulators}.": "Найдено: {emulators}.",
+        "Abort the operation in progress?": "Прервать текущую операцию?",
+        "No": "Нет",
         "\u26a0  Search path not valid":
             "\u26a0  Недействительный путь поиска",
         "This search path does not exist any more and was skipped (Settings, Advanced mode):\n{paths}":
@@ -11404,6 +11414,8 @@ _TOAST_CATALOGS = {
         "Remote zip": "Vzdálené zabalení",
         "Remote zip failed": "Vzdálené zabalení selhalo",
         "Found: {emulators}.": "Nalezeno: {emulators}.",
+        "Abort the operation in progress?": "Přerušit probíhající operaci?",
+        "No": "Ne",
         "\u26a0  Search path not valid":
             "\u26a0  Neplatná cesta hledání",
         "This search path does not exist any more and was skipped (Settings, Advanced mode):\n{paths}":
