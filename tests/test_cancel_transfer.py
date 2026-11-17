@@ -409,6 +409,107 @@ def test_dialog():
         dlg.deleteLater()
 
 
+def test_escape_asks():
+    """9.7.74: Escape on the progress dialog used to CLOSE it (QDialog's
+    reject) while the operation carried on unseen. It asks now, in the
+    dialog, and the operation keeps running under the question."""
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QCloseEvent
+    from PySide6.QtTest import QTest
+    app = QApplication.instance()
+    hits = []
+    dlg = HdfProgressDialog("Uploading")
+    dlg.cancel_requested.connect(lambda: hits.append(1))
+    try:
+        dlg.show()
+        app.processEvents()
+        check("the question is not there until asked",
+              not dlg.asking() and dlg._cancel_btn.isVisible())
+        QTest.keyClick(dlg, Qt.Key_Escape)
+        app.processEvents()
+        check("Escape does not close the dialog", dlg.isVisible())
+        check("...it asks, in the dialog, with Yes and No",
+              dlg.asking() and dlg._ask_yes.isVisible() and dlg._ask_no.isVisible()
+              and "Abort" in dlg._ask_label.text()
+              and dlg._ask_yes.text() == "Yes" and dlg._ask_no.text() == "No",
+              (dlg._ask_label.text(), dlg._ask_yes.text(), dlg._ask_no.text()))
+        check("...nothing is cancelled by asking, and the Cancel button steps aside",
+              hits == [] and not dlg._cancelled and not dlg._cancel_btn.isVisible())
+        dlg.set_progress(40)
+        dlg.set_status("Uploading\nfile.bin")
+        check("the operation's progress keeps showing under the question",
+              dlg._bar.value() == 40 and dlg._file_label.text() == "file.bin")
+        QTest.mouseClick(dlg._ask_no, Qt.LeftButton)
+        app.processEvents()
+        check("No takes the question away and nothing is cancelled",
+              not dlg.asking() and dlg._cancel_btn.isVisible() and hits == []
+              and dlg.isVisible())
+        QTest.keyClick(dlg, Qt.Key_Escape)
+        QTest.keyClick(dlg, Qt.Key_Escape)
+        app.processEvents()
+        check("Escape again answers No", not dlg.asking() and hits == [] and dlg.isVisible())
+        QTest.keyClick(dlg, Qt.Key_Escape)
+        QTest.keyClick(dlg, Qt.Key_N)
+        check("the N key answers No", not dlg.asking() and hits == [])
+        # the window manager's close asks too; the owner's own close() closes
+        ev = QCloseEvent()
+        ev.setSpontaneous() if hasattr(ev, "setSpontaneous") else None
+        if ev.spontaneous():
+            app.sendEvent(dlg, ev)
+            check("a close from the window manager asks instead of closing",
+                  dlg.isVisible() and dlg.asking() and not ev.isAccepted())
+            dlg._ask_answer(False)
+        QTest.keyClick(dlg, Qt.Key_Escape)
+        QTest.mouseClick(dlg._ask_yes, Qt.LeftButton)
+        app.processEvents()
+        check("Yes is the Cancel button: one cancel request, the dialog stays for the outcome",
+              hits == [1] and dlg._cancelled and dlg.isVisible() and not dlg.asking()
+              and not dlg._cancel_btn.isEnabled(), hits)
+        QTest.keyClick(dlg, Qt.Key_Escape)
+        check("once cancelling, Escape asks nothing more", not dlg.asking() and hits == [1])
+        dlg.close()
+        app.processEvents()
+        check("the owner's close() still closes it", not dlg.isVisible())
+    finally:
+        dlg.deleteLater()
+
+    # the Y key, on a fresh dialog
+    hits2 = []
+    d2 = HdfProgressDialog("Uploading")
+    d2.cancel_requested.connect(lambda: hits2.append(1))
+    try:
+        d2.show()
+        QTest.keyClick(d2, Qt.Key_Escape)
+        QTest.keyClick(d2, Qt.Key_Y)
+        check("the Y key answers Yes", hits2 == [1] and d2._cancelled)
+    finally:
+        d2.deleteLater()
+
+    # a dialog whose button is not a cancel: Escape does nothing at all
+    hits3 = []
+    d3 = HdfProgressDialog("Copying", cancel_label="Continue in the background",
+                           esc_asks=False)
+    d3.cancel_requested.connect(lambda: hits3.append(1))
+    try:
+        d3.show()
+        QTest.keyClick(d3, Qt.Key_Escape)
+        app.processEvents()
+        check("esc_asks=False: Escape neither closes nor asks",
+              d3.isVisible() and not d3.asking() and hits3 == [])
+    finally:
+        d3.deleteLater()
+    check("the question and its No are in all six catalogs",
+          all(lang_has(k) for k in ("Abort the operation in progress?", "No", "Yes")))
+    wid = open(os.path.join(ROOT, "zxnu_remote_explorer.py"), encoding="utf-8").read()
+    check("the Remote Explorer's background-copy dialog opts out",
+          "esc_asks=not self._op_background_label" in wid)
+
+
+def lang_has(key):
+    from zxnu_i18n import CATALOGS
+    return all(key in CATALOGS[lang] for lang in ("es", "pt", "pl", "ru", "cs", "fr"))
+
+
 def test_widget():
     import test_remote_explorer_widget as tw
     app = QApplication.instance()
@@ -442,6 +543,29 @@ def test_widget():
             app.processEvents()
         check("...and ends with it, without a failure toast (a cancel is expected)",
               not w._op_active and not [t for t in calls["toasts"] if t[2] == "red"], calls["toasts"])
+
+        # ---- Escape on the operation's dialog: asked, then Yes cancels the op
+        tw.drain(calls)
+        del pressed[:]
+        from PySide6.QtTest import QTest
+        w._run_op("Uploading to the Next…", lambda: w._enqueue(("put", "x", "/esc.bin")))
+        w._show_op_dialog_if_running()
+        dlg = w._op_dialog
+        QTest.keyClick(dlg, Qt.Key_Escape)
+        check("Escape during a transfer: the dialog stays and asks, the op runs on",
+              dlg.isVisible() and dlg.asking() and w._op_active and not w._op_cancelled
+              and pressed == [])
+        QTest.mouseClick(dlg._ask_no, Qt.LeftButton)
+        check("No: the transfer continues, nothing was asked of the worker",
+              w._op_active and not w._op_cancelled and pressed == [] and not dlg.asking())
+        QTest.keyClick(dlg, Qt.Key_Escape)
+        QTest.mouseClick(dlg._ask_yes, Qt.LeftButton)
+        check("Yes: the operation is cancelled the Cancel button's way",
+              w._op_cancelled and pressed == [1], pressed)
+        w.on_put_done(False, "/esc.bin")
+        for _ in range(5):
+            app.processEvents()
+        check("...and ends with the put's report", not w._op_active)
 
         # ---- more than one command: TWO bars
         tw.drain(calls)
@@ -512,6 +636,7 @@ def main():
     test_put()
     test_get()
     test_dialog()
+    test_escape_asks()
     test_widget()
     print("RESULT:", "ALL CHECKS PASSED" if not FAILS else "FAILED: %s" % FAILS)
     return 1 if FAILS else 0

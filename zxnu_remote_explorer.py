@@ -2450,8 +2450,11 @@ class RemoteExplorerWidget(QWidget):
         if (not self._op_active or self._op_dialog is not None
                 or self._op_background or self._op_quiet_ui):
             return
+        # esc_asks: off when the button is "continue in the background"
+        # (a Next-side copy cannot be aborted - there is nothing to ask).
         dlg = HdfProgressDialog(self._op_title, self.window(),
-                                cancel_label=(self._op_background_label or "Cancel"))
+                                cancel_label=(self._op_background_label or "Cancel"),
+                                esc_asks=not self._op_background_label)
         dlg.cancel_requested.connect(self._on_op_cancel_clicked)
         dlg.set_progress(0 if self._op_determinate else -1)
         dlg.set_status("Transfer/Operation in progress…")

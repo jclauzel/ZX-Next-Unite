@@ -48,7 +48,7 @@ from zxnu_i18n import ui_tr_now
 from PySide6.QtWidgets import (
     QApplication, QDialog, QFileSystemModel, QHBoxLayout, QLabel, QLayout,
     QProgressBar, QPushButton, QStyle, QStyledItemDelegate,
-    QStyleOptionViewItem, QVBoxLayout,
+    QStyleOptionViewItem, QVBoxLayout, QWidget,
 )
 
 
@@ -6854,8 +6854,19 @@ class HdfProgressDialog(QDialog):
 
     cancel_requested = Signal()
 
-    def __init__(self, title, parent=None, cancel_label="Cancel"):
+    def __init__(self, title, parent=None, cancel_label="Cancel", esc_asks=True):
         super().__init__(parent)
+        # ESCAPE ASKS (9.7.74). QDialog's own Escape is reject(): the
+        # dialog closed and the operation carried on with nothing on
+        # screen to show it or stop it (reported on a Remote Explorer
+        # upload: the two bars vanished and the file kept moving). Escape
+        # now puts a question IN the dialog - Yes / No - and the operation
+        # keeps running under it: Yes is the Cancel button, No (or Escape
+        # again) takes the question away. The window manager's close
+        # (Alt+F4) asks the same. *esc_asks* False is for a dialog whose
+        # button is not a cancel at all (the Remote Explorer's "continue
+        # in the background"): Escape then does nothing.
+        self._esc_asks = bool(esc_asks)
         self.setWindowTitle(title)
         self.setModal(True)
         self.setMinimumWidth(540)
@@ -6904,6 +6915,23 @@ class HdfProgressDialog(QDialog):
         self._bar.setTextVisible(True)
         layout.addWidget(self._bar)
 
+        # The Escape question: hidden until asked, in the Cancel row's place.
+        self._ask_row = QWidget(self)
+        ask_lay = QHBoxLayout(self._ask_row)
+        ask_lay.setContentsMargins(0, 0, 0, 0)
+        self._ask_label = QLabel("")
+        self._ask_label.setWordWrap(True)
+        ask_lay.addWidget(self._ask_label, 1)
+        self._ask_yes = QPushButton("")
+        self._ask_no = QPushButton("")
+        for _b in (self._ask_yes, self._ask_no):
+            _b.setMinimumWidth(70)
+            ask_lay.addWidget(_b)
+        self._ask_yes.clicked.connect(lambda: self._ask_answer(True))
+        self._ask_no.clicked.connect(lambda: self._ask_answer(False))
+        self._ask_row.hide()
+        layout.addWidget(self._ask_row)
+
         # Cancel button
         btn_row = QHBoxLayout()
         btn_row.addStretch()
@@ -6925,6 +6953,44 @@ class HdfProgressDialog(QDialog):
         self._anim_timer.start()
 
     # ------------------------------------------------------------------
+    # ---- Escape asks ---------------------------------------------------
+    def asking(self):
+        """The Escape question is on screen."""
+        return not self._ask_row.isHidden()
+
+    def _ask_abort(self):
+        if self._cancelled or not self._cancel_btn.isEnabled():
+            return                     # already cancelling: nothing to ask
+        self._ask_label.setText(ui_tr_now("Abort the operation in progress?"))
+        self._ask_yes.setText(ui_tr_now("Yes"))
+        self._ask_no.setText(ui_tr_now("No"))
+        self._cancel_btn.hide()
+        self._ask_row.show()
+        self._ask_no.setFocus()        # Enter is the safe answer
+
+    def _ask_answer(self, yes):
+        self._ask_row.hide()
+        self._cancel_btn.show()
+        if yes:
+            self._on_cancel_clicked()
+
+    def keyPressEvent(self, event):
+        key = event.key()
+        if key == Qt.Key.Key_Escape:
+            # Never QDialog's reject(): that hides the dialog and leaves
+            # the operation running unseen.
+            event.accept()
+            if self.asking():
+                self._ask_answer(False)
+            elif self._esc_asks:
+                self._ask_abort()
+            return
+        if self.asking() and key in (Qt.Key.Key_Y, Qt.Key.Key_N):
+            event.accept()
+            self._ask_answer(key == Qt.Key.Key_Y)
+            return
+        super().keyPressEvent(event)
+
     @Slot()
     def _on_cancel_clicked(self):
         self._cancelled = True
@@ -7016,6 +7082,14 @@ class HdfProgressDialog(QDialog):
         super().done(result)
 
     def closeEvent(self, event):
+        if event.spontaneous():
+            # The window manager's close (Alt+F4 - the title bar has no
+            # close button): the same question as Escape, never a silent
+            # close. The owner's own close() is not spontaneous.
+            event.ignore()
+            if self._esc_asks and not self.asking():
+                self._ask_abort()
+            return
         self._anim_timer.stop()
         super().closeEvent(event)
 
