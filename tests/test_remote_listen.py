@@ -127,6 +127,12 @@ def mock_next(sock, entries, filebytes, cap, fs, send_listen=True):
         settle(); sock.sendall(b"Poll")
         cmd = rx_payload(sock)
         op, arg = cmd[0:1], cmd[1:].decode()
+        if op == b'P' and "\x00" in arg:
+            # A put's size rides after a NUL for a listener known to read it
+            # (ZXNR 1.13.0+, the dot 5.9.17+ - this mock's default ident is a
+            # 9.9.9 dot); every listener reads the path as a C string.
+            cap.setdefault('put_raw', []).append(arg)
+            arg = arg.split("\x00", 1)[0]
         # esxDOS accepts an optional drive prefix ("m:/games") on every path;
         # the mock fs is drive-less, so strip it exactly like esxDOS resolves it.
         arg_np = arg[2:] if (len(arg) >= 2 and arg[1] == ":") else arg

@@ -104,6 +104,9 @@ SUITES = [
     ("test_invalid_drive.py",    60, None),   # .sync5 5.9.16: the 'F'+DRV refusal
     ("test_put_size.py",         90, None),   # 9.7.71: a put's size for ZXNR 1.13.0+
     ("test_next_abort.py",       90, None),   # 9.7.72: BREAK on a ZXNR 1.14.0+ Next
+    ("test_layout_and_background.py", 120, None),   # 9.7.73: path rows on top, Random once, inverted selection
+    ("test_cancel_transfer.py",  180, None),   # 9.7.73: Cancel ends the put/get in flight; per-file progress bar
+    ("test_search_paths.py",     120, None),   # 9.7.73: additional search paths for the emulators and hdfmonkey
     # The same three pieces for a ZX Spectrum Next dialing from another
     # machine (9.7.47): its fakes patch _re_same_host to count as real
     # hardware. ~280 s on its own (with the write-chain, bridge-hold and

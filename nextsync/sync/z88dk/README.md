@@ -64,9 +64,12 @@ $C000–$FFFF   (mmu6/7)              : NextZXOS (saved/restored by the crt)
 very top of mmu5; v5.2's `0xBF00` wasted the last 256 bytes, which nothing in
 the dotn crt or clib touches). The large buffers (`inbuf`,
 `scratch`, …) are file-scope statics so they land in the main bank and keep the
-stack small. Current layout (v5.9.16): main-bank content ends at `0xBC1B`
-(`__BSS_END_head` in `syncdev.map`), leaving 997 bytes of stack below `0xC000`
-(5.9.16 spent 450 on the `Drives` banner line and the invalid-drive gate, as four small functions - inline in `main()` the same code cost 652; 5.9.15 was `0xBA59` / 1447, having spent 48 on the probing `listen_drives`; 5.9.14 was `0xBA29` / 1495,
+stack small. Current layout (v5.9.18): main-bank content ends at `0xBD74`
+(`__BSS_END_head` in `syncdev.map`), leaving 652 bytes of stack below `0xC000`
+(5.9.18 spent 46 on the server's cancel, the size in a get's `N` block and `run_cmd`; 5.9.17 was `0xBD46` / 698 and moved `scratch`, 1280 bytes, out of main-bank bss into the banked window at `0x7000` -
+the page `inbuf` has lived in since 5.9.5 - and spent about 1580: `run.asm`, the transfer
+display, is ~1330 of hand assembly, the CRC core came over from the head page (62) to make
+room there for `esx_f_fstat`, and the rest is its call sites and the part-file cleanup in `transfer()`; 5.9.16 was `0xBC1B` / 997, having spent 450 on the `Drives` banner line and the invalid-drive gate, as four small functions - inline in `main()` the same code cost 652; 5.9.15 was `0xBA59` / 1447, having spent 48 on the probing `listen_drives`; 5.9.14 was `0xBA29` / 1495,
 having spent 51 on the slicing loop in `crc_run` that keeps the flock flying
 through a CRC pass — 256-byte slices with the frame-gated `anim_tick` after the
 read and after every slice, so the longest gap between ticks is one read OR
@@ -718,6 +721,49 @@ update: staging c:/mydir/zxnextremote-n2n.nex.new (115200 bytes)
   mock Next), and the dot side is **hardware-confirmed release by release** on
   real Nexts and clones (most recently v5.9.0's release-and-swap flow, proven
   in both directions).
+- **5.9.18 (17 Nov 2026), NOT yet run on hardware:** four small things, all in the transfer
+  paths. **The display goes when the next command comes:** the man stayed at the end of his
+  line, arms up, under every listing that followed a transfer. `run_cmd(op)` (run.asm, called
+  once from the `-listen` dispatch) hides it on any command but the idle poll and a `crc`
+  (`K`) - clients ask for that one right after a put, and the put is still what the screen is
+  about. **A put the server cancels ends at that frame:** a framed `Error` numbered
+  `packetno ^ 0x80` is the server cancelling (ZX-Next-Unite 9.7.73's Cancel button; ZX Next
+  Remote 1.14.0 sends the same on BREAK). Six rounds of it ended the put anyway; now the first
+  one does - part-file deleted, the abduction, `F` to the server. **A get the server cancels
+  ends at that block:** `send_block` answers 2 for a reply starting with `A` (the server's
+  `Abort` in place of `Ok`) and `send_block_rt` stops instead of burning its twelve retries;
+  the `B` still follows. Any other reply is "send it again", as before. **A get's `N` block
+  carries the file's size:** its four length bytes were always zero ("length unknown"); they
+  are the size now, little-endian like every other count a `-listen` reply carries, which is
+  what gives the PC a per-file percentage for a download. Seen on MAME against the app's own
+  worker: a put then an `ls` (display gone), a put and a get each cancelled part-way (ended
+  within the abduction's second and a half, nothing left on either side, the session carried
+  on with an `ls`).
+- **5.9.17 (17 Nov 2026), NOT yet run on hardware:** the transfer paths, three things.
+  **No half file:** a put that does not finish - BREAK, a link that died, a server that gave
+  up - used to leave what it had written on the card under the file's own name. `transfer()`
+  now deletes it and prints `Cleared partially transferred` / `file: <path>` (two rows: the ROM
+  prints 32 columns), verbose or not. **The transfer display** (`run.asm`, part of the default
+  eye-candy, so `-na` turns it off with the rest; ZX Next Remote 1.13.0's, brought over): while
+  a file moves in either direction a little man runs along a line at the foot of the screen,
+  the line fills green behind him, and under it stand the percentage and the rate
+  (`45%  9.0K/s`). The size comes from the dot's own `fstat` for a file it serves, and for a
+  put from eight hex digits after the path's NUL - what ZX Next Remote 1.13.0+ sends, and
+  ZX-Next-Unite from 9.7.73 to a dot that says 5.9.17. Without a size (an older server, classic
+  sync) he runs laps and the text counts kilobytes. A file that lands leaves the line full and
+  him with his arms up until the next one. All of it is sprites - the line is two patterns
+  stretched by the engine's X scale, the green part up to five more, the text seven whose
+  patterns are redrawn from a 16-glyph font once a second - because the ROM's screen scrolls.
+  **The abduction:** when the transfer is interrupted a saucer flies over him, sends down four
+  rays one after the other (red, yellow, green, blue), he rises into it, and it leaves. About a
+  second and a half, played to the end before the dot goes on; the server gets its `F` after it.
+  Sprites 6-25 and patterns 6-22 (anim.c owns 0-5); the saucer is anim.c's. The frame waits
+  give up by themselves, so a machine with interrupts off would play it too fast, not hang.
+  **What moved to pay for it:** `scratch` (1280 bytes) is an absolute address in the banked
+  window now, like `inbuf`, and the CRC core left the head page for the main bank. Seen on MAME
+  against the app's listen worker: a put that finishes, a put with BREAK held mid-file (the
+  card's folder listed afterwards: no part-file), a get the dot serves (byte-identical). The
+  sprite X scale it relies on is emulated by MAME; it has not been seen on a real Next.
 - **5.9.16 (14 Nov 2026), NOT yet run on hardware:** the banner gains a
   `Drives C D M` line right above the `Flow ...` line (every mode; the same
   probe `getdrives` answers with), and `-listen` refuses a command whose

@@ -421,6 +421,16 @@ def build_config_io(
                 _no_toast = False
             host.settings_disable_no_emulator_toast_checkbox.setChecked(_no_toast)
 
+            # The additional search paths (9.7.73). Startup read this key
+            # straight from the file, long before this restore, so the
+            # first lookups already used it; here the Settings row is shown
+            # the same list (set_paths persists nothing).
+            _search_paths = parse_search_paths(
+                configuration_dictionary.get(SETTING_EMULATOR_SEARCH_PATHS, ""))
+            set_extra_search_paths(_search_paths)
+            if hasattr(host, "_search_paths_show"):
+                host._search_paths_show(_search_paths)
+
             # NextSync HTTP bridge defaults to False; when enabled it also
             # auto-starts the web server with the app. The start is
             # deferred to the event loop so the whole window (log pane,
@@ -1357,7 +1367,8 @@ def build_config_io(
                             _prev.setPixmap(
                                 _px.scaled(160, 90, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                             )
-            # If empty / not found, BackgroundWidget is already in random-cycling mode
+            # If empty / not found, BackgroundWidget is already in Random mode,
+            # showing the one image it picked at construction.
 
             # Favorites
             try:

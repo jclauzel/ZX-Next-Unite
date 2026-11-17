@@ -363,8 +363,20 @@ elif PHASE == 9:
     # static UI. Needs no image and no hdfmonkey. (BASE_CFG pins en; the es
     # line written after it wins — the cfg loader is last-value-wins.)
     ensure_scratch(fresh=False)
+    # The additional search paths (9.7.73): one folder holding a CSpect one
+    # level down, and one that does not exist. Read by the first lookups,
+    # long before the cfg restore.
+    _SP_DIR = os.path.join(SCRATCH, "sp-tools")
+    _SP_GONE = os.path.join(SCRATCH, "sp-gone")
+    shutil.rmtree(_SP_DIR, ignore_errors=True)
+    shutil.rmtree(_SP_GONE, ignore_errors=True)
+    os.makedirs(os.path.join(_SP_DIR, "CSpect9_9_9_0"))
+    with open(os.path.join(_SP_DIR, "CSpect9_9_9_0", "CSpect.exe"), "wb") as f:
+        f.write(b"not a real CSpect")
     with open(CFG, "w", encoding="utf-8") as f:
-        f.write(BASE_CFG + "ui_language=es\n")
+        f.write(BASE_CFG + "ui_language=es\n"
+                + "emulator_search_paths=%s|%s\n" % (_SP_DIR.replace("\\", "/"),
+                                                    _SP_GONE.replace("\\", "/")))
 elif PHASE == 17:
     # A run with NO sync root saved gets the folder it was started from
     # (9.7.52), on the FIRST-RUN path in particular - where no hdfg.cfg means
@@ -662,8 +674,9 @@ def inspect_phase1():
     def pos(widget):
         i = grid.indexOf(widget)
         return None if i < 0 else grid.getItemPosition(i)[:2]
-    # The Remote Explorer mirroring (9.5.19): nav bars above the trees,
-    # the path boxes BELOW them, the image buttons at the very bottom.
+    # The Remote Explorer mirroring (9.5.19): nav bars above the trees.
+    # The path boxes sat BELOW the trees until 9.7.73; they are each
+    # side's first row now, and the image buttons ride in that row.
     # 9.7.2: the local column is ONE widget on the left of a horizontal
     # splitter (nav bar / tree row / path row stacked), and the image side
     # keeps the grid, re-indexed - column 0 the transfer buttons, column 1
@@ -671,8 +684,10 @@ def inspect_phase1():
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QSplitter
     _lcol = win.sdcard_explorer.local_column.layout()
-    check("local nav bar tops the left column", _lcol.indexOf(win.local_nav_row_container) == 0, str(_lcol.indexOf(win.local_nav_row_container)))
-    check("image nav bar at image-side grid (0,1)", pos(win.image_nav_row_container) == (0, 1), str(pos(win.image_nav_row_container)))
+    # 9.7.73: the PATH rows moved from under the trees to the top of each
+    # side, right under the image row; the nav bars follow them.
+    check("local nav bar is the left column's second row", _lcol.indexOf(win.local_nav_row_container) == 1, str(_lcol.indexOf(win.local_nav_row_container)))
+    check("image nav bar at image-side grid (1,1)", pos(win.image_nav_row_container) == (1, 1), str(pos(win.image_nav_row_container)))
     _hs = getattr(win, "sdcard_hsplitter", None)
     check("SD Card local | image splitter exists", isinstance(_hs, QSplitter))
     if _hs is not None:
@@ -680,8 +695,11 @@ def inspect_phase1():
         check("SD Card split holds the local column and the image side",
               _hs.count() == 2 and _hs.widget(0) is win.sdcard_explorer.local_column
               and _hs.widget(1) is win.sdcard_explorer.image_side)
-        check("transfer buttons at image-side grid (1,0)",
-              pos(win.centralbuttonscontainer) == (1, 0), str(pos(win.centralbuttonscontainer)))
+        check("transfer buttons at image-side grid (2,0), beside the tree",
+              pos(win.centralbuttonscontainer) == (2, 0)
+              and pos(win.sdcard_explorer.image_explorer_container) == (2, 1)
+              and grid.rowStretch(2) == 1 and grid.rowStretch(1) == 0,
+              str(pos(win.centralbuttonscontainer)))
         # Restored from the cfg (520,680 -> 43% left): compare the RATIO,
         # QSplitter rescales requested sizes to the actual width.
         wait_until(lambda: sum(_hs.sizes()) > 0 and _hs.handle(1).width() > 0, 10, "SD Card split laid out")
@@ -764,8 +782,8 @@ def inspect_phase1():
           == win.filtertext.maximumWidth(),
           "%d/%d" % (win.filtertext.minimumWidth(),
                      win.image_filtertext.minimumWidth()))
-    check("local path row bottoms the left column", _lcol.indexOf(win.local_path_row_container) == 2, str(_lcol.indexOf(win.local_path_row_container)))
-    check("image path row at image-side grid (2,1)", pos(win.image_path_row_container) == (2, 1), str(pos(win.image_path_row_container)))
+    check("local path row tops the left column", _lcol.indexOf(win.local_path_row_container) == 0, str(_lcol.indexOf(win.local_path_row_container)))
+    check("image path row at image-side grid (0,1)", pos(win.image_path_row_container) == (0, 1), str(pos(win.image_path_row_container)))
     _lrow = win.local_path_row_container.layout()
     # The index check alone PASSES with the button appended, which would
     # ship it untested - so it is named, and the stretch pair with it
@@ -802,8 +820,8 @@ def inspect_phase1():
     # so the CONTAINER is what sits at (1,0) now - same cell, same column
     # stretch, one row inside it.
     _pane = win.sdcard_explorer
-    check("local explorer row is the left column's middle (stretch) row",
-          _pane.local_column.layout().indexOf(_pane.local_tree_row_container) == 1,
+    check("local explorer row is the left column's last (stretch) row",
+          _pane.local_column.layout().indexOf(_pane.local_tree_row_container) == 2,
           str(_pane.local_column.layout().indexOf(_pane.local_tree_row_container)))
     _ltree = _pane.local_tree_row_container.layout()
     check("local tree row = emulator strip|tree (strip on the OUTER edge)",
@@ -929,7 +947,7 @@ def inspect_phase1():
     check("resetting puts the button back on the app theme and forgets it",
           win.button_start_cspect.styleSheet() == ""
           and win.emulator_color_for("CSpect") is None)
-    check("image explorer at image-side grid (1,1)", pos(win.image_explorer_container) == (1, 1), str(pos(win.image_explorer_container)))
+    check("image explorer at image-side grid (2,1)", pos(win.image_explorer_container) == (2, 1), str(pos(win.image_explorer_container)))
     check("button cluster no longer a grid row of its own",
           pos(win.imageexplorerbuttonscontainer) is None,
           str(pos(win.imageexplorerbuttonscontainer)))
@@ -1037,14 +1055,36 @@ def inspect_phase1():
           win._recheck_emulator_launchability("Mame") is False)
 
     if ok:
+        # The image explorer is FLAT since 9.7.73: it shows one folder, and
+        # the folder on show - not the selection - is the target.
+        def _img_dir():
+            return win.sdcard_explorer.image_dest_dir()
+
+        def _img_rows():
+            _r = win.image_treeview.rootIndex()
+            return [win.image_model.index(r, 0, _r).data()
+                    for r in range(win.image_model.rowCount(_r))
+                    if not win.image_treeview.isRowHidden(r, _r)]
+
+        check("image explorer: no expand arrows, not expandable",
+              not win.image_treeview.rootIsDecorated()
+              and not win.image_treeview.itemsExpandable())
+        check("image explorer at the root: no '..' row",
+              ".." not in _img_rows() and "games" in _img_rows(), str(_img_rows()))
         win.diskimageexplorerpathinput.setText("/games/sub")
         win.diskimageexplorerpathinput.editingFinished.emit()
-        ok2 = wait_until(lambda: win.image_selected_path == "/games/sub",
+        ok2 = wait_until(lambda: _img_dir() == "/games/sub",
                          what="navigate to /games/sub")
-        check("navigate to nested image folder", ok2, win.image_selected_path)
+        check("navigate to nested image folder", ok2, _img_dir())
         check("box shows nested folder", win.diskimageexplorerpathinput.text() == "/games/sub",
               win.diskimageexplorerpathinput.text())
-        check("tree selection valid", win.image_treeview.currentIndex().isValid())
+        check("the view shows that folder alone: '..' first, then its rows",
+              win.image_treeview.rootIndex().isValid()
+              and _img_rows()[:1] == [".."] and "hello.txt" in _img_rows()
+              and "games" not in _img_rows(), str(_img_rows()))
+        check("arriving in a folder selects nothing",
+              win.image_selected_path == "" and not win.image_selected_paths,
+              win.image_selected_path)
 
         win.diskimageexplorerpathinput.setText("/games/sub/hello.txt")
         win.diskimageexplorerpathinput.editingFinished.emit()
@@ -1072,9 +1112,9 @@ def inspect_phase1():
         # ---- persistence -------------------------------------------------
         win.diskimageexplorerpathinput.setText("/games/sub")
         win.diskimageexplorerpathinput.editingFinished.emit()
-        ok6 = wait_until(lambda: win.image_selected_path == "/games/sub",
+        ok6 = wait_until(lambda: _img_dir() == "/games/sub",
                          what="re-navigate for persistence")
-        check("re-navigate for persistence", ok6, win.image_selected_path)
+        check("re-navigate for persistence", ok6, _img_dir())
         check("image path persisted to cfg", "image_explorerpath=/games/sub" in cfg_lines(),
               str([l for l in cfg_lines() if l.startswith("image_explorerpath")]))
 
@@ -1142,42 +1182,62 @@ def inspect_phase1():
         QCoreApplication.processEvents()
 
         win.image_explorer_refresh_button.click()
-        ok7 = wait_until(lambda: win.image_selected_path == "/games/sub"
-                         and win.diskimageexplorerpathinput.text() == "/games/sub",
-                         timeout=15, what="image Refresh keeps target")
-        check("image Refresh keeps target", ok7,
-              f"sel={win.image_selected_path!r} box={win.diskimageexplorerpathinput.text()!r}")
+        QCoreApplication.processEvents()
+        ok7 = wait_until(lambda: _img_dir() == "/games/sub"
+                         and win.diskimageexplorerpathinput.text() == "/games/sub"
+                         and "hello.txt" in _img_rows(),
+                         timeout=15, what="image Refresh keeps the folder on show")
+        check("image Refresh keeps the folder on show", ok7,
+              f"dir={_img_dir()!r} box={win.diskimageexplorerpathinput.text()!r} rows={_img_rows()!r}")
+        check("...with its '..' row back first, once",
+              _img_rows()[:1] == [".."] and _img_rows().count("..") == 1, str(_img_rows()))
 
-        # THE Refresh-with-filter regression: a Refresh with nothing selected
-        # re-lists the ROOT, which drops every folder back to a single
-        # placeholder child. A filter matching only something INSIDE a folder
-        # then had nothing left to match and hid the whole tree. An unlisted
-        # folder's contents are unknown, so it must stay reachable.
-        from zxnu_sdcard_explorer import IMG_ISDIR_ROLE as _ISDIR
+        # A re-listing of a folder ABOVE the one on show frees its item: the
+        # view must walk back down to it rather than stay on the root.
+        win.sdcard_explorer.image_reload_dir("/")
+        ok7b = wait_until(lambda: _img_dir() == "/games/sub"
+                          and win.image_treeview.rootIndex().isValid()
+                          and "hello.txt" in _img_rows(),
+                          timeout=20, what="back on /games/sub after a root re-listing")
+        check("a root re-listing comes back to the folder on show", ok7b,
+              f"dir={_img_dir()!r} rows={_img_rows()!r}")
+        win.sdcard_explorer.image_reload_dir("/games")
+        ok7c = wait_until(lambda: _img_dir() == "/games/sub"
+                          and win.image_treeview.rootIndex().isValid()
+                          and "hello.txt" in _img_rows(),
+                          timeout=20, what="back on /games/sub after its parent's re-listing")
+        check("...and so does a re-listing of its parent", ok7c,
+              f"dir={_img_dir()!r} rows={_img_rows()!r}")
+
+        # The filter works on the folder on show, a folder matched by its own
+        # row like any file (what is inside it is not on screen), and it
+        # survives a re-listing: rows come back visible from a refill, so the
+        # listing re-applies it.
         win.image_filtertext.setText("zzz-matches-nothing-visible")
         QCoreApplication.processEvents()
-        win.sdcard_explorer.image_load_root()
-        wait_until(lambda: win.image_model.invisibleRootItem().rowCount() > 0,
-                   timeout=15, what="root re-listed under a filter")
+        check("a filter matching nothing leaves only '..'", _img_rows() == [".."],
+              str(_img_rows()))
+        _relisted = []
+
+        def _on_rows(*_a):
+            _relisted.append(1)
+        win.image_model.rowsInserted.connect(_on_rows)
+        win.image_explorer_refresh_button.click()
+        wait_until(lambda: len(_relisted) >= 2, timeout=15,
+                   what="the folder re-listed under a filter")
         QCoreApplication.processEvents()
-        _root = win.image_model.invisibleRootItem()
-        _all = [_root.child(r, 0) for r in range(_root.rowCount())]
-        _all = [i for i in _all if i is not None]
-        _dirs = [i for i in _all if i.data(_ISDIR)]
-        _shown = [i for i in _dirs
-                  if not win.image_treeview.isRowHidden(i.row(), i.index().parent())]
-        check("a filtered root Refresh still shows unlisted folders",
-              bool(_dirs) and len(_shown) == len(_dirs),
-              f"{len(_shown)}/{len(_dirs)} folders visible")
-        # ...and non-matching FILES are still hidden, so this stays a
-        # "cannot rule it out" exemption rather than a filter bypass.
-        _files = [i for i in _all if not i.data(_ISDIR)]
-        _fshown = [i for i in _files
-                   if not win.image_treeview.isRowHidden(i.row(), i.index().parent())]
-        check("a filtered Refresh still hides non-matching files",
-              not _fshown, f"{len(_fshown)} file(s) wrongly visible")
+        win.image_model.rowsInserted.disconnect(_on_rows)
+        ok7d = wait_until(lambda: _img_rows() == [".."] and _img_dir() == "/games/sub",
+                          timeout=15, what="filtered Refresh")
+        check("a Refresh under that filter still shows only '..'", ok7d, str(_img_rows()))
+        win.image_filtertext.setText("HELLO")
+        QCoreApplication.processEvents()
+        check("the filter is case-blind and matches the row's name",
+              _img_rows() == ["..", "hello.txt"], str(_img_rows()))
         win.image_filtertext.setText("")
         QCoreApplication.processEvents()
+        check("clearing the filter gives the rows back", "hello.txt" in _img_rows(),
+              str(_img_rows()))
 
         # A row the filter hides must stop being a TARGET. This tree filters
         # in the VIEW (setRowHidden), and hiding a row does NOT deselect it,
@@ -1224,19 +1284,40 @@ def inspect_phase1():
                   not win.image_treeview.selectionModel().isSelected(_hello))
             win.image_filtertext.setText("")
             QCoreApplication.processEvents()
-        # The root reload above cleared the selection; the Up checks
-        # below start from /games/sub, so put it back before handing over.
+        # The Up checks below start from /games/sub.
         win.sdcard_explorer.image_navigate_to_path("/games/sub")
-        wait_until(lambda: win.image_selected_path == "/games/sub",
-                   timeout=15, what="restore selection after the filter test")
+        wait_until(lambda: _img_dir() == "/games/sub",
+                   timeout=15, what="on /games/sub before the Up checks")
         QCoreApplication.processEvents()
 
         win.image_explorer_up_button.click()
-        ok8 = wait_until(lambda: win.image_selected_path == "/games",
-                         timeout=15, what="image Up selects parent")
-        check("image Up selects parent", ok8, win.image_selected_path)
+        ok8 = wait_until(lambda: _img_dir() == "/games",
+                         timeout=15, what="image Up shows the parent")
+        check("image Up shows the parent", ok8, _img_dir())
         check("image Up updates box", win.diskimageexplorerpathinput.text() == "/games",
               win.diskimageexplorerpathinput.text())
+        check("image Up selects nothing (a selected row is what Delete acts on)",
+              win.image_selected_path == "" and not win.image_selected_paths,
+              win.image_selected_path)
+        check("the parent's rows: '..' first, the folder left among them",
+              _img_rows()[:1] == [".."] and "sub" in _img_rows(), str(_img_rows()))
+        # Selecting a folder row does not move the target into it; a
+        # double-click enters it, and one on '..' comes back.
+        _sub = _image_index_for("/games/sub")
+        win.image_treeview.setCurrentIndex(_sub)
+        QCoreApplication.processEvents()
+        check("a selected folder row is the selection, not the target",
+              win.image_selected_path == "/games/sub" and _img_dir() == "/games",
+              f"{win.image_selected_path!r} {_img_dir()!r}")
+        win.image_treeview.doubleClicked.emit(_sub)
+        ok8b = wait_until(lambda: _img_dir() == "/games/sub" and "hello.txt" in _img_rows(),
+                          timeout=15, what="double-click enters the folder")
+        check("a double-click on a folder enters it", ok8b, f"{_img_dir()!r} {_img_rows()!r}")
+        win.image_treeview.doubleClicked.emit(
+            win.image_model.index(0, 0, win.image_treeview.rootIndex()))
+        ok8c = wait_until(lambda: _img_dir() == "/games", timeout=15,
+                          what="double-click on '..' goes up")
+        check("a double-click on '..' goes up", ok8c, _img_dir())
 
         win.image_explorer_up_button.click()
         ok9 = wait_until(lambda: win.image_selected_path == ""
@@ -1285,9 +1366,9 @@ def inspect_phase1():
         check("premise: the local tree lists both files to upload", _okl)
         win.diskimageexplorerpathinput.setText("/games")
         win.diskimageexplorerpathinput.editingFinished.emit()
-        _okg = wait_until(lambda: win.image_selected_path == "/games",
+        _okg = wait_until(lambda: _img_dir() == "/games",
                           timeout=15, what="image target /games")
-        check("premise: /games is the image target", _okg, win.image_selected_path)
+        check("premise: /games is the image target", _okg, _img_dir())
         if _okl and _okg:
             _lsm = win.treeview.selectionModel()
             _lsm.clearSelection()
@@ -1362,9 +1443,9 @@ def inspect_phase1():
                       not win._explorer_clipboard, str(win._explorer_clipboard))
                 win.diskimageexplorerpathinput.setText("/games/sub")
                 win.diskimageexplorerpathinput.editingFinished.emit()
-                _oks = wait_until(lambda: win.image_selected_path == "/games/sub",
+                _oks = wait_until(lambda: _img_dir() == "/games/sub",
                                   timeout=15, what="image target /games/sub")
-                check("premise: /games/sub is the image target", _oks, win.image_selected_path)
+                check("premise: /games/sub is the image target", _oks, _img_dir())
                 if _oks:
                     win.button_to_image.click()    # modal: returns when uploaded
                     QCoreApplication.processEvents()
@@ -1417,12 +1498,14 @@ def inspect_phase2():
     check("MainWindow found", win is not None)
     if win is None:
         app.quit(); return
-    ok = wait_until(lambda: win.image_selected_path == "/games/sub", timeout=90,
+    ok = wait_until(lambda: win.sdcard_explorer.image_dest_dir() == "/games/sub", timeout=90,
                     what="startup restore of /games/sub")
-    check("startup restores saved image path", ok, win.image_selected_path)
+    check("startup restores saved image path", ok, win.sdcard_explorer.image_dest_dir())
     check("box shows restored path", win.diskimageexplorerpathinput.text() == "/games/sub",
           win.diskimageexplorerpathinput.text())
-    check("tree selection valid", win.image_treeview.currentIndex().isValid())
+    check("the image explorer is rooted at the restored folder, '..' first",
+          win.image_treeview.rootIndex().isValid()
+          and win.image_model.index(0, 0, win.image_treeview.rootIndex()).data() == "..")
     check("general font size restored from cfg (8 pt applied)",
           win.settings_general_font_combo.font().pointSize() == 8
           and win.settings_zxnu_update_check_checkbox.font().pointSize() == 8
@@ -3069,6 +3152,135 @@ def inspect_phase8():
           f"dl={win.downloadimage.styleSheet()!r}")
     app.quit()
 
+def _phase9_search_paths(win):
+    """9.7.73: the additional search paths, end to end in the real app (the
+    UI is in Spanish here, so the toasts are checked translated).
+    tests/test_search_paths.py covers the rules headlessly."""
+    sp_dir = os.path.join(SCRATCH, "sp-tools").replace("\\", "/")
+    sp_gone = os.path.join(SCRATCH, "sp-gone").replace("\\", "/")
+    fake = os.path.join(SCRATCH, "sp-tools", "CSpect9_9_9_0", "CSpect.exe")
+
+    def _under(p, root):
+        try:
+            return bool(p) and os.path.normcase(os.path.abspath(p)).startswith(
+                os.path.normcase(os.path.abspath(root)))
+        except (OSError, ValueError):
+            return False
+
+    def _toast_texts():
+        out = []
+        for t in list(getattr(win, "_live_toasts", []) or []):
+            try:
+                out.append(" | ".join(l.text() for l in t.findChildren(QLabel)))
+            except RuntimeError:
+                pass
+        return out
+
+    check("search paths: CSpect was found through the listed folder at startup",
+          _under(win._cspect_executable_path, sp_dir), str(win._cspect_executable_path))
+    check("search paths: ...which makes CSpect launchable (its group is shown)",
+          not win.cspect_group.isHidden())
+    ed = getattr(win, "settings_search_paths_editor", None)
+    check("search paths: the Settings editor is built", ed is not None)
+    if ed is None:
+        return
+    check("search paths: the editor at its named row",
+          settings_pos(win, ed) == sref("emulator_search_paths", 1), str(settings_pos(win, ed)))
+    check("search paths: the saved list is restored, in order",
+          ed.paths() == [sp_dir, sp_gone], str(ed.paths()))
+    check("search paths: Advanced only - hidden while the tab is in Basic mode",
+          ed.isHidden() == (not win.settings_mode_switch.isChecked()))
+    check("search paths: the buttons are translated",
+          ed.btn_add.text() == "Añadir carpeta…" and ed.btn_up.text() == "Subir",
+          (ed.btn_add.text(), ed.btn_up.text()))
+    check("search paths: the folder that is gone is marked in the list",
+          bool(ed.list.item(1).toolTip()) and not ed.list.item(0).toolTip())
+    # the detection toast: where the copy came from, and the invalid path
+    win._show_emulator_detection_toast()
+    QCoreApplication.processEvents()
+    texts = _toast_texts()
+    check("search paths: the detection toast marks the copy found that way",
+          any("(ruta de búsqueda personalizada)" in t and "CSpect" in t for t in texts), str(texts))
+    check("search paths: a yellow toast names the path that is not valid",
+          any("Ruta de búsqueda no válida" in t and "sp-gone" in t for t in texts), str(texts))
+    # live: remove the missing one - persisted, nothing else changes
+    ed.list.setCurrentRow(1)
+    ed.btn_remove.click()
+    QCoreApplication.processEvents()
+    check("search paths: Remove persists the shorter list",
+          ("emulator_search_paths=" + sp_dir) in cfg_lines(),
+          str([l for l in cfg_lines() if l.startswith("emulator_search_paths")]))
+    check("search paths: CSpect is still the listed folder's",
+          _under(win._cspect_executable_path, sp_dir), str(win._cspect_executable_path))
+    # live: remove the folder CSpect came from - it is forgotten at once
+    ed.list.setCurrentRow(0)
+    ed.btn_remove.click()
+    ok = wait_until(lambda: not _under(win._cspect_executable_path, sp_dir), timeout=20,
+                    what="CSpect forgotten after its search path was removed")
+    check("search paths: removing the folder forgets the CSpect found under it", ok,
+          str(win._cspect_executable_path))
+    check("search paths: an empty list is persisted as empty",
+          "emulator_search_paths=" in cfg_lines(),
+          str([l for l in cfg_lines() if l.startswith("emulator_search_paths")]))
+    wait_until(lambda: not getattr(win, "_emulator_scan_pending", False), timeout=30,
+               what="the rescan after the removal")
+    # live: add it back - found again, no restart
+    check("search paths: Add takes an existing folder", ed.add_path(sp_dir) is True)
+    ok = wait_until(lambda: _under(win._cspect_executable_path, sp_dir), timeout=20,
+                    what="CSpect found again after its search path was added")
+    check("search paths: adding the folder finds its CSpect live", ok,
+          str(win._cspect_executable_path))
+    check("search paths: ...and the list is persisted again",
+          ("emulator_search_paths=" + sp_dir) in cfg_lines())
+    check("search paths: a folder that does not exist is refused",
+          ed.add_path(sp_gone) is False and ed.paths() == [sp_dir])
+    # live, MAME: a second folder holding a (fake) MAME one level down. A
+    # listed folder outranks PATH - and on Windows the app's own
+    # downloads/mame - so it is adopted whatever this box has installed.
+    sp_mame = os.path.join(SCRATCH, "sp-mame").replace("\\", "/")
+    shutil.rmtree(sp_mame, ignore_errors=True)
+    _mexe = "mame.exe" if sys.platform.startswith("win") else "mame"
+    os.makedirs(os.path.join(sp_mame, "mame0289"))
+    _mpath = os.path.join(sp_mame, "mame0289", _mexe)
+    with open(_mpath, "wb") as f:
+        f.write(b"not a real MAME")
+    if not sys.platform.startswith("win"):
+        os.chmod(_mpath, 0o755)
+    _mame_before = win._mame_executable_path
+    _takes = sys.platform.startswith("win") or not _mame_before
+    check("search paths: Add takes the MAME folder", ed.add_path(sp_mame) is True)
+    QCoreApplication.processEvents()
+    if _takes:
+        check("search paths: a MAME under a listed folder is adopted live",
+              _under(win._mame_executable_path, sp_mame), str(win._mame_executable_path))
+        check("search paths: ...and MAME is launchable (its group is shown)",
+              win._mame_usable() and not win.mame_group.isHidden())
+    wait_until(lambda: not getattr(win, "_emulator_scan_pending", False), timeout=30,
+               what="the rescan after the MAME add")
+    ed.list.setCurrentRow(ed.paths().index(sp_mame))
+    ed.btn_remove.click()
+    QCoreApplication.processEvents()
+    check("search paths: removing the folder lets go of that MAME",
+          not _under(win._mame_executable_path, sp_mame), str(win._mame_executable_path))
+    wait_until(lambda: not getattr(win, "_emulator_scan_pending", False), timeout=30,
+               what="the rescan after the MAME removal")
+    shutil.rmtree(sp_mame, ignore_errors=True)
+    ed.list.setCurrentRow(0)
+    wait_until(lambda: not getattr(win, "_emulator_scan_pending", False), timeout=30,
+               what="the rescan after the add")
+    # leave no fake emulator behind for the checks that follow
+    ed.list.setCurrentRow(0)
+    ed.btn_remove.click()
+    wait_until(lambda: not _under(win._cspect_executable_path, sp_dir), timeout=20,
+               what="CSpect forgotten again")
+    wait_until(lambda: not getattr(win, "_emulator_scan_pending", False), timeout=30,
+               what="the last rescan")
+    try:
+        os.remove(fake)
+    except OSError:
+        pass
+
+
 def inspect_phase9():
     app = QApplication.instance()
     win = find_win()
@@ -3078,6 +3290,7 @@ def inspect_phase9():
     check("saved language restored in the combo",
           win.settings_ui_language_combo.currentData() == "es",
           win.settings_ui_language_combo.currentData())
+    _phase9_search_paths(win)
     # The picker must live in the visible 0/1 column band (a column-2+ cell
     # sits outside the pane width unless the window is enlarged — the bug
     # this check pins down).

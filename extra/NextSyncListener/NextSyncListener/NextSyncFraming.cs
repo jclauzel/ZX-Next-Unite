@@ -118,6 +118,29 @@ namespace NextSync.Listener
     /// <see cref="NextSyncStatus.OsProtected"/> instead of a plain failure,
     /// because the fix is a setting on the far machine, not the network.
     /// </summary>
+    /// <summary>
+    /// The mark ZX Next Remote 1.14.0 puts on a transfer its user aborted
+    /// (BREAK, then Yes): <c>'F'</c>+<c>BRK</c> refuses a put, <c>'B'</c>+<c>BRK</c>
+    /// ends a get whose file never got its <c>'E'</c>. A listener that does
+    /// not send it answers the plain <c>'F'</c> / <c>'B'</c>.
+    /// </summary>
+    public static class TransferAbort
+    {
+        /// <summary>The marker that follows the <c>'F'</c> or the <c>'B'</c>.</summary>
+        public static readonly byte[] Marker = { (byte)'B', (byte)'R', (byte)'K' };
+
+        /// <summary>True when a reply payload (a block minus its framing) carries the abort mark.</summary>
+        public static bool IsMark(byte[] payload)
+        {
+            if (payload == null || payload.Length < 1 + Marker.Length
+                || (payload[0] != (byte)'F' && payload[0] != (byte)'B'))
+                return false;
+            for (int i = 0; i < Marker.Length; i++)
+                if (payload[1 + i] != Marker[i]) return false;
+            return true;
+        }
+    }
+
     public static class OsProtection
     {
         /// <summary>The marker that follows the <c>'F'</c>.</summary>

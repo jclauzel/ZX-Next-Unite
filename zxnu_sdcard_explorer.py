@@ -49,6 +49,8 @@ import logging
 import os
 import platform
 
+import shiboken6
+
 from PySide6.QtCore import (QItemSelection, QItemSelectionModel,
                             QModelIndex, Qt, QTimer)
 from PySide6.QtGui import QColor, QStandardItem, QStandardItemModel
@@ -96,10 +98,16 @@ from zxnu_workers import (CompactButton, DotDotFirstProxyModel, root_tree_at,
 # only through hdfmonkey, so every tree item carries its full in-image path
 # plus the bookkeeping needed for lazy expansion.
 # ---------------------------------------------------------------------------
+# The image side's grid, top to bottom since 9.7.73: the path row, the nav
+# row (Up / Refresh / filter), the tree. The transfer-arrow buttons sit in
+# column 0 beside the tree, so zxnu_main places them by this name.
+SDCARD_IMAGE_TREE_ROW = 2
+
 IMG_PATH_ROLE = int(Qt.ItemDataRole.UserRole) + 1  # full path inside the image, e.g. "/games/manic.tap"
 IMG_ISDIR_ROLE = int(Qt.ItemDataRole.UserRole) + 2  # bool: is this item a directory
 IMG_LOADED_ROLE = int(Qt.ItemDataRole.UserRole) + 3  # bool: have this folder's children been loaded
 IMG_LOADING_ROLE = int(Qt.ItemDataRole.UserRole) + 4  # bool: a background "ls" for this folder is in flight
+IMG_UPDIR_ROLE = int(Qt.ItemDataRole.UserRole) + 5  # bool: the ".." row of the folder on show (no path of its own)
 
 
 class SdCardExplorerPane(QWidget):
@@ -133,11 +141,9 @@ class SdCardExplorerPane(QWidget):
         # invalidates listings that complete after the tree was wiped.
         self._image_ls_workers = set()
         self._image_load_generation = 0
-        # Where uploads / New Folder / paste / Up / Refresh point. It tracks
-        # the selection, because selecting IS how you navigate this tree -
-        # but it survives a name filter hiding that selection, which would
-        # otherwise drop the target back to the image root. See
-        # image_dest_dir and apply_image_filter.
+        # The folder the image explorer SHOWS, which is where uploads / New
+        # Folder / paste / Up / Refresh point (9.7.73: the view is flat, one
+        # folder at a time). See _image_show and image_dest_dir.
         self._image_anchor_dir = "/"
 
         # ---- local explorer (left pane) -----------------------------------
@@ -239,6 +245,17 @@ class SdCardExplorerPane(QWidget):
         self.image_treeview.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.image_treeview.setUniformRowHeights(True)
         self.image_treeview.setSortingEnabled(True)
+        # FLAT since 9.7.73: one folder at a time, entered with a double-
+        # click and left with '..' or Up - the local explorer beside it and
+        # the Remote Explorer's Next pane work that way, and this one showed
+        # every level at once behind expand arrows. The MODEL is still the
+        # nested, lazily listed tree (so every reader that walks it or looks
+        # a path up is unchanged); only the view is rooted at one folder.
+        self.image_treeview.setRootIsDecorated(False)
+        self.image_treeview.setItemsExpandable(False)
+        self.image_treeview.setExpandsOnDoubleClick(False)
+        self.image_treeview.doubleClicked.connect(self._on_image_double_clicked)
+        self.image_model.layoutChanged.connect(self._image_pin_updir)
         self.image_treeview.expanded.connect(self._on_image_expanded)
         self.image_treeview.selectionModel().selectionChanged.connect(self._on_image_selection_changed)
         self.set_table_image_properties()
@@ -350,7 +367,7 @@ class SdCardExplorerPane(QWidget):
         local_path_row.addWidget(self.local_path_clear)
 
         self.image_explorer_up_button = CompactButton("Up", self)
-        self.image_explorer_up_button.setToolTip("Select the parent folder inside the SD card image\n(at the top level this returns the target to the image root).")
+        self.image_explorer_up_button.setToolTip("Go up one folder inside the SD card image\n(same as double-clicking its '..' entry).")
         self.image_explorer_up_button.clicked.connect(self.image_explorer_up)
 
         self.image_explorer_refresh_button = CompactButton("Refresh", self, floor=72)
@@ -439,18 +456,22 @@ class SdCardExplorerPane(QWidget):
         self.local_column = QWidget(self)
         _local_col = QVBoxLayout(self.local_column)
         _local_col.setContentsMargins(0, 0, 0, 0)
+        # 9.7.73: the PATH row is the column's first row, right under the
+        # image row above the splitter, then Up / Refresh, then the tree
+        # (it was the last row, under the tree - Julien: "move the entire
+        # PATH bar right under" the image line).
+        _local_col.addWidget(self.local_path_row_container)
         _local_col.addWidget(self.local_nav_row_container)
         _local_col.addWidget(self.local_tree_row_container, 1)
-        _local_col.addWidget(self.local_path_row_container)
 
         self.image_side = QWidget(self)
         self.sdcard_explorer_grid = QGridLayout(self.image_side)
         self.sdcard_explorer_grid.setContentsMargins(0, 0, 0, 0)
-        self.sdcard_explorer_grid.addWidget(self.image_nav_row_container, 0, 1)
-        self.sdcard_explorer_grid.addWidget(self.image_explorer_container, 1, 1)
-        self.sdcard_explorer_grid.addWidget(self.image_path_row_container, 2, 1)
+        self.sdcard_explorer_grid.addWidget(self.image_path_row_container, 0, 1)
+        self.sdcard_explorer_grid.addWidget(self.image_nav_row_container, 1, 1)
+        self.sdcard_explorer_grid.addWidget(self.image_explorer_container, 2, 1)
         self.sdcard_explorer_grid.setColumnStretch(1, 1)
-        self.sdcard_explorer_grid.setRowStretch(1, 1)
+        self.sdcard_explorer_grid.setRowStretch(SDCARD_IMAGE_TREE_ROW, 1)
 
         self.sdcard_hsplitter = QSplitter(Qt.Horizontal, self)
         self.sdcard_hsplitter.addWidget(self.local_column)
@@ -474,7 +495,8 @@ class SdCardExplorerPane(QWidget):
         # not handed in here, MainWindow adds them once it has built them
         # (the button cluster goes INTO the image path row, right of the box).
         if transfer_buttons_container is not None:
-            self.sdcard_explorer_grid.addWidget(transfer_buttons_container, 1, 0)
+            self.sdcard_explorer_grid.addWidget(
+                transfer_buttons_container, SDCARD_IMAGE_TREE_ROW, 0)
         if image_buttons_container is not None:
             image_path_row.addWidget(image_buttons_container)
 
@@ -778,37 +800,38 @@ class SdCardExplorerPane(QWidget):
         self.image_treeview.setColumnWidth(0, 250)
 
     def apply_image_filter(self, _text=None):
-        # Filter the image explorer tree in real-time. A row is shown when its
-        # own Name/Type/Size text matches OR any of its (already-loaded)
-        # descendants match, so matches stay reachable inside folders.
+        # Filter the folder ON SHOW in real time: a row stays when its own
+        # Name/Type/Size text matches. The view is flat since 9.7.73 (one
+        # folder at a time, as the local explorer and the Remote Explorer's
+        # Next pane), so a folder is matched by its own row like any file -
+        # what is inside it is not on screen. ".." is never filtered away.
         text = self._image_filter_edit.text().strip().lower() if self._image_filter_edit is not None else ""
 
         sel = self.image_treeview.selectionModel()
-        last_col = max(0, self.image_model.columnCount() - 1)
+        cols = self.image_model.columnCount()
+        last_col = max(0, cols - 1)
         dropped = []          # rows this pass took out of the selection
+        parent_item = self._image_shown_parent()
+        parent_ix = self.image_treeview.rootIndex()
 
-        def _filter(parent_item):
-            any_visible = False
+        # One pass, then ONE selection-changed run. Deselecting row by row
+        # with the signal live re-runs _on_image_selection_changed for every
+        # hidden row and walks the whole selection each time; a folder can
+        # hold a few thousand rows.
+        _blocked = sel.blockSignals(True) if sel is not None else False
+        try:
+            # EVERY row has its state set on every pass: a hide-only loop
+            # leaves a cleared filter showing nothing, and a folder shown
+            # earlier under another filter carries that pass's flags.
             for r in range(parent_item.rowCount()):
                 name_item = parent_item.child(r, 0)
                 if name_item is None:
                     continue
-                child_match = _filter(name_item)
-                row_text = " ".join((parent_item.child(r, c).text() if parent_item.child(r, c) else "") for c in range(self.image_model.columnCount())).lower()
-                self_match = (text in row_text) if text else True
-                # A folder whose children have NOT been listed yet cannot be
-                # ruled out - its contents are unknown, and it holds only a
-                # placeholder child, so child_match is always False for it.
-                # Without this the Refresh button empties the view whenever a
-                # filter is active: the re-listing drops every folder back to
-                # a placeholder, and the only rows that survive are the ones
-                # whose own name happens to match. Staying visible is also
-                # what makes a filter usable for drilling down - expand the
-                # folder and the real answer replaces this one.
-                unknown = (bool(text) and bool(name_item.data(IMG_ISDIR_ROLE))
-                           and not name_item.data(IMG_LOADED_ROLE))
-                visible = self_match or child_match or unknown
-                parent_ix = name_item.index().parent()
+                if name_item.data(IMG_UPDIR_ROLE):
+                    visible = True
+                else:
+                    row_text = " ".join((parent_item.child(r, c).text() if parent_item.child(r, c) else "") for c in range(cols)).lower()
+                    visible = (text in row_text) if text else True
                 self.image_treeview.setRowHidden(r, parent_ix, not visible)
                 # DESELECT as we hide. The selection model knows nothing about
                 # view-level hiding (measured), so without this a file the
@@ -825,20 +848,10 @@ class SdCardExplorerPane(QWidget):
                                        self.image_model.index(r, last_col, parent_ix)),
                         QItemSelectionModel.Deselect)
                     dropped.append(1)
-                any_visible = any_visible or visible
-            return any_visible
-
-        # One pass, then ONE selection-changed run. Deselecting row by row
-        # with the signal live re-runs _on_image_selection_changed for every
-        # hidden row and walks the whole selection each time; the tree can
-        # hold a few thousand rows.
-        _blocked = sel.blockSignals(True) if sel is not None else False
-        try:
-            _filter(self.image_model.invisibleRootItem())
             # currentIndex is NOT part of the selection and survives a
             # Deselect, and _on_image_selection_changed reads it as the
             # PRIMARY row - so a hidden current would still name the target
-            # for New Folder and the path label.
+            # for Rename, Delete and the single-row menu entries.
             _cur = self.image_treeview.currentIndex()
             if _cur.isValid() and self._image_row_hidden(_cur) and sel is not None:
                 sel.clearCurrentIndex()
@@ -847,46 +860,44 @@ class SdCardExplorerPane(QWidget):
             if sel is not None:
                 sel.blockSignals(_blocked)
         # ONLY when this pass actually narrowed the selection. This method is
-        # called from the LOAD pipeline too (image_load_root, the lazy expand,
-        # navigate, the ops layer's reload), and re-running the handler there
-        # recomputes host.image_selected_path from a selection the restore has
-        # not made yet - which silently emptied the startup restore of
-        # image_explorerpath (offscreen phase 2 caught it).
+        # called from the LOAD pipeline too (image_load_root, navigate, the
+        # ops layer's reload), and re-running the handler there recomputes
+        # host.image_selected_path from a selection the restore has not made
+        # yet (offscreen phase 2 caught it).
         if dropped:
-            # No anchor bookkeeping needed: the handler only moves it for a
-            # REAL selection, and this pass only ever removes rows.
             self._on_image_selection_changed()
 
     def _image_row_hidden(self, index):
-        """True when *index* is hidden, or sits under a hidden ancestor.
+        """True when the view hides *index*'s row (the name filter).
 
-        The Next pane can test one row because its list is flat. This tree is
-        not: a row carries its own hidden flag, and apply_image_filter happens
-        to hide a folder only when every child is hidden too - but that is a
-        property of today's filter, not of the view, so the ancestors are
-        walked rather than assumed.
+        The row's own flag only. The view is flat, so the rows on screen are
+        the direct children of the folder on show; the flags of the folders
+        ABOVE it are left over from the pass that last showed their parent,
+        and reading them made every row of a folder reached by its typed path
+        count as hidden whenever a filter had hidden that folder's own row.
         """
-        ix = index.siblingAtColumn(0) if index.isValid() else index
-        while ix.isValid():
-            if self.image_treeview.isRowHidden(ix.row(), ix.parent()):
-                return True
-            ix = ix.parent()
-        return False
+        if not index.isValid():
+            return False
+        return self.image_treeview.isRowHidden(index.row(), index.parent())
 
     def _selected_image_rows(self):
         """The selected image rows that are actually ON SCREEN, column 0.
 
         Every caller acts on what this returns - delete, download, transfer,
-        drag-out - so a row the Search filter has hidden is not a target,
-        however it came to be selected. apply_image_filter deselects as it
-        hides; this holds even if some later path hides a row without going
-        through it.
+        drag-out - so a row is a target only when it is a row of the folder
+        on show (the selection model SURVIVES a re-root: a row selected one
+        folder up is still in it) and the name filter has not hidden it.
+        apply_image_filter deselects as it hides and _image_show clears the
+        selection as it moves; this holds even when some later path does
+        neither. The ".." row and a folder's placeholder carry no path and
+        are dropped by the readers themselves.
         """
         sel = self.image_treeview.selectionModel()
         if sel is None:
             return []
+        root = self.image_treeview.rootIndex()
         return [ix for ix in sel.selectedRows(0)
-                if not self._image_row_hidden(ix)]
+                if ix.parent() == root and not self._image_row_hidden(ix)]
 
     @staticmethod
     def _dir_of(path, is_dir):
@@ -900,35 +911,25 @@ class SdCardExplorerPane(QWidget):
         return parent if parent else "/"
 
     def _set_image_anchor(self, dir_path):
-        """Point uploads / New Folder / paste / Up / Refresh at *dir_path*.
+        """Record *dir_path* as the folder on show: where uploads, New
+        Folder, paste, Up and Refresh point.
 
-        NAVIGATION calls this - descending to a target, going up, the explicit
-        clear to "/", and wiping the tree for a new image. Filtering never
-        does: hiding a row is not moving, and inferring the anchor from the
-        selection made a filter keystroke rewrite the path box to "/" and
-        persist image_explorerpath="/" while uploads still went to the old
-        folder.
+        NAVIGATION calls this (_image_show, and wiping the tree for a new
+        image). Selecting and filtering never do: clicking a row is not
+        moving since 9.7.73, and hiding one never was.
         """
         self._image_anchor_dir = dir_path or "/"
 
     def image_dest_dir(self):
-        """Image directory targeted by uploads / new folders, based on the
-        current tree selection: a selected folder -> that folder; a selected
-        file -> the folder containing it.
+        """Image directory targeted by uploads / new folders / paste: the
+        folder ON SHOW, whatever is selected in it.
 
-        With NOTHING selected it is the remembered anchor rather than the
-        image root. Selecting is how you navigate this tree, so the two used
-        to be the same field - and once the name filter began deselecting the
-        rows it hides (so a row you cannot see cannot be deleted), an empty
-        selection stopped meaning "you are at the root" and started also
-        meaning "your row is filtered away". Reading the root out of that
-        silently moved uploads, New Folder, paste, Up and Refresh to "/".
-        The anchor still becomes "/" when you genuinely navigate there,
-        because that path clears the selection through the handler below."""
-        host = self._host
-        if host.image_selected_path:
-            return self._dir_of(host.image_selected_path,
-                                host.image_selected_is_dir)
+        Until 9.7.73 this tree showed every level at once and the selection
+        was the navigation state (a selected folder was the target, a
+        selected file made its folder the target). The view is flat now, as
+        the local explorer beside it and the Remote Explorer's Next pane:
+        you move with a double-click, '..' and Up, and the target is the
+        folder you are looking at."""
         return getattr(self, "_image_anchor_dir", "/")
 
     def image_update_path_label(self):
@@ -1019,7 +1020,12 @@ class SdCardExplorerPane(QWidget):
                     continue
                 type_item = parent_item.child(r, 1)
                 size_item = parent_item.child(r, 2)
-                if bool(name_item.data(IMG_ISDIR_ROLE)):
+                if name_item.data(IMG_UPDIR_ROLE):
+                    up = getattr(host, "img_color_up_directory", host.img_color_dir_name)
+                    name_item.setForeground(up)
+                    if type_item is not None:
+                        type_item.setForeground(up)
+                elif bool(name_item.data(IMG_ISDIR_ROLE)):
                     name_item.setForeground(host.img_color_dir_name)
                     if type_item is not None:
                         type_item.setForeground(host.img_color_dir_type)
@@ -1090,6 +1096,12 @@ class SdCardExplorerPane(QWidget):
             if gen != self._image_load_generation:
                 return
             entries = holder.get("entries")
+            # The folder being listed can have been freed meanwhile (its
+            # parent re-listed): there is nothing left to fill.
+            if entries is not None and parent_name_item is not None and not shiboken6.isValid(parent_name_item):
+                if on_done is not None:
+                    on_done(None)
+                return
             if entries is None:
                 rc = holder.get("rc", "?")
                 self._hooks.log(f"Failed listing image directory: {dir_path} - hdfmonkey result code: {rc}")
@@ -1109,6 +1121,10 @@ class SdCardExplorerPane(QWidget):
 
             if parent_name_item is not None:
                 parent_name_item.setData(True, IMG_LOADED_ROLE)
+                # The rows just replaced included the '..' of the folder on
+                # show: put it back.
+                if self.image_treeview.rootIndex() == parent_name_item.index():
+                    self._image_ensure_updir(parent_name_item)
             if on_done is not None:
                 on_done(entries)
 
@@ -1185,46 +1201,173 @@ class SdCardExplorerPane(QWidget):
         return None
 
     def image_reload_dir(self, path):
-        """Reload the children of the image directory at *path*, preserving
-        the rest of the tree's expansion state. Falls back to a full root
-        reload when the directory isn't currently materialised in the tree.
-        The listing runs on a worker thread, so this returns immediately."""
-        item = self.image_find_item(path)
-        if item is None:
-            self.image_load_root()
-            return
-        was_expanded = self.image_treeview.isExpanded(item.index())
+        """Re-list the image directory at *path* and keep the view on the
+        folder it shows. The listing runs on a worker thread, so this
+        returns immediately.
 
-        def _after(_entries, _item=item, _expanded=was_expanded):
-            if _expanded:
-                self.image_treeview.expand(_item.index())
+        A folder that is not materialised in the model (never visited, or
+        only just created) is covered by re-listing its nearest folder that
+        is - its parent's listing is what shows it. When the folder on show
+        sits UNDER the one re-listed its item is freed with the old rows, so
+        the view walks back down to it afterwards (or to the deepest folder
+        that still exists)."""
+        cwd = self.image_dest_dir()
+        want = "/" + "/".join(s for s in str(path or "/").replace("\\", "/").split("/") if s)
+        item = None
+        while want != "/":
+            item = self.image_find_item(want)
+            if item is not None and bool(item.data(IMG_ISDIR_ROLE)):
+                break
+            item = None
+            want = want.rsplit("/", 1)[0] or "/"
+
+        if item is None:
+            # The image root: a full reload, then back to the shown folder.
+            def _back(ok, _cwd=cwd):
+                if ok and _cwd != "/":
+                    self.image_navigate_to_path(_cwd, nearest=True)
+            self.image_load_root(_back)
+            return
+
+        item_path = (item.data(IMG_PATH_ROLE) or "").rstrip("/")
+        under = cwd.lower().startswith(item_path.lower() + "/")
+
+        def _after(_entries, _cwd=cwd, _under=under):
             self.apply_image_filter()
             self._hooks.update_usage_gauge(self._host.right_disk_image_path)
+            if _under and _entries is not None:
+                self.image_navigate_to_path(_cwd, nearest=True)
 
         self.image_populate_item(item, item.data(IMG_PATH_ROLE), _after)
 
     # ------------------------------------------- image explorer: navigation --
-    def image_navigate_to_path(self, path):
-        """Navigate the disk image explorer to *path* (an in-image path):
-        walk the tree down from the root, listing not-yet-loaded folders on
-        demand (async, one background "hdfmonkey ls" per level), expanding
-        each level and finally selecting the target entry — so uploads /
-        New Folder target it, exactly as if the user had clicked it.
-        "/" (or an empty path) clears the selection back to the image root;
-        a segment that doesn't exist logs an advisory and the path box
-        falls back to the current target directory."""
-        segments = [s for s in path.replace("\\", "/").split("/") if s]
-        if not segments:
-            # Root: clear current + selection so actions target "/" again.
-            # The anchor is set HERE rather than left to the selection-changed
-            # handler, because clearSelection() on an ALREADY empty selection
-            # (a filter having hidden the selected row) emits nothing, so the
-            # handler would not run and "/" would not take effect.
-            self.image_treeview.setCurrentIndex(QModelIndex())
-            self.image_treeview.selectionModel().clearSelection()
-            self._set_image_anchor("/")
-            self.image_update_path_label()
+    def _image_shown_item(self):
+        """The column-0 item of the folder on show; None is the image root."""
+        ix = self.image_treeview.rootIndex()
+        return self.image_model.itemFromIndex(ix) if ix.isValid() else None
+
+    def _image_shown_parent(self):
+        item = self._image_shown_item()
+        return item if item is not None else self.image_model.invisibleRootItem()
+
+    @staticmethod
+    def _image_updir_row(parent):
+        for r in range(parent.rowCount()):
+            it = parent.child(r, 0)
+            if it is not None and it.data(IMG_UPDIR_ROLE):
+                return r
+        return -1
+
+    def _image_drop_updir(self, parent):
+        r = self._image_updir_row(parent)
+        if r >= 0:
+            parent.removeRow(r)
+
+    def _image_ensure_updir(self, parent):
+        """Keep ONE '..' row, first, in *parent* (a folder on show below the
+        image root) - the way up, where the local explorer and the Next pane
+        have theirs. It lives in the model only while its folder is shown."""
+        host = self._host
+        r = self._image_updir_row(parent)
+        if r == 0:
             return
+        if r > 0:
+            row = parent.takeRow(r)
+        else:
+            name_item = QStandardItem(self._img_folder_icon, "..")
+            name_item.setEditable(False)
+            name_item.setData("", IMG_PATH_ROLE)
+            name_item.setData(True, IMG_ISDIR_ROLE)
+            name_item.setData(True, IMG_LOADED_ROLE)
+            name_item.setData(True, IMG_UPDIR_ROLE)
+            type_item = QStandardItem("DIR")
+            size_item = QStandardItem("")
+            # the up-directory colour, as on the local explorer's '..'
+            up = getattr(host, "img_color_up_directory", host.img_color_dir_name)
+            name_item.setForeground(up)
+            type_item.setForeground(up)
+            for it in (type_item, size_item):
+                it.setEditable(False)
+            row = [name_item, type_item, size_item]
+        parent.insertRow(0, row)
+
+    def _image_pin_updir(self, *_):
+        # A sort (the header) orders '..' with the rest; put it back first.
+        shown = self._image_shown_item()
+        if shown is not None:
+            self._image_ensure_updir(shown)
+
+    def _image_show(self, dir_item, select=None, scroll_to=None):
+        """Root the view at *dir_item* (None = the image root): the one
+        place the folder on show changes. Its rows must be listed already."""
+        tv = self.image_treeview
+        old_ix = tv.rootIndex()
+        new_ix = dir_item.index() if dir_item is not None else QModelIndex()
+        if old_ix.isValid() and old_ix != new_ix:
+            old_item = self.image_model.itemFromIndex(old_ix)
+            if old_item is not None:
+                self._image_drop_updir(old_item)
+            # Dropping that row moved every row under the old folder up one:
+            # ask the item again rather than keep a stale index.
+            new_ix = dir_item.index() if dir_item is not None else QModelIndex()
+        tv.setRootIndex(new_ix)
+        if dir_item is not None:
+            self._image_ensure_updir(dir_item)
+        self._set_image_anchor((dir_item.data(IMG_PATH_ROLE) or "/") if dir_item is not None else "/")
+        # The selection SURVIVES a re-root (measured on the local trees,
+        # 9.7.42): a row selected in the folder just left would still be
+        # handed to Delete. Moving always starts with nothing selected.
+        sel = tv.selectionModel()
+        tv.setCurrentIndex(QModelIndex())
+        if sel is not None:
+            sel.clearSelection()
+        self.apply_image_filter()
+        if select is not None and not self._image_row_hidden(select.index()):
+            tv.setCurrentIndex(select.index())
+            tv.scrollTo(select.index())
+        elif scroll_to is not None:
+            tv.scrollTo(scroll_to.index())
+        else:
+            tv.scrollToTop()
+        # Explicitly: clearSelection() on an already empty selection emits
+        # nothing, and the handler is what updates the host and the path box.
+        self._on_image_selection_changed()
+
+    def _on_image_double_clicked(self, index):
+        """Double-click: '..' goes up, a folder is entered. A file does
+        nothing here (its actions are on the right-click menu)."""
+        if not index.isValid() or not self._hooks.is_image_loaded():
+            return
+        item = self.image_model.itemFromIndex(index.siblingAtColumn(0))
+        if item is None:
+            return
+        if item.data(IMG_UPDIR_ROLE):
+            self.image_explorer_up()
+            return
+        path = item.data(IMG_PATH_ROLE) or ""
+        if path and bool(item.data(IMG_ISDIR_ROLE)):
+            self.image_navigate_to_path(path)
+
+    def image_navigate_to_path(self, path, nearest=False):
+        """Show the folder at *path* (an in-image path) in the disk image
+        explorer: walk the model down from the root, listing not-yet-loaded
+        folders on demand (async, one background "hdfmonkey ls" per level),
+        then root the view there - so uploads / New Folder target it.
+
+        A path naming a FILE shows the folder holding it and selects the
+        file. "/" (or an empty path) shows the image root. A segment that
+        does not exist logs an advisory and leaves the view where it is -
+        or, with *nearest* (the walk back after a reload), on the deepest
+        folder of the path that does exist."""
+        segments = []
+        for s in str(path or "").replace("\\", "/").split("/"):
+            if not s or s == ".":
+                continue
+            if s == "..":
+                if segments:
+                    segments.pop()
+                continue
+            segments.append(s)
         # A listing finishing after the image was reloaded/cleared must not
         # keep descending into freed items (same guard as image_populate_item).
         gen = self._image_load_generation
@@ -1234,66 +1377,57 @@ class SdCardExplorerPane(QWidget):
             parent = parent_item if parent_item is not None else self.image_model.invisibleRootItem()
             for r in range(parent.rowCount()):
                 child = parent.child(r, 0)
-                if child is not None and child.text().lower() == name.lower():
+                if (child is not None and (child.data(IMG_PATH_ROLE) or "")
+                        and child.text().lower() == name.lower()):
                     return child
             return None
+
+        def _missing(parent_item):
+            if nearest:
+                self._image_show(parent_item)
+            else:
+                self.image_update_path_label()
 
         def _descend(parent_item, remaining):
             if gen != self._image_load_generation:
                 return
+            if not remaining:
+                self._image_show(parent_item)
+                return
             child = _find_child(parent_item, remaining[0])
             if child is None:
                 self._hooks.log(f"Image path not found: {path}")
-                self.image_update_path_label()
+                _missing(parent_item)
                 return
             rest = remaining[1:]
-            if not rest:
-                # Target reached: select it (folder or file). setCurrentIndex
-                # fires the selection-changed handler, which updates the path
-                # box to the resulting target directory.
-                idx = child.index()
-                # Explicitly, for the same reason as the root branch: with a
-                # filter up, the target row can be HIDDEN, and the handler
-                # skips hidden rows - so "Up" would select the parent and
-                # then leave the anchor exactly where it was.
-                self._set_image_anchor(self._dir_of(
-                    child.data(IMG_PATH_ROLE) or "",
-                    bool(child.data(IMG_ISDIR_ROLE))))
-                self.image_treeview.setCurrentIndex(idx)
-                self.image_treeview.scrollTo(idx)
-                if child.data(IMG_ISDIR_ROLE):
-                    # Expanding also lazy-loads the folder via _on_image_expanded.
-                    self.image_treeview.expand(idx)
-                return
             if not child.data(IMG_ISDIR_ROLE):
-                self._hooks.log(f"Not a directory in image: {child.data(IMG_PATH_ROLE)}")
-                self.image_update_path_label()
+                if rest:
+                    self._hooks.log(f"Not a directory in image: {child.data(IMG_PATH_ROLE)}")
+                    _missing(parent_item)
+                    return
+                # A file: show the folder it is in, with the file selected.
+                self._image_show(parent_item, select=child)
                 return
             if child.data(IMG_LOADED_ROLE):
-                self.image_treeview.expand(child.index())
                 _descend(child, rest)
                 return
             if child.data(IMG_LOADING_ROLE):
-                # A listing for this folder is already in flight (e.g. from
-                # the expand of a just-finished navigation). Launching a
-                # second one would race it: whichever "ls" finishes last
-                # does removeRows() and wipes the winner's rows — and with
-                # them the selection the walk just made. Wait for the
-                # in-flight listing instead, then retry this level.
+                # A listing for this folder is already in flight. Launching
+                # a second one would race it: whichever "ls" finishes last
+                # does removeRows() and wipes the winner's rows. Wait for
+                # the in-flight listing instead, then retry this level.
                 QTimer.singleShot(50, lambda: _descend(parent_item, remaining))
                 return
-            # Children not listed yet — list them, then continue the walk.
-            # The IMG_LOADING_ROLE guard keeps _on_image_expanded from
-            # launching a second listing for the same folder meanwhile.
+            # Children not listed yet - list them, then continue the walk.
             child.setData(True, IMG_LOADING_ROLE)
 
-            def _after(entries, _child=child, _rest=rest):
+            def _after(entries, _child=child, _rest=rest, _parent=parent_item):
                 _child.setData(False, IMG_LOADING_ROLE)
-                self.apply_image_filter()
-                if entries is None or gen != self._image_load_generation:
-                    self.image_update_path_label()
+                if gen != self._image_load_generation:
                     return
-                self.image_treeview.expand(_child.index())
+                if entries is None:
+                    _missing(_parent)
+                    return
                 _descend(_child, _rest)
 
             self.image_populate_item(child, child.data(IMG_PATH_ROLE), _after)
@@ -1311,21 +1445,20 @@ class SdCardExplorerPane(QWidget):
         self.image_navigate_to_path(self.diskimageexplorerpathinput.text().strip().strip('"'))
 
     def image_explorer_up(self):
-        """'Up' button of the disk image explorer: select the parent of the
-        current target directory (at the top level this clears the selection,
-        so actions target the image root again)."""
+        """'Up' button of the disk image explorer (and a double-click on the
+        '..' row): show the parent of the folder on show. The folder left is
+        scrolled into view but NOT selected - a selected row is what Delete
+        acts on."""
         if not self._hooks.is_image_loaded():
             return
-        cur = self.image_dest_dir().replace("//", "/")
-        if not cur or cur == "/":
-            return
-        parent = cur.rstrip("/").rsplit("/", 1)[0] or "/"
-        self.image_navigate_to_path(parent)
+        shown = self._image_shown_item()
+        if shown is None:
+            return                      # already at the image root
+        self._image_show(shown.parent(), scroll_to=shown)
 
     def image_explorer_refresh(self):
-        """'Refresh' button of the disk image explorer: re-list the current
-        target directory via hdfmonkey (full root reload when it isn't
-        materialised in the tree)."""
+        """'Refresh' button of the disk image explorer: re-list the folder
+        on show via hdfmonkey."""
         if not self._hooks.is_image_loaded():
             return
         self.image_reload_dir(self.image_dest_dir())
@@ -1334,6 +1467,7 @@ class SdCardExplorerPane(QWidget):
         """Track the selection for the operation layer: every selected row in
         host.image_selected_paths, the primary item in host.image_selected_path
         / image_selected_is_dir, and the legacy name list the host maintains.
+        Selecting does not move the target folder (see image_dest_dir).
         """
         host = self._host
         host.image_selected_path = ""
@@ -1347,16 +1481,19 @@ class SdCardExplorerPane(QWidget):
                 continue
             path = name_item.data(IMG_PATH_ROLE) or ""
             if not path:
-                continue
+                continue                # the ".." row, or a placeholder
             is_dir = bool(name_item.data(IMG_ISDIR_ROLE))
             host.image_selected_paths.append((path, is_dir))
             selected_names.append(name_item.text())
 
         current = self.image_treeview.currentIndex()
         primary_item = None
-        # A hidden current row is not the primary target either: it is what
-        # New Folder, the path label and the single-row menu entries act on.
-        if current.isValid() and not self._image_row_hidden(current):
+        # The current row is the primary target only while it is a row of
+        # the folder on show that the filter has not hidden: it is what
+        # Rename, Delete and the single-row menu entries act on.
+        if (current.isValid()
+                and current.parent() == self.image_treeview.rootIndex()
+                and not self._image_row_hidden(current)):
             primary_item = self.image_model.itemFromIndex(current.siblingAtColumn(0))
         if primary_item is None or not (primary_item.data(IMG_PATH_ROLE) or ""):
             # Fall back to the first selected row.
@@ -1366,13 +1503,5 @@ class SdCardExplorerPane(QWidget):
             host.image_selected_path = primary_item.data(IMG_PATH_ROLE) or ""
             host.image_selected_is_dir = bool(primary_item.data(IMG_ISDIR_ROLE))
 
-        # A real selection moves the anchor; an EMPTY one never does. Empty
-        # means either "you navigated to the root" - which sets the anchor
-        # itself, explicitly - or "the filter hid your row", which is not a
-        # move at all. Zeroing here is what made a filter keystroke retarget
-        # uploads to the image root.
-        if host.image_selected_path:
-            self._set_image_anchor(self._dir_of(host.image_selected_path,
-                                                host.image_selected_is_dir))
         self._hooks.set_selected_names(selected_names)
         self.image_update_path_label()

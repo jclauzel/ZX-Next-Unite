@@ -381,6 +381,7 @@ from zxnu_workers import *
 # its own module now (9.7.22), so _ImagePathCombo's base is named here.
 from zxnu_pathhistorycombo import PathHistoryCombo
 from zxnu_sdcard_explorer import (SdCardExplorerPane, IMG_PATH_ROLE,
+                                  SDCARD_IMAGE_TREE_ROW,
                                   IMG_ISDIR_ROLE, IMG_LOADED_ROLE,
                                   IMG_LOADING_ROLE)
 from zxnu_remote_explorer import RemoteExplorerWidget, emulator_color_menu
@@ -1236,6 +1237,18 @@ class MainWindow(QMainWindow):
         are found a yellow advisory toast is shown instead. Auto-dismisses after
         5 seconds.
         """
+        # A listed search path that is not there (any more) is skipped by
+        # the lookups; say so every time the detection reports (9.7.73).
+        self._warn_invalid_search_paths()
+
+        def _via(path):
+            # " (custom search path)" when that copy was found through one
+            # of the additional search paths of Settings.
+            try:
+                return ui_tr_now(" (custom search path)") if search_path_of(path) else ""
+            except Exception:
+                return ""
+
         found = []
         if getattr(self, "_cspect_executable_path", None):
             found.append("CSpect")
@@ -1254,18 +1267,18 @@ class MainWindow(QMainWindow):
             # itch.io install discovered under downloads/cspect).
             cspect_path = getattr(self, "_cspect_executable_path", None)
             if cspect_path:
-                body += "\r\nCSpect: " + cspect_path
+                body += "\r\nCSpect: " + cspect_path + _via(cspect_path)
             hdfmonkey_path = getattr(self, "_hdfmonkey_executable_path", None)
             if not hdfmonkey_path:
                 hdfmonkey_path = (shutil.which(HDFMONKEY_EXECUTABLE)
                                   or shutil.which(HDFMONKEY_EXECUTABLE + ".exe"))
             if hdfmonkey_path:
-                body += "\r\nhdfmonkey: " + hdfmonkey_path
+                body += "\r\nhdfmonkey: " + hdfmonkey_path + _via(hdfmonkey_path)
             # Likewise show the resolved MAME path (usually found on PATH), or
             # note the Flatpak launch mode when that is how MAME will run.
             mame_path = getattr(self, "_mame_executable_path", None)
             if mame_path:
-                body += "\r\nMame: " + mame_path
+                body += "\r\nMame: " + mame_path + _via(mame_path)
             elif (getattr(self, "_mame_flatpak_enabled", None)
                   and self._mame_flatpak_enabled()):
                 body += "\r\n" + ui_tr_now("Mame: via Flatpak ({app})").format(
@@ -1333,11 +1346,40 @@ class MainWindow(QMainWindow):
             if not _suppress:
                 self._show_toast(
                     "\u26a0  No emulators detected",
-                    "Neither CSpect nor Mame were found. Add the emulator(s) to your operating system PATH environment variable so they can be launched from here. \r\n\r\n"
+                    "Neither CSpect nor Mame were found. Add the emulator(s) to your operating system PATH environment variable - or add their folder to the additional search paths in Settings (Advanced mode) - so they can be launched from here. \r\n\r\n"
                     "CSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing",
                     variant="yellow",
                     duration_ms=10000,
                 )
+
+    def _warn_invalid_search_paths(self):
+        """Yellow toast (and a log line) naming the additional search paths
+        that do not exist right now. They stay in the list - a drive may
+        simply not be plugged in today - and are skipped. Returns them."""
+        try:
+            bad = invalid_search_paths()
+        except Exception:
+            logging.exception("could not check the additional search paths")
+            return []
+        if not bad:
+            return []
+        logging.info("Additional search path(s) not valid, skipped: %s", "; ".join(bad))
+        try:
+            self._show_toast(
+                "\u26a0  Search path not valid",
+                ui_tr_now("This search path does not exist any more and was "
+                          "skipped (Settings, Advanced mode):\n{paths}").format(
+                              paths="\n".join(bad)),
+                variant="yellow", duration_ms=15000)
+        except Exception:
+            logging.exception("could not show the search path toast")
+        try:
+            ed = getattr(self, "settings_search_paths_editor", None)
+            if ed is not None:
+                ed.refresh_validity()
+        except RuntimeError:
+            pass
+        return bad
 
     def _show_hdfmonkey_installed_toast(self, hdfmonkey_path: str):
         """Show a green success toast after hdfmonkey is auto-installed via the
@@ -1458,6 +1500,13 @@ class MainWindow(QMainWindow):
         # button is shown; when absent on Windows, the SD Card tab's "Install
         # MAME" button is offered (Linux/macOS have no official binary and are
         # detection-only — but Linux can still launch MAME via Flatpak, below).
+        # The additional search paths of Settings (9.7.73) are part of every
+        # lookup below, and those run long before hdfg.cfg is loaded (the
+        # widgets are built from what they find): read that one key now.
+        try:
+            set_extra_search_paths(read_search_paths_from_cfg())
+        except Exception:
+            logging.exception("could not read the additional search paths")
         try:
             self._mame_executable_path = resolve_mame_executable(
                 ZXNU_DATA_ROOT)
@@ -1504,7 +1553,12 @@ class MainWindow(QMainWindow):
         # downloads/cspect (Windows/Linux/macOS — the itch.io CSpect package
         # ships a build per platform). None means "use the PATH/'hdfmonkey'
         # default". execute_hdf_monkey and _hdfmonkey_binary_found prefer it.
-        self._hdfmonkey_executable_path = None
+        # A copy under one of the additional search paths is taken at once
+        # (9.7.73): named on purpose, it outranks PATH and the bundled ones.
+        try:
+            self._hdfmonkey_executable_path = find_hdfmonkey_in_search_paths()
+        except Exception:
+            self._hdfmonkey_executable_path = None
         # Set True while the async downloads/cspect scan is in flight so the
         # startup emulator-detection toast waits for its results instead of
         # firing on a fixed timer.
@@ -3105,23 +3159,24 @@ class MainWindow(QMainWindow):
         # Dropping files/folders onto the image explorer uploads them into the
         # image (same as '->:'); the source can be the OS file manager or the
         # local explorer on the left (both carry text/uri-list URLs). The target
-        # folder is the item the drop lands on (its parent if the item is a file),
-        # or the image root when dropped on empty space.
+        # is the folder row the drop lands on; anywhere else - a file row, the
+        # '..' row, empty space - it is the folder the explorer shows (9.7.73:
+        # the view is flat, so that is also a file row's own folder).
         # Dragging out of the image explorer carries the selected entries as a
         # custom IMAGE_DRAG_MIME payload, which the local explorer accepts as a
         # download (same as ':<-').
         def _image_drop_target_dir(pos):
             index = self.image_treeview.indexAt(pos)
+            shown = image_dest_dir() or "/"
             if not index.isValid():
-                return "/"
+                return shown
             name_item = self.image_model.itemFromIndex(index.siblingAtColumn(0))
             if name_item is None:
-                return "/"
-            path = name_item.data(IMG_PATH_ROLE) or "/"
-            if bool(name_item.data(IMG_ISDIR_ROLE)):
-                return path or "/"
-            parent = path.rstrip("/").rsplit("/", 1)[0]
-            return parent or "/"
+                return shown
+            path = name_item.data(IMG_PATH_ROLE) or ""
+            if path and bool(name_item.data(IMG_ISDIR_ROLE)):
+                return path
+            return shown
 
         def _image_drag_acceptable(event):
             # Ignore drags from the image explorer itself (would be image->image);
@@ -3204,7 +3259,9 @@ class MainWindow(QMainWindow):
         # Column 0 of the image SIDE's grid since 9.7.2 (the local column
         # moved out to the left of a splitter, so the image side's grid
         # starts at the transfer buttons: col 0 arrows, col 1 image).
-        self.sdcard_explorer_grid.addWidget(self.centralbuttonscontainer, 1, 0)
+        # Beside the TREE: row 2 since 9.7.73 (path row, nav row, tree).
+        self.sdcard_explorer_grid.addWidget(
+            self.centralbuttonscontainer, SDCARD_IMAGE_TREE_ROW, 0)
 
         self.listWidgetLog = QListWidget(self)
 
@@ -4387,10 +4444,11 @@ class MainWindow(QMainWindow):
                 (SETTING_FAVORITES_ITEM_RETRO, "favorites_retro_button"),
             ):
                 _first_run_check_on(_retro_key, _retro_btn_attr)
-            if _unset(SETTING_ALIEN_FLOYD_BG):
-                cb = getattr(self, "settings_alien_floyd_bg_checkbox", None)
-                if cb is not None and not cb.isChecked():
-                    cb.setChecked(True)
+            # "Alien Floyd's - animated background on all tabs" stays OFF on a
+            # first run since 9.7.73 (it was flipped on here with the others):
+            # a moving starfield behind every tab is a choice, not a default.
+            # Its checkbox already defaults to unchecked, and a user who saved
+            # it ON keeps it.
             # The dedicated "Alien Floyd's" tab stays OFF by default on first run;
             # the user can enable it from Settings. (Its checkbox already defaults
             # to unchecked, so no first-run flip is applied here.)
@@ -4864,6 +4922,100 @@ class MainWindow(QMainWindow):
                     pass
 
         self._rescan_emulators_after_uninstall = _rescan_emulators_after_uninstall
+
+        def _search_paths_redetect(removed=None):
+            """Settings changed the additional search paths (9.7.73): run
+            the detection again, now, with the startup's own precedence.
+
+            *removed* is the folder just taken off the list (None for an
+            add or a move): a tool that lived under it is forgotten first -
+            _rescan_emulators_after_uninstall's job, which then falls back
+            to whatever else provides it. Ends in the detection toast, which
+            names the copy in use and where it came from."""
+            def _same(a, b):
+                try:
+                    return bool(a) and bool(b) and (
+                        os.path.normcase(os.path.abspath(a))
+                        == os.path.normcase(os.path.abspath(b)))
+                except (OSError, ValueError):
+                    return False
+
+            # --- MAME: one resolver, the same one startup uses
+            try:
+                new_mame = resolve_mame_executable(ZXNU_DATA_ROOT)
+            except Exception:
+                new_mame = None
+            old_mame = getattr(self, "_mame_executable_path", None)
+            if not _same(new_mame, old_mame) and (new_mame or old_mame):
+                self._mame_executable_path = new_mame
+                if new_mame:
+                    add_main_log_window(f"Using MAME: {new_mame}")
+                    try:
+                        self.mame_group.setVisible(True)
+                        self.button_start_mame.setVisible(True)
+                        for _c in (getattr(self, "mame_aspect", None),
+                                   getattr(self, "mame_sound", None),
+                                   getattr(self, "mame_mouse", None),
+                                   getattr(self, "mame_joystick", None),
+                                   getattr(self, "mame_esc", None)):
+                            if _c is not None:
+                                _c.setVisible(True)
+                        _btn = getattr(self, "button_install_mame", None)
+                        if _btn is not None:
+                            _btn.setVisible(False)
+                    except (RuntimeError, AttributeError):
+                        pass
+                _update_mame_controls()
+
+            # --- hdfmonkey: a copy under a listed folder is taken at once
+            try:
+                new_hdf = find_hdfmonkey_in_search_paths()
+            except Exception:
+                new_hdf = None
+            if new_hdf and not _same(new_hdf, self._hdfmonkey_executable_path):
+                self._hdfmonkey_executable_path = new_hdf
+                add_main_log_window(f"Using hdfmonkey: {new_hdf}")
+                try:
+                    self.download_and_install_hdfmonkey_button.setVisible(False)
+                    self.button_new_folder.setVisible(True)
+                    self.createimage.setVisible(True)
+                    self.button_delete_files.setVisible(True)
+                except RuntimeError:
+                    pass
+                if not right_disk_image_explorer_content:
+                    load_image(_warn_after_startup_load)
+
+            # --- CSpect: application folder, the listed folders, PATH
+            if not removed:
+                try:
+                    new_cspect = find_cspect_executable()
+                except Exception:
+                    new_cspect = None
+                if new_cspect and not _same(new_cspect, self._cspect_executable_path):
+                    self._cspect_executable_path = new_cspect
+                    self._cspect_from_downloads = False
+                    add_main_log_window(f"Using CSpect: {new_cspect}")
+                    try:
+                        self.cspect_group.setVisible(True)
+                    except RuntimeError:
+                        pass
+                    _update_cspect_controls()
+                # what is still missing is looked for under downloads/, and
+                # the toast reports
+                _rescan_emulators_after_install()
+            else:
+                # forgets CSpect / hdfmonkey under the removed folder, then
+                # detects again (and reports)
+                _rescan_emulators_after_uninstall(removed)
+            try:
+                self._refresh_emulator_strips()
+                _refresh = getattr(self, "_refresh_emulator_launchability", None)
+                if _refresh is not None:
+                    _refresh()
+            except Exception:
+                logging.exception("search paths: could not refresh the launch controls")
+
+        self._search_paths_redetect = _search_paths_redetect
 
         if _need_cspect or _need_hdfmonkey:
             self._emulator_scan_pending = True

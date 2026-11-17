@@ -183,6 +183,7 @@ Every result derives from `NextSyncResult`: `Ok`, `Status`, `Error`.
 | `NotSupported` | the listener predates that opcode (it answered with silence and polled on) |
 | `ConnectionDropped` | the reply never completed: link dropped, timed out, malformed |
 | `Cancelled` | taken off the queue: a cancellation token, `Stop()`, or the Next it was queued for left |
+| `Aborted` | the Next's user stopped the transfer (BREAK, then Yes, on ZX Next Remote 1.14.0+): a put refused with `F`+`BRK`, a get ended by `B`+`BRK` |
 | `LocalError` | a local file could not be read, a local folder not created |
 
 Events: `Connected`, `Disconnected` (with a reason), `Log` (console-style
@@ -206,6 +207,11 @@ builds answer `K`), `OsProtection` (the marker and its explanation),
 
 ## How it behaves
 
+- **No half download.** A get whose stream ends before a file does - the
+  link dropped, the stream was cut short, or the Next's user aborted - does
+  not hand that file over: it is left out of `Files`, what was written of it
+  on disk is deleted, and `GetResult.RemovedPartial` says which file it was.
+  The status is `Aborted`, `Failed` or `ConnectionDropped` accordingly.
 - **One seat.** The first Next to say `Listen` is seated; a second dialer gets
   the framed `Busy` and is closed (what the dot prints as "Server busy").
   When the seated Next leaves the listener goes on accepting.
@@ -232,7 +238,8 @@ builds answer `K`), `OsProtection` (the marker and its explanation),
   and the reply awaited. Every other opcode keeps the old reading, where the
   raw poll means "I do not know that opcode" (how an old dot answers `Y`,
   `K`, `U`, `W`, `Z`): `NotSupported`, and the session carries on.
-- **A put's size** (`PutSize`): a ZX Next Remote 1.13.0+ Listener shows a
+- **A put's size** (`PutSize`): a ZX Next Remote 1.13.0+ Listener (and the
+  `.sync5` dot from 5.9.17) shows a
   transfer as a percentage when the put tells it the file's size
   (`P` + path + NUL + eight upper-case hex digits). The size is sent only
   when the session's cached ident says the listener reads it

@@ -231,7 +231,7 @@ check("...and does not replace them (both jobs stay available)",
 
 # Top of the menu, as asked for, and not at the price of the CSpect entry.
 img_at = ops.find('ui_tr_now("Start MAME with file {name}")')
-newfolder_at = ops.find("new_folder_label = ")
+newfolder_at = ops.find('menu.addAction(ui_tr_now("New Folder…"), image_newfolder_dialog)')
 check("the image-explorer action sits above the rest of that menu",
       img_at != -1 and newfolder_at != -1 and img_at < newfolder_at,
       f"mame={img_at} newfolder={newfolder_at}")

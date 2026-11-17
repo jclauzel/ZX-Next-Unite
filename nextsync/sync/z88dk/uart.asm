@@ -27,6 +27,13 @@ PUBLIC _zx_keyrow
 PUBLIC _inbuf
 defc _inbuf = 0x6000
 
+; v5.9.17 - scratch joins it, 4 KB up: the same window, the same rules
+; (nextsync.c has them beside its declaration). $6800-$6FFF between the
+; two is left empty on purpose - receive()'s wall is _inbuf+2048, and what
+; lies just past a wall should belong to nobody.
+PUBLIC _scratch
+defc _scratch = 0x7000
+
 ; void map_data_bank(void)   [no args, no return value]
 ;   Map the dotN loader's one extra 8 KB page over $6000-$7FFF.
 ;

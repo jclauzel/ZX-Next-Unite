@@ -170,7 +170,7 @@ for label, marker in (
 
 # It must be the FIRST entry of the image menu (asked for: top of the list).
 img_at = ops.find('ui_tr_now("Start CSpect with file {name}")')
-newfolder_at = ops.find("new_folder_label = ")
+newfolder_at = ops.find('menu.addAction(ui_tr_now("New Folder…"), image_newfolder_dialog)')
 check("the image-explorer action sits above the rest of that menu",
       img_at != -1 and newfolder_at != -1 and img_at < newfolder_at,
       f"cspect={img_at} newfolder={newfolder_at}")

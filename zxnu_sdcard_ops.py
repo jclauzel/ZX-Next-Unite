@@ -46,7 +46,7 @@ import urllib.error
 import urllib.request
 import zipfile
 
-from PySide6.QtCore import (Qt, QTimer)
+from PySide6.QtCore import (QModelIndex, Qt, QTimer)
 from PySide6.QtGui import (QAction, QGuiApplication)
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox,
     QDialog, QDialogButtonBox, QFileDialog, QFileSystemModel, QInputDialog,
@@ -3790,6 +3790,13 @@ def build_transfer_clipboard_ops(
         index = host.image_treeview.indexAt(pos)
         menu = QMenu(host.image_treeview)
 
+        # The '..' row (and a folder's placeholder) carries no path: a
+        # right-click on it is a right-click on the folder itself.
+        if index.isValid():
+            _it = host.image_model.itemFromIndex(index.siblingAtColumn(0))
+            if _it is None or not (_it.data(IMG_PATH_ROLE) or ""):
+                index = QModelIndex()
+
         if index.isValid():
             # Select the right-clicked row so the selection-driven New
             # Folder / Delete handlers act on it — but only when it isn't
@@ -3860,8 +3867,9 @@ def build_transfer_clipboard_ops(
                         host, "_local_start_re_server", lambda: None)()))
             menu.addSeparator()
 
-            new_folder_label = "New Folder Here…" if is_dir else "New Folder…"
-            menu.addAction(new_folder_label, image_newfolder_dialog)
+            # One label: the new folder is made in the folder on show,
+            # whichever row was clicked (9.7.73, the flat view).
+            menu.addAction(ui_tr_now("New Folder…"), image_newfolder_dialog)
             menu.addSeparator()
             copy_label = f"Copy {selected_count} items" if selected_count > 1 else "Copy"
             menu.addAction(copy_label, lambda: _image_explorer_copy_selection())
@@ -3899,7 +3907,8 @@ def build_transfer_clipboard_ops(
                     lambda it=sel_items: QTimer.singleShot(
                         0, lambda: _image_remote_zip(it)))
         else:
-            # Empty area: clear the selection so a new folder lands at the root.
+            # Empty area (or the '..' row): nothing selected; a new folder
+            # and a paste land in the folder on show.
             host.image_treeview.clearSelection()
             menu.addAction(ui_tr_now("New Folder…"), image_newfolder_dialog)
             action_paste = menu.addAction(ui_tr_now("Paste"))

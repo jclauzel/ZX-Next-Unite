@@ -143,7 +143,9 @@ def test_helpers():
         check("%s 1.12.3 does not" % flavor, not reads((flavor, "1.12.3")))
     check("a later build reads it", reads(("n2n", "2.0.0")))
     check("the type's case and spaces do not matter", reads((" N2N ", "1.13.0")))
-    check("the .sync5 dot is never sent it", not reads(("sync", "9.9.9")))
+    check("the .sync5 dot reads it from 5.9.17, not before",
+          reads(("sync", "5.9.17")) and reads(("sync", "6.0.0"))
+          and not reads(("sync", "5.9.16")) and not reads(("sync", "5.9")))
     check("nor QLNextRemote", not reads(("qlnextremote", "9.9.9"))
           and not reads(("qlnt", "9.9.9")))
     check("nor an ident never asked", not reads(None))
@@ -177,7 +179,10 @@ def test_wire():
     cmd, whole, puts = run_put(b"On2n\x001.12.3")
     check("a 1.12.3 Listener gets the bare put", cmd == b"Pc:/tmp/up.bin" and whole, cmd)
     cmd, whole, puts = run_put(b"Osync\x005.9.16")
-    check("the .sync5 dot gets the bare put", cmd == b"Pc:/tmp/up.bin" and whole, cmd)
+    check("a .sync5 dot before 5.9.17 gets the bare put",
+          cmd == b"Pc:/tmp/up.bin" and whole, cmd)
+    cmd, whole, puts = run_put(b"Osync\x005.9.17")
+    check("a .sync5 5.9.17 dot is told the size", cmd == want and whole, cmd)
     cmd, whole, puts = run_put(b"Oqlnextremote\x001.7.0")
     check("QLNextRemote gets the bare put", cmd == b"Pc:/tmp/up.bin" and whole, cmd)
     cmd, whole, puts = run_put(None)
@@ -196,9 +201,11 @@ def test_twins():
     import nextsync5
     check("nextsync5: the same floor and path bound",
           nextsync5.PUT_SIZE_FLOOR == zxnu_workers.RE_PUT_SIZE_FLOOR
+          and nextsync5.PUT_SIZE_DOT_FLOOR == zxnu_workers.RE_PUT_SIZE_DOT_FLOOR
           and nextsync5.PUT_SIZE_MAX_PATH == zxnu_workers.RE_PUT_SIZE_MAX_PATH)
     edge = "c:/" + "x" * (zxnu_workers.RE_PUT_SIZE_MAX_PATH - 3)
-    idents = [None, False, ("", ""), ("sync", "9.9.9"), ("qlnt", "9.9.9"),
+    idents = [None, False, ("", ""), ("sync", "9.9.9"), ("sync", "5.9.16"),
+              ("sync", "5.9.17"), ("qlnt", "9.9.9"),
               ("n2n", "1.12.3"), ("n2n", "1.13.0"), (" ZXNT ", "1.13.1"),
               ("httpbridge", "2.0.0"), ("n2n", "1.13"), ("n2n", "beta")]
     same = all(nextsync5._put_command(p, n, i) == re_put_command(p, n, i)
