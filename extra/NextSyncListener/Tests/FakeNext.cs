@@ -367,6 +367,24 @@ namespace NextSync.Listener.Tests
             if (name.Length == 0) name = "f.bin";
             Push(NewFileBlock(name, FileBytes.Length), 0);
             Push(Concat(Encoding.ASCII.GetBytes("D"), FileBytes), 1);
+            if (name == "cut.bin")
+            {
+                // The stream ends with the file still open: no 'E'.
+                Push("B", 2);
+                return;
+            }
+            if (name == "brk.bin")
+            {
+                // ZX Next Remote 1.14.0: its user aborted - no 'E', 'B'+BRK.
+                Push("BBRK", 2);
+                return;
+            }
+            if (name == "drop.bin")
+            {
+                // The link dies under the file.
+                sock.Close();
+                return;
+            }
             Push("E", 2);
             Push("B", 3);
         }
@@ -392,6 +410,12 @@ namespace NextSync.Listener.Tests
                 // 'F'+"OSP" status block; it still expects the server's "Ok" ack.
                 Push("FOSP", 0);
                 PutOsp.Add(arg);
+                return true;
+            }
+            if (arg.StartsWith("/brk"))
+            {
+                // ZX Next Remote 1.14.0: its user aborted the put - 'F'+BRK.
+                Push("FBRK", 0);
                 return true;
             }
             if (arg.StartsWith("/locked"))

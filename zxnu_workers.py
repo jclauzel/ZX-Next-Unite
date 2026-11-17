@@ -39,15 +39,16 @@ from PySide6.QtCore import (
     QRunnable, QSize, QSortFilterProxyModel, QTimer, Qt, Signal, Slot,
     QRegularExpression,
 )
-from PySide6.QtGui import QFontInfo
+from PySide6.QtGui import QBrush, QColor, QFontInfo, QGuiApplication, QPalette
 # ui_tr_now translates the USER-FACING server log lines at their call sites
 # (session status, transfer progress, guidance). Protocol diagnostics —
 # packet/checksum/sequence/version lines — stay English on purpose so a log
 # pasted into a bug report still matches the docs and the .dot source.
 from zxnu_i18n import ui_tr_now
 from PySide6.QtWidgets import (
-    QDialog, QFileSystemModel, QHBoxLayout, QLabel, QLayout, QProgressBar,
-    QPushButton, QVBoxLayout,
+    QApplication, QDialog, QFileSystemModel, QHBoxLayout, QLabel, QLayout,
+    QProgressBar, QPushButton, QStyle, QStyledItemDelegate,
+    QStyleOptionViewItem, QVBoxLayout,
 )
 
 
@@ -108,7 +109,110 @@ def bind_tree_font_zoom(tree, persist=None):
     hdr = tree.header()
     if hdr is not None:
         hdr.viewport().installEventFilter(filt)
+    # The same five trees draw their selection inverted (9.7.73). Bound here
+    # because this is the one call every explorer tree already makes.
+    bind_inverted_selection(tree)
     return filt
+
+
+def os_clipboard_files():
+    """The local file and folder paths on the SYSTEM clipboard - what a
+    Copy in the operating system's file manager puts there - or []."""
+    try:
+        md = QGuiApplication.clipboard().mimeData()
+    except Exception:
+        return []
+    if md is None or not md.hasUrls():
+        return []
+    return [u.toLocalFile() for u in md.urls()
+            if u.isLocalFile() and u.toLocalFile()]
+
+
+def os_clipboard_is_cut():
+    """True when those files were CUT rather than copied. Windows says so
+    in the 'Preferred DropEffect' format (a little-endian DWORD whose bit 1
+    is DROPEFFECT_MOVE); other file managers have no such convention, and a
+    cut there reads as a copy. The SD Card explorers' own reader
+    (zxnu_sdcard_ops._os_clipboard_is_cut) is the same rule."""
+    try:
+        md = QGuiApplication.clipboard().mimeData()
+        if md is None:
+            return False
+        for fmt in ("Preferred DropEffect",
+                    'application/x-qt-windows-mime;value="Preferred DropEffect"'):
+            if md.hasFormat(fmt):
+                raw = bytes(md.data(fmt))
+                if len(raw) >= 4:
+                    return bool(int.from_bytes(raw[:4], "little") & 2)
+    except Exception:
+        pass
+    return False
+
+
+class InvertedSelectionDelegate(QStyledItemDelegate):
+    """Draws a SELECTED row of an explorer tree inverted: a solid bar in the
+    row's own colour with dark (or light) text on it.
+
+    Reported with a screenshot of three selected files nobody could find:
+    the app-wide selection colour is the accent at 27% opacity, and the
+    Windows 11 style keeps a selected item's text in its own colour, so a
+    selected row was the same green words on a ground one shade lighter.
+
+    The bar takes the colour of the row's NAME cell for every cell of the
+    row - a cell the model leaves unpainted (a folder's blank Size) would
+    otherwise break it with a default-coloured segment. The text on it is
+    black or white by the bar's luminance, so it reads on any item colour
+    the user picks in Settings. Unselected cells take the C++ paint path
+    untouched: one Python call a cell, nothing else.
+    """
+
+    def paint(self, painter, option, index):
+        if not (option.state & QStyle.StateFlag.State_Selected):
+            QStyledItemDelegate.paint(self, painter, option, index)
+            return
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        fg = index.sibling(index.row(), 0).data(Qt.ItemDataRole.ForegroundRole)
+        if isinstance(fg, QBrush):
+            bar = QColor(fg.color())
+        elif fg is not None:
+            bar = QColor(fg)
+        else:
+            bar = QColor()
+        if not bar.isValid():
+            bar = QColor(opt.palette.color(QPalette.ColorRole.Text))
+        bar.setAlpha(255)
+        lum = 0.299 * bar.red() + 0.587 * bar.green() + 0.114 * bar.blue()
+        ink = QColor("#000000") if lum > 140 else QColor("#ffffff")
+        rect = QRect(opt.rect)
+        if index.column() == 0 and not index.model().hasChildren(index):
+            # A file's bar starts at the view's left edge: the indentation
+            # beside the name would otherwise keep the style's own faint
+            # selection. A folder keeps that strip - its expand arrow is
+            # drawn there, before this cell, and a bar would cover it.
+            rect.setLeft(0)
+        painter.save()
+        painter.fillRect(rect, bar)
+        painter.restore()
+        # Then the cell's own icon and text over the bar, as an ordinary
+        # (unselected, unhovered) cell whose text colour is the ink.
+        opt.state &= ~QStyle.StateFlag.State_Selected
+        opt.state &= ~QStyle.StateFlag.State_MouseOver
+        opt.backgroundBrush = QBrush()
+        for group in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive,
+                      QPalette.ColorGroup.Disabled):
+            opt.palette.setColor(group, QPalette.ColorRole.Text, ink)
+            opt.palette.setColor(group, QPalette.ColorRole.WindowText, ink)
+        style = opt.widget.style() if opt.widget is not None else QApplication.style()
+        style.drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, opt.widget)
+
+
+def bind_inverted_selection(tree):
+    """Give an explorer QTreeView the inverted selection (see the delegate).
+    Returns the delegate, parented to the tree."""
+    delegate = InvertedSelectionDelegate(tree)
+    tree.setItemDelegate(delegate)
+    return delegate
 
 
 class CompactButton(QPushButton):
@@ -932,6 +1036,14 @@ class RemoteExplorerSignals(QObject):
     # Emitted BEFORE the command's ordinary failure report, so the pane can
     # drop what is still queued. Never emitted for a bridge command.
     next_aborted = Signal(str, str)
+    # (kind, path, done, total): how far the file being moved by a pane
+    # "put" or "get" has got, in bytes (9.7.73) - the progress dialog's
+    # per-file bar. total is 0 when the wire does not say (a get from a
+    # listener that sends no size in its 'N' block: every one before
+    # .sync5 5.9.18). Throttled to a few a second; object, not int: a
+    # file can pass 2 GB and Qt's int is 32 bits. Never for a bridge
+    # command or an update macro's puts.
+    xfer_progress = Signal(str, str, object, object)
     # (current, letters): the Next's default drive + every mounted drive letter,
     # e.g. ("C", ["C", "M"]). ("", []) when the dot predates the 'W' command.
     drives       = Signal(str, object)
@@ -1019,6 +1131,37 @@ def _re_is_nodrive(payload):
 #: get's terminal block is 'B' + this mark (and the file's 'E' never came).
 #: A reader that does not know the mark sees the plain 'F' / 'B'.
 RE_ABORT_MARK = b"BRK"
+
+# ---- Cancel from THIS side stops the transfer in flight (9.7.73) ---------
+# Cancel used to drop what was queued and WAIT for the file in flight. Both
+# directions can be ended early with frames every listener already answers:
+#
+#  * a PUT (the Next pulls with Get/Gee/Retry): each pull is answered with
+#    the framed "Error" the Next has always counted as a failed round - the
+#    dot and ZX Next Remote give up after six, close the file and report the
+#    put failed ('F'). Its packet byte is the expected number XOR 0x80: never
+#    the expected one (a frame carrying that would be written as DATA), and
+#    the exact value a .sync5 5.9.18+ reads as "the server is cancelling",
+#    which ends the put at that frame instead of six rounds later. ZX Next
+#    Remote's own Controller cancels a put this way since 1.14.0.
+#  * a GET (the Next pushes N/D/E blocks, each acked "Ok"): the block is
+#    answered RE_ABORT_REPLY instead. Anything but "Ok" is "send it again"
+#    to every listener, which gives the file up after its retries (twelve
+#    in the dot) and ends the stream with its 'B'; a .sync5 5.9.18+ reads
+#    the 'A' and stops at once.
+#
+# What was written is a prefix: the local file of a get is removed by the
+# get's own no-half-file rule (9.7.72), and after a put the Next is sent one
+# 'X' for the path - .sync5 5.9.17+ and ZX Next Remote 1.14.0+ have cleared
+# it themselves by then (the 'X' then answers 'F', which is fine), older
+# builds leave the part-file under the file's own name.
+RE_ABORT_REPLY = b"Abort"
+RE_PUT_ABORT_FRAME = b"Error"
+#: A reply handler returns this to refuse the block it was handed: the
+#: reader answers RE_ABORT_REPLY in place of "Ok" and does not advance.
+RE_NAK = "nak"
+#: Seconds between two xfer_progress signals for one file.
+RE_PROGRESS_EVERY_S = 0.1
 
 
 def _re_is_abort(payload):
@@ -1623,6 +1766,9 @@ def re_peer_answers_crc(rtype, number):
 #: read to stop at the NUL, but nothing here was run against every other
 #: listener (QLNextRemote, third parties), so unknown is never sent it.
 RE_PUT_SIZE_FLOOR = (1, 13, 0)
+#: The .sync5 dot reads the same suffix from 5.9.17 (its own transfer
+#: display, run.asm); an older dot stops at the NUL, but it is not sent one.
+RE_PUT_SIZE_DOT_FLOOR = (5, 9, 17)
 #: A put whose path plus the nine extra bytes would pass this is sent bare:
 #: the Listener's command buffer is RE_MAX_REMOTE_PATH long and a suffix cut
 #: short would be worse than none.
@@ -1631,17 +1777,23 @@ RE_PUT_SIZE_MAX_PATH = RE_MAX_REMOTE_PATH - 9
 
 def re_peer_reads_put_size(ident):
     """True when a session's cached 'Y' ident (type, number) - or None -
-    names a ZX Next Remote Listener at RE_PUT_SIZE_FLOOR or later."""
+    names a ZX Next Remote Listener at RE_PUT_SIZE_FLOOR or later, or a
+    .sync5 dot at RE_PUT_SIZE_DOT_FLOOR or later."""
     if not ident:
         return False
     rtype, number = ident[0], ident[1]
-    if (rtype or "").strip().lower() not in ZXNR_NEX_FLAVORS:
+    kind = (rtype or "").strip().lower()
+    if kind in ZXNR_NEX_FLAVORS:
+        floor = RE_PUT_SIZE_FLOOR
+    elif kind == "sync":
+        floor = RE_PUT_SIZE_DOT_FLOOR
+    else:
         return False
     try:
         v = tuple(int(p) for p in str(number or "").strip().split("."))
     except ValueError:
         return False
-    return len(v) == 3 and v >= RE_PUT_SIZE_FLOOR
+    return len(v) == 3 and v >= floor
 
 
 def re_put_command(remote, size, ident):
@@ -1975,6 +2127,11 @@ def _re_recv_reply(conn, handler, late_ok=False):
             _re_sendpacket(conn, b"Err seq", pktno)
             return False
         stop = handler(payload)
+        if stop is RE_NAK:
+            # The handler refuses this block (a cancelled get, 9.7.73):
+            # not "Ok", and the block is still the one expected.
+            _re_sendpacket(conn, RE_ABORT_REPLY, pktno)
+            continue
         _re_sendpacket(conn, b"Ok", pktno)
         expected = (expected + 1) & 0xff
         if stop:
@@ -2644,6 +2801,48 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
             put_retry = 0
             put_restart = 0
             pending = None   # ("put", remote, bridge_reply|None) awaiting completion
+            # Cancel (9.7.73): when the transfer in flight began, so a press
+            # made BEFORE it began cannot end it (control['cancel_xfer']
+            # stamps shared['abort_at']); whether this put is being ended;
+            # and when the per-file progress last went to the UI.
+            xfer_t0 = 0.0
+            put_aborting = False
+            progress_at = 0.0
+
+            def _cancel_wanted():
+                return shared.get('abort_at', -1.0) >= xfer_t0 > 0.0
+
+            def _pane_put():
+                # a pane put: no bridge sink, no update-macro job
+                return bool(pending and pending[0] == "put"
+                            and pending[2] is None and len(pending) == 3)
+
+            def _progress(kind, path, done, total, force=False):
+                nonlocal progress_at
+                now = time.monotonic()
+                if not force and now - progress_at < RE_PROGRESS_EVERY_S:
+                    return
+                progress_at = now
+                sig.xfer_progress.emit(kind, path, int(done), int(total))
+
+            def _put_abort_frame(expected_pkt):
+                # One refused pull of a put being cancelled (see
+                # RE_PUT_ABORT_FRAME). Says so once.
+                nonlocal put_aborting
+                if not put_aborting:
+                    put_aborting = True
+                    log("put %s: cancelled here - ending the transfer"
+                        % pending[1])
+                _re_sendpacket(conn, RE_PUT_ABORT_FRAME,
+                               (expected_pkt ^ 0x80) & 0xff)
+
+            def _put_abort_settled(remote):
+                # The cancelled put is over on the Next: clear what it
+                # left, at the next Poll, ahead of everything else.
+                nonlocal put_aborting
+                if put_aborting:
+                    put_aborting = False
+                    local_cmds.appendleft(("abort_rm", remote))
 
             def _query_ident():
                 # The 'Y' exchange, shared by the version arm and the verify
@@ -3296,11 +3495,13 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 and len(pending) == 3):
                             # a pane put (no bridge sink, no macro job)
                             sig.next_aborted.emit("put", pending[1])
+                        _was = pending[1]
                         _put_finish(False, osp=_re_is_osp(fail_payload))
                         pending = None
                         put_data = b''
                         put_ofs = 0
                         put_pkt = 0
+                        _put_abort_settled(_was)
                     continue
                 # Older dots don't send 'F'; they just stop pulling and go back to
                 # "Poll". Treat any other non-pull frame during a pending put as an
@@ -3308,11 +3509,13 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                 # transfer dialog closes instead of waiting forever for a "Get".
                 if (pending and pending[0] == "put" and
                         data not in (b"Get", b"Gee", b"Retry", b"Restart")):
+                    _was = pending[1]
                     _put_finish(False)
                     pending = None
                     put_data = b''
                     put_ofs = 0
                     put_pkt = 0
+                    _put_abort_settled(_was)
 
                 if data == b"Poll":
                     from_shared = False
@@ -3467,9 +3670,10 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         os.makedirs(dest_dir, exist_ok=True)
                         st = {'f': None, 'name': None, 'bytes': 0, 'last': None,
                               'count': 0, 'osp': False, 'cut': False,
-                              'abort': False}
+                              'abort': False, 'stop': False, 'total': 0}
                         xfer.update(kind='get', done=0, total=0, files=0,
                                     path=remote, said=False, live=True)
+                        xfer_t0 = time.monotonic()
 
                         def _drop_part(_st=st):
                             # NO HALF FILES (9.7.72): a download whose 'E'
@@ -3492,8 +3696,20 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 "Cleared partially transferred file: "
                                 "{path}").format(path=_st['last']))
 
-                        def _h(payload, _st=st, _dd=dest_dir, _remote=remote):
+                        def _h(payload, _st=st, _dd=dest_dir, _remote=remote,
+                               _ui=not reply):
                             o = payload[0:1]
+                            if (_ui and o in (b'N', b'D')
+                                    and (_st['stop'] or _cancel_wanted())):
+                                # Cancelled here (9.7.73): refuse the block.
+                                # The Next gives the file up and ends the
+                                # stream with its 'B', where the part-file
+                                # is removed like any cut-short download.
+                                if not _st['stop']:
+                                    _st['stop'] = True
+                                    log("get %s: cancelled here - ending "
+                                        "the transfer" % _remote)
+                                return RE_NAK
                             if o == b'F' and _re_is_osp(payload):
                                 # A read-protected SOURCE. A get has no
                                 # failure frame, so a ZX Next Remote listener
@@ -3514,6 +3730,13 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 # everything the wire actually tells us.
                                 namelen = payload[5] if len(payload) > 5 else 0
                                 name = payload[6:6+namelen].decode(errors='replace')
+                                # ...until .sync5 5.9.18, which writes the
+                                # file's size there (little-endian, like
+                                # every other count on this wire): the
+                                # per-file progress bar's total. Zero is
+                                # still "not said".
+                                _st['total'] = (int.from_bytes(payload[1:5], 'little')
+                                                if len(payload) >= 5 else 0)
                                 xfer['files'] += 1
                                 rel = (_re_relname_under(_remote, name) or
                                        os.path.basename(name.replace('\\', '/').rstrip('/')))
@@ -3528,15 +3751,27 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 _st['last'] = path
                                 _st['bytes'] = 0
                                 _st['count'] += 1
+                                if _ui:
+                                    _progress('get', name, 0, _st['total'],
+                                              force=True)
                             elif o == b'D':
                                 if _st['f']:
                                     _st['f'].write(payload[1:])
                                     _st['bytes'] += len(payload) - 1
                                     xfer['done'] += len(payload) - 1
+                                    if _ui:
+                                        _progress('get', _st['name'],
+                                                  _st['bytes'], _st['total'])
                             elif o == b'E':
                                 if _st['f']:
                                     _st['f'].close()
                                     _st['f'] = None
+                                    if _ui:
+                                        # the file is whole: its last
+                                        # figure, never throttled away
+                                        _progress('get', _st['name'],
+                                                  _st['bytes'], _st['total'],
+                                                  force=True)
                             elif o == b'B':
                                 if _re_is_abort(payload):
                                     _st['abort'] = True
@@ -3557,7 +3792,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             # REMOVED since 9.7.72: a link that dies under a
                             # download used to leave its prefix on disk.
                             _drop_part()
-                        if st['abort'] or st['cut']:
+                        if st['abort'] or st['cut'] or st['stop']:
                             ok = False
                         if st['abort'] and not reply:
                             sig.next_aborted.emit("get", remote)
@@ -3580,7 +3815,9 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             sig.got.emit(remote, st['last'] or dest_dir)
                         else:
                             _log_xfer_stopped('get', remote)
-                            sig.error.emit(f"get {remote}: failed")
+                            sig.error.emit(f"get {remote}: cancelled"
+                                           if st['stop'] else
+                                           f"get {remote}: failed")
                         # This get is over, whatever the outcome: retire the
                         # record so the session's finally cannot report a
                         # COMPLETED download as stopped, and so a later
@@ -3609,6 +3846,11 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         if remote.endswith('/') or remote.endswith('\\'):
                             remote = remote + os.path.basename(local)
                         pending = ("put", remote, reply)
+                        xfer_t0 = time.monotonic()
+                        put_aborting = False
+                        if _pane_put():
+                            _progress('put', remote, 0, len(put_data),
+                                      force=True)
                         # 9.7.71: the size rides along for a ZX Next Remote
                         # 1.13.0+ Listener's transfer display. The CACHED
                         # ident only - never a 'Y' asked for this.
@@ -3899,6 +4141,23 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 "— file kept")
                             vjobs.pop(vid, None)
                             sig.put_done.emit(True, job['remote'])
+                    elif op == "abort_rm":
+                        # A put cancelled here has ended on the Next (9.7.73,
+                        # see RE_PUT_ABORT_FRAME): clear what it left. No
+                        # report of its own - the put already gave its one
+                        # put_done(False) - only the console line. A build
+                        # that cleared the part-file itself answers 'F'.
+                        _path = cmd[1]
+                        resa = {'ok': None}
+
+                        def _ha(payload, _r=resa):
+                            _r['ok'] = (payload[0:1] == b'O')
+                            return True
+                        _re_sendpacket(conn, b"X" + _path.encode(), 0)
+                        if _re_reply_call(conn, _ha, late_ok=True):
+                            sig.log.emit(ui_tr_now(
+                                "Cleared partially transferred file: "
+                                "{path}").format(path=_path))
                     elif op == "put_verify_rm":
                         # The digest differed: delete the corrupted copy ('X',
                         # path-based; upd_fail_rm's shape - NO op_done, nothing
@@ -5348,6 +5607,14 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             break
                         _idle()
 
+                elif (data in (b"Get", b"Gee", b"Retry") and _pane_put()
+                      and (put_aborting or _cancel_wanted())):
+                    # Cancelled here: no more data for this put. A Retry
+                    # that follows a DATA packet expects that packet's
+                    # number again; one that follows this frame, the number
+                    # the refused Get asked for.
+                    _put_abort_frame(put_pkt if (data != b"Retry" or put_aborting)
+                                     else (put_pkt - 1) & 0xff)
                 elif data == b"Get" or data == b"Gee":
                     n = min(max_payload, len(put_data) - put_ofs)
                     last_packet = put_data[put_ofs:put_ofs + n]
@@ -5357,6 +5624,9 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                     put_ofs += n
                     put_pkt += 1
                     xfer['done'] = put_ofs
+                    if _pane_put():
+                        _progress('put', pending[1], put_ofs, len(put_data),
+                                  force=put_ofs >= len(put_data))
                     if put_ofs >= len(put_data) and pending and pending[0] == "put":
                         # Report the round trip only when it was NOT clean, so
                         # a healthy transfer stays silent and a troubled one
@@ -6129,6 +6399,15 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
         control['roster'] = _roster
         control['enqueue_to'] = _enqueue_to
         control['drop_silent'] = _drop_silent
+
+        def _cancel_xfer():
+            # The pane's Cancel (9.7.73): the pane transfer in flight, if
+            # any, is ended by the session serving it - see
+            # RE_PUT_ABORT_FRAME. Only the time of the press is recorded;
+            # a transfer that begins after it is not touched.
+            shared['abort_at'] = time.monotonic()
+            return True
+        control['cancel_xfer'] = _cancel_xfer
         control['max_peers'] = RE_MAX_PEERS if _sessions_on() else 1
 
         while not stop_event.is_set():
@@ -6606,6 +6885,18 @@ class HdfProgressDialog(QDialog):
         self._file_label.setFont(_font)
         layout.addWidget(self._file_label)
 
+        # The file being moved (9.7.73): a second bar ABOVE the batch's own,
+        # shown only by a caller that knows how far the current file has got
+        # (the Remote Explorer, for a batch of more than one command - with
+        # one file there is one bar, and it is this figure). Hidden, it
+        # takes no room and every other user of the dialog is unchanged.
+        self._file_bar = QProgressBar()
+        self._file_bar.setRange(0, 100)
+        self._file_bar.setValue(0)
+        self._file_bar.setTextVisible(True)
+        self._file_bar.hide()
+        layout.addWidget(self._file_bar)
+
         # Progress bar
         self._bar = QProgressBar()
         self._bar.setRange(0, 100)
@@ -6662,6 +6953,32 @@ class HdfProgressDialog(QDialog):
             if self._bar.maximum() == 0:
                 self._bar.setRange(0, 100)
             self._bar.setValue(value)
+
+    def set_bar_text(self, text=None):
+        """The text drawn on the main bar: a QProgressBar format ('%p%' is
+        the percentage), or None for the plain percentage."""
+        self._bar.setFormat(text or "%p%")
+
+    def set_file_progress(self, value, text=None):
+        """Drive the per-file bar: 0..100, -1 for the busy marquee (the
+        size is not known), or None to hide it. *text* is its format."""
+        if value is None:
+            self._file_bar.hide()
+            return
+        if value < 0:
+            self._file_bar.setRange(0, 0)
+        else:
+            if self._file_bar.maximum() == 0:
+                self._file_bar.setRange(0, 100)
+            self._file_bar.setValue(int(value))
+        self._file_bar.setFormat(text or "%p%")
+        if self._file_bar.isHidden():
+            self._file_bar.show()
+
+    def file_progress(self):
+        """(shown, value, busy) of the per-file bar - for the tests."""
+        return (not self._file_bar.isHidden(), self._file_bar.value(),
+                self._file_bar.maximum() == 0)
 
     @Slot(str)
     def set_status(self, text: str):

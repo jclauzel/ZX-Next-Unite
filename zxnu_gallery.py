@@ -2716,19 +2716,21 @@ def _gallery_viewer_refresh_meta(viewer: "GalleryItemViewer",
     except Exception:
         pass
 class BackgroundWidget(QWidget):
-    """A QWidget that paints a chosen (or randomly cycling) image from the
+    """A QWidget that paints a chosen (or randomly picked) image from the
     same directory as the script, scaled to fill the entire widget area, blended at
     a configurable opacity level (0–100 %, default 45 %).
 
     Modes
     -----
-    Random (default): cycles through all available background images every
-    BG_CYCLE_INTERVAL_MS milliseconds using a QTimer.
-    Fixed: a specific image path is set via set_bg_image(path); the timer stops.
+    Random (default): ONE of the available background images, picked when
+    the app starts and kept for the whole run (9.7.73). Until then it moved
+    to the next image every five seconds, for ever - a window that redraws
+    itself under whatever the user is reading. Choosing Random again in
+    Settings picks a new one, once.
+    Fixed: a specific image path is set via set_bg_image(path).
     """
 
     DEFAULT_OPACITY      = 45
-    BG_CYCLE_INTERVAL_MS = 5000   # 5 seconds
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -2738,18 +2740,10 @@ class BackgroundWidget(QWidget):
         self._bg_opacity  = self.DEFAULT_OPACITY  # percent 0-100
         self._bg_color    = None   # user's Background colour (QColor) or None
         self._bg_paths    = []                     # all discovered image paths
-        self._bg_index    = -1                     # current index for cycling
+        self._bg_index    = -1                     # the random pick's index
         self._bg_fixed    = False                  # True = specific image locked
-        self._cycle_timer = QTimer(self)
-        self._cycle_timer.setInterval(self.BG_CYCLE_INTERVAL_MS)
-        self._cycle_timer.timeout.connect(self._cycle_next)
-        # Start in random-cycling mode immediately
-        self._bg_paths = self._discover_backgrounds()
-        if self._bg_paths:
-            import random
-            self._bg_index = random.randrange(len(self._bg_paths))
-            self._bg_pixmap = self._load_path(self._bg_paths[self._bg_index])
-            self._cycle_timer.start()
+        # Random mode from the start: one image for this run.
+        self._pick_random()
 
     # ------------------------------------------------------------------
     # Public API
@@ -2775,28 +2769,39 @@ class BackgroundWidget(QWidget):
         self.update()
 
     def set_bg_image(self, path: str):
-        """Switch to a fixed image (non-empty path) or back to random cycling
-        (empty / None path).  *path* should be an absolute file path."""
+        """Switch to a fixed image (non-empty path) or back to Random
+        (empty / None path), which picks one image now and keeps it.
+        *path* should be an absolute file path."""
         if path:
             self._bg_fixed = True
-            self._cycle_timer.stop()
             self._bg_pixmap = self._load_path(path)
             self.update()
         else:
             self._bg_fixed = False
-            self._bg_paths = self._discover_backgrounds()
-            if self._bg_paths:
-                import random
-                self._bg_index = random.randrange(len(self._bg_paths))
-                self._bg_pixmap = self._load_path(self._bg_paths[self._bg_index])
-                self._cycle_timer.start()
-            else:
-                self._bg_pixmap = None
-                self.update()
+            self._pick_random()
+            self.update()
+
+    def _pick_random(self):
+        """Random mode's one pick: any of the discovered images."""
+        self._bg_paths = self._discover_backgrounds()
+        if self._bg_paths:
+            import random
+            self._bg_index = random.randrange(len(self._bg_paths))
+            self._bg_pixmap = self._load_path(self._bg_paths[self._bg_index])
+        else:
+            self._bg_index = -1
+            self._bg_pixmap = None
 
     def bg_paths(self) -> list:
         """Return the list of discovered background image paths (may be empty)."""
         return list(self._bg_paths)
+
+    def random_bg_path(self) -> str:
+        """The image Random mode picked for this run ("" when a fixed image
+        is set, or when there is none to pick)."""
+        if self._bg_fixed or not (0 <= self._bg_index < len(self._bg_paths)):
+            return ""
+        return self._bg_paths[self._bg_index]
 
     # ------------------------------------------------------------------
     # Alien Floyd's animated background (optional, pygame-ce)
@@ -2804,9 +2809,9 @@ class BackgroundWidget(QWidget):
 
     def set_alien_mode(self, enabled: bool):
         """Enable/disable the optional pygame-ce "Alien Floyd's" animated
-        background.  When enabled it replaces the cycling background images on
-        every tab (a full-bleed opaque animation child behind the tab widget);
-        when disabled the image cycling resumes."""
+        background.  When enabled it replaces the background image on every
+        tab (a full-bleed opaque animation child behind the tab widget);
+        when disabled the image shows again."""
         enabled = bool(enabled)
         if enabled == self._alien_mode:
             return
@@ -2819,7 +2824,6 @@ class BackgroundWidget(QWidget):
             except Exception:
                 return
             self._alien_mode = True
-            self._cycle_timer.stop()
             if self._alien_child is None:
                 self._alien_child = AlienFloydWidget(self)
             self._alien_child.setGeometry(self.rect())
@@ -2838,9 +2842,6 @@ class BackgroundWidget(QWidget):
                 except Exception:
                     pass
                 self._alien_child = None
-            # Resume image cycling unless a fixed image is locked.
-            if not self._bg_fixed and self._bg_paths:
-                self._cycle_timer.start()
             self.update()
 
     def alien_mode(self) -> bool:
@@ -2898,14 +2899,6 @@ class BackgroundWidget(QWidget):
             return None
         px = QPixmap(path)
         return px if not px.isNull() else None
-
-    def _cycle_next(self):
-        """Advance to the next image in the rotation."""
-        if not self._bg_paths:
-            return
-        self._bg_index = (self._bg_index + 1) % len(self._bg_paths)
-        self._bg_pixmap = self._load_path(self._bg_paths[self._bg_index])
-        self.update()
 
     # kept for backward-compat (not used internally anymore)
     @staticmethod

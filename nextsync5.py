@@ -639,24 +639,31 @@ CRC_FLOORS = {"sync": (5, 9, 2), "httpbridge": (1, 0, 8), "n2n": (1, 0, 8),
 # A put's SIZE for a ZX Next Remote 1.13.0+ Listener (9.7.71): P + path +
 # NUL + eight upper-case hex digits, which its transfer display turns into a
 # percentage. Sent only when the cached 'version' answer proves the listener
-# reads it - never to the dot, QLNextRemote or an unknown listener, and no
+# reads it (ZX Next Remote 1.13.0+, the .sync5 dot 5.9.17+) - never to an
+# older dot, QLNextRemote or an unknown listener, and no
 # 'version' is asked for it. Hand-kept twins of zxnu_workers.RE_PUT_SIZE_FLOOR
 # / RE_PUT_SIZE_MAX_PATH / re_peer_reads_put_size / re_put_command (pinned by
 # tests/test_put_size.py).
 PUT_SIZE_FLOOR = (1, 13, 0)
+PUT_SIZE_DOT_FLOOR = (5, 9, 17)    # the .sync5 dot reads it too from 5.9.17
 PUT_SIZE_MAX_PATH = 254 - 9        # MAX_REMOTE_PATH (defined below) - 9
 
 
 def _peer_reads_put_size(ident):
     if not ident:
         return False
-    if (ident[0] or "").strip().lower() not in ZXNR_FLAVORS:
+    kind = (ident[0] or "").strip().lower()
+    if kind in ZXNR_FLAVORS:
+        floor = PUT_SIZE_FLOOR
+    elif kind == "sync":
+        floor = PUT_SIZE_DOT_FLOOR
+    else:
         return False
     try:
         v = tuple(int(p) for p in str(ident[1] or "").strip().split("."))
     except ValueError:
         return False
-    return len(v) == 3 and v >= PUT_SIZE_FLOOR
+    return len(v) == 3 and v >= floor
 
 
 def _put_command(remote, size, ident):

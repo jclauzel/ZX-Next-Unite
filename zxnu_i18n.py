@@ -1411,6 +1411,16 @@ CATALOGS = {
             "Buscar una versión más reciente de MAME al iniciar",
         "Disable 'No emulators detected' message at startup":
             "Desactivar el aviso «No se detectaron emuladores» al iniciar",
+        "Additional search paths for emulators and hdfmonkey:":
+            "Rutas de búsqueda adicionales para emuladores y hdfmonkey:",
+        "Add folder…":
+            "Añadir carpeta…",
+        "Remove folder":
+            "Quitar carpeta",
+        "Move up":
+            "Subir",
+        "Move down":
+            "Bajar",
         "Do not prompt for confirmation on deletion.":
             "No pedir confirmación al eliminar.",
         "Enable NextSync HTTP bridge (web server for the Next's .http command)":
@@ -1594,8 +1604,8 @@ CATALOGS = {
             "La imagen de disco {path} ya no se encuentra — puede que se haya movido, renombrado o eliminado.",
         "Select a ZX Spectrum Next disk image (.img/.hdf) first — then MAME can boot it as the Next's hard disk.":
             "Selecciona primero una imagen de disco (.img/.hdf) de ZX Spectrum Next — MAME podrá arrancarla como disco duro del Next.",
-        "Select the parent folder inside the SD card image\n(at the top level this returns the target to the image root).":
-            "Seleccionar la carpeta superior dentro de la imagen SD\n(en el nivel más alto vuelve a la raíz de la imagen).",
+        "Go up one folder inside the SD card image\n(same as double-clicking its '..' entry).":
+            "Subir una carpeta dentro de la imagen SD\n(igual que hacer doble clic en su entrada «..»).",
         "Go up one folder in the local file explorer\n(same as double-clicking its '..' entry).":
             "Subir una carpeta en el explorador local\n(igual que hacer doble clic en su entrada «..»).",
         "Re-list the current image folder from the SD card image\n(runs 'hdfmonkey ls' again).":
@@ -3113,6 +3123,16 @@ CATALOGS = {
             "Procurar uma versão mais recente do MAME ao arrancar",
         "Disable 'No emulators detected' message at startup":
             "Desativar o aviso «Nenhum emulador detetado» ao arrancar",
+        "Additional search paths for emulators and hdfmonkey:":
+            "Caminhos de pesquisa adicionais para emuladores e hdfmonkey:",
+        "Add folder…":
+            "Adicionar pasta…",
+        "Remove folder":
+            "Remover pasta",
+        "Move up":
+            "Subir",
+        "Move down":
+            "Descer",
         "Do not prompt for confirmation on deletion.":
             "Não pedir confirmação ao eliminar.",
         "Enable NextSync HTTP bridge (web server for the Next's .http command)":
@@ -3296,8 +3316,8 @@ CATALOGS = {
             "A imagem de disco {path} já não se encontra — pode ter sido movida, mudada de nome ou eliminada.",
         "Select a ZX Spectrum Next disk image (.img/.hdf) first — then MAME can boot it as the Next's hard disk.":
             "Selecione primeiro uma imagem de disco (.img/.hdf) ZX Spectrum Next — o MAME poderá arrancá-la como disco rígido do Next.",
-        "Select the parent folder inside the SD card image\n(at the top level this returns the target to the image root).":
-            "Selecionar a pasta superior dentro da imagem SD\n(no nível de topo volta à raiz da imagem).",
+        "Go up one folder inside the SD card image\n(same as double-clicking its '..' entry).":
+            "Subir uma pasta dentro da imagem SD\n(igual a fazer duplo clique na entrada «..»).",
         "Go up one folder in the local file explorer\n(same as double-clicking its '..' entry).":
             "Subir uma pasta no explorador local\n(igual a fazer duplo clique na entrada «..»).",
         "Re-list the current image folder from the SD card image\n(runs 'hdfmonkey ls' again).":
@@ -4811,6 +4831,16 @@ CATALOGS = {
             "Sprawdzaj nowszą wersję MAME przy starcie",
         "Disable 'No emulators detected' message at startup":
             "Wyłącz komunikat «Nie wykryto emulatorów» przy starcie",
+        "Additional search paths for emulators and hdfmonkey:":
+            "Dodatkowe ścieżki wyszukiwania emulatorów i hdfmonkey:",
+        "Add folder…":
+            "Dodaj folder…",
+        "Remove folder":
+            "Usuń folder",
+        "Move up":
+            "W górę",
+        "Move down":
+            "W dół",
         "Do not prompt for confirmation on deletion.":
             "Nie pytaj o potwierdzenie przy usuwaniu.",
         "Enable NextSync HTTP bridge (web server for the Next's .http command)":
@@ -4994,8 +5024,8 @@ CATALOGS = {
             "Nie można już znaleźć obrazu dysku {path} — mógł zostać przeniesiony, zmieniony lub usunięty.",
         "Select a ZX Spectrum Next disk image (.img/.hdf) first — then MAME can boot it as the Next's hard disk.":
             "Najpierw wybierz obraz dysku (.img/.hdf) ZX Spectrum Next — MAME uruchomi go jako dysk twardy Nexta.",
-        "Select the parent folder inside the SD card image\n(at the top level this returns the target to the image root).":
-            "Przejdź do folderu nadrzędnego w obrazie SD\n(na najwyższym poziomie wraca do katalogu głównego obrazu).",
+        "Go up one folder inside the SD card image\n(same as double-clicking its '..' entry).":
+            "Przejdź folder wyżej w obrazie SD\n(jak dwuklik na pozycji «..»).",
         "Go up one folder in the local file explorer\n(same as double-clicking its '..' entry).":
             "Przejdź folder wyżej w eksploratorze lokalnym\n(jak dwuklik na pozycji «..»).",
         "Re-list the current image folder from the SD card image\n(runs 'hdfmonkey ls' again).":
@@ -6511,6 +6541,16 @@ CATALOGS = {
             "Проверять новую версию MAME при запуске",
         "Disable 'No emulators detected' message at startup":
             "Отключить сообщение «Эмуляторы не найдены» при запуске",
+        "Additional search paths for emulators and hdfmonkey:":
+            "Дополнительные пути поиска эмуляторов и hdfmonkey:",
+        "Add folder…":
+            "Добавить папку…",
+        "Remove folder":
+            "Удалить папку",
+        "Move up":
+            "Вверх",
+        "Move down":
+            "Вниз",
         "Do not prompt for confirmation on deletion.":
             "Не запрашивать подтверждение при удалении.",
         "Enable NextSync HTTP bridge (web server for the Next's .http command)":
@@ -6694,8 +6734,8 @@ CATALOGS = {
             "Образ диска {path} больше не найден — возможно, он был перемещён, переименован или удалён.",
         "Select a ZX Spectrum Next disk image (.img/.hdf) first — then MAME can boot it as the Next's hard disk.":
             "Сначала выберите образ диска (.img/.hdf) ZX Spectrum Next — MAME запустит его как жёсткий диск Next.",
-        "Select the parent folder inside the SD card image\n(at the top level this returns the target to the image root).":
-            "Перейти в родительскую папку внутри образа SD\n(на верхнем уровне возвращает к корню образа).",
+        "Go up one folder inside the SD card image\n(same as double-clicking its '..' entry).":
+            "Подняться на папку вверх внутри образа SD\n(как двойной щелчок по записи «..»).",
         "Go up one folder in the local file explorer\n(same as double-clicking its '..' entry).":
             "Подняться на папку вверх в локальном проводнике\n(как двойной щелчок по записи «..»).",
         "Re-list the current image folder from the SD card image\n(runs 'hdfmonkey ls' again).":
@@ -8207,6 +8247,16 @@ CATALOGS = {
             "Při startu hledat novější verzi MAME",
         "Disable 'No emulators detected' message at startup":
             "Vypnout hlášku «Nenalezen žádný emulátor» při startu",
+        "Additional search paths for emulators and hdfmonkey:":
+            "Další cesty pro hledání emulátorů a hdfmonkey:",
+        "Add folder…":
+            "Přidat složku…",
+        "Remove folder":
+            "Odebrat složku",
+        "Move up":
+            "Nahoru",
+        "Move down":
+            "Dolů",
         "Do not prompt for confirmation on deletion.":
             "Nežádat o potvrzení při mazání.",
         "Enable NextSync HTTP bridge (web server for the Next's .http command)":
@@ -8390,8 +8440,8 @@ CATALOGS = {
             "Obraz disku {path} už nelze najít — mohl být přesunut, přejmenován nebo smazán.",
         "Select a ZX Spectrum Next disk image (.img/.hdf) first — then MAME can boot it as the Next's hard disk.":
             "Nejdřív vyberte obraz disku (.img/.hdf) ZX Spectrum Next — MAME ho pak spustí jako pevný disk Nextu.",
-        "Select the parent folder inside the SD card image\n(at the top level this returns the target to the image root).":
-            "Přejít do nadřazené složky uvnitř obrazu SD\n(na nejvyšší úrovni se vrací ke kořeni obrazu).",
+        "Go up one folder inside the SD card image\n(same as double-clicking its '..' entry).":
+            "O složku výš uvnitř obrazu SD\n(stejné jako dvojklik na položku «..»).",
         "Go up one folder in the local file explorer\n(same as double-clicking its '..' entry).":
             "O složku výš v místním průzkumníku\n(stejné jako dvojklik na položku «..»).",
         "Re-list the current image folder from the SD card image\n(runs 'hdfmonkey ls' again).":
@@ -9912,6 +9962,16 @@ CATALOGS = {
             "Vérifier une version plus récente de MAME au démarrage",
         "Disable 'No emulators detected' message at startup":
             "Désactiver le message « Aucun émulateur détecté » au démarrage",
+        "Additional search paths for emulators and hdfmonkey:":
+            "Chemins de recherche supplémentaires pour les émulateurs et hdfmonkey :",
+        "Add folder…":
+            "Ajouter un dossier…",
+        "Remove folder":
+            "Retirer le dossier",
+        "Move up":
+            "Monter",
+        "Move down":
+            "Descendre",
         "Do not prompt for confirmation on deletion.":
             "Ne pas demander de confirmation à la suppression.",
         "Enable NextSync HTTP bridge (web server for the Next's .http command)":
@@ -10095,8 +10155,8 @@ CATALOGS = {
             "L'image disque {path} est introuvable — elle a peut-être été déplacée, renommée ou supprimée.",
         "Select a ZX Spectrum Next disk image (.img/.hdf) first — then MAME can boot it as the Next's hard disk.":
             "Choisissez d'abord une image disque (.img/.hdf) ZX Spectrum Next — MAME pourra la démarrer comme disque dur du Next.",
-        "Select the parent folder inside the SD card image\n(at the top level this returns the target to the image root).":
-            "Remonter au dossier parent dans l'image SD\n(au plus haut niveau, revient à la racine de l'image).",
+        "Go up one folder inside the SD card image\n(same as double-clicking its '..' entry).":
+            "Remonter d'un dossier dans l'image SD\n(comme un double-clic sur l'entrée « .. »).",
         "Go up one folder in the local file explorer\n(same as double-clicking its '..' entry).":
             "Remonter d'un dossier dans l'explorateur local\n(comme un double-clic sur l'entrée « .. »).",
         "Re-list the current image folder from the SD card image\n(runs 'hdfmonkey ls' again).":
@@ -10467,6 +10527,8 @@ _TOAST_CATALOGS = {
             "Le Next s'est déconnecté du Remote Explorer NextSync.",
         "Cancelling — will stop once the current file has finished transferring, to avoid file corruption…":
             "Annulation — s'arrêtera une fois le transfert du fichier en cours terminé, afin d'éviter toute corruption de fichier…",
+        "Cancelling — stopping the transfer in flight; a file cut short is removed, never left half written…":
+            "Annulation — arrêt du transfert en cours ; un fichier incomplet est supprimé, jamais laissé à moitié écrit…",
         "Cancelled: stopped waiting for the transfer in flight after {seconds}s. It was not aborted — if the Next is still answering it will finish on its own. Refresh the Next pane to check.":
             "Annulé : arrêt de l'attente du transfert en cours après {seconds} s. Il n'a pas été interrompu — si le Next répond encore, il ira à son terme. Actualisez le panneau Next pour vérifier.",
         "NextSync server started": "Serveur NextSync démarré",
@@ -10502,12 +10564,30 @@ _TOAST_CATALOGS = {
         "Remote zip": "Compression distante",
         "Remote zip failed": "Échec de la compression distante",
         "Found: {emulators}.": "Détecté : {emulators}.",
+        "\u26a0  Search path not valid":
+            "\u26a0  Chemin de recherche non valide",
+        "This search path does not exist any more and was skipped (Settings, Advanced mode):\n{paths}":
+            "Ce chemin de recherche n'existe plus et a été ignoré (Paramètres, mode avancé) :\n{paths}",
+        " (custom search path)":
+            " (chemin de recherche personnalisé)",
+        "That folder does not exist: {path}":
+            "Ce dossier n'existe pas : {path}",
+        "That folder is already in the list: {path}":
+            "Ce dossier est déjà dans la liste : {path}",
+        "The list holds {max} search paths at most.":
+            "La liste contient au plus {max} chemins de recherche.",
+        "That folder cannot be stored in the settings file: {path}":
+            "Ce dossier ne peut pas être enregistré dans le fichier de configuration : {path}",
+        "Search path not added":
+            "Chemin de recherche non ajouté",
+        "Choose a folder to search for emulators and hdfmonkey":
+            "Choisir un dossier où chercher les émulateurs et hdfmonkey",
         " and ": " et ",
         "Mame: via Flatpak ({app})": "Mame : via Flatpak ({app})",
         "⚠ On Windows, CSpect needs <b>OpenAL 1.1</b> for sound. If you have no audio, install it from <a href=\"https://www.openal.org/\">openal.org</a>.":
             "⚠ Sous Windows, CSpect a besoin d'<b>OpenAL 1.1</b> pour le son. Sans audio, installez-le depuis <a href=\"https://www.openal.org/\">openal.org</a>.",
-        "Neither CSpect nor Mame were found. Add the emulator(s) to your operating system PATH environment variable so they can be launched from here. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing":
-            "Ni CSpect ni Mame n'ont été trouvés. Ajoutez le(s) émulateur(s) à la variable d'environnement PATH de votre système pour pouvoir les lancer d'ici. \r\n\r\nCSpect : https://mdf200.itch.io/cspect \r\nMame : https://wiki.specnext.dev/MAME:Installing",
+        "Neither CSpect nor Mame were found. Add the emulator(s) to your operating system PATH environment variable - or add their folder to the additional search paths in Settings (Advanced mode) - so they can be launched from here. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing":
+            "Ni CSpect ni Mame n'ont été trouvés. Ajoutez le(s) émulateur(s) à la variable d'environnement PATH de votre système - ou ajoutez leur dossier aux chemins de recherche supplémentaires dans les Paramètres (mode avancé) - pour pouvoir les lancer d'ici. \r\n\r\nCSpect : https://mdf200.itch.io/cspect \r\nMame : https://wiki.specnext.dev/MAME:Installing",
         "hdfmonkey has been installed and is ready to use.": "hdfmonkey a été installé et est prêt à l'emploi.",
         "Location: {path}": "Emplacement : {path}",
         "The file was sent to the SD card image.": "Le fichier a été envoyé vers l'image de carte SD.",
@@ -10615,6 +10695,8 @@ _TOAST_CATALOGS = {
             "El Next se ha desconectado del Remote Explorer de NextSync.",
         "Cancelling — will stop once the current file has finished transferring, to avoid file corruption…":
             "Cancelando — se detendrá cuando el archivo actual termine de transferirse, para evitar la corrupción de archivos…",
+        "Cancelling — stopping the transfer in flight; a file cut short is removed, never left half written…":
+            "Cancelando — se detiene la transferencia en curso; un archivo incompleto se elimina, nunca se deja a medio escribir…",
         "Cancelled: stopped waiting for the transfer in flight after {seconds}s. It was not aborted — if the Next is still answering it will finish on its own. Refresh the Next pane to check.":
             "Cancelado: se dejó de esperar la transferencia en curso tras {seconds} s. No se ha interrumpido: si el Next sigue respondiendo, terminará por sí sola. Actualice el panel del Next para comprobarlo.",
         "NextSync server started": "Servidor NextSync iniciado",
@@ -10650,12 +10732,30 @@ _TOAST_CATALOGS = {
         "Remote zip": "Compresión remota",
         "Remote zip failed": "Falló la compresión remota",
         "Found: {emulators}.": "Encontrado: {emulators}.",
+        "\u26a0  Search path not valid":
+            "\u26a0  Ruta de búsqueda no válida",
+        "This search path does not exist any more and was skipped (Settings, Advanced mode):\n{paths}":
+            "Esta ruta de búsqueda ya no existe y se ha omitido (Ajustes, modo avanzado):\n{paths}",
+        " (custom search path)":
+            " (ruta de búsqueda personalizada)",
+        "That folder does not exist: {path}":
+            "Esa carpeta no existe: {path}",
+        "That folder is already in the list: {path}":
+            "Esa carpeta ya está en la lista: {path}",
+        "The list holds {max} search paths at most.":
+            "La lista admite como máximo {max} rutas de búsqueda.",
+        "That folder cannot be stored in the settings file: {path}":
+            "Esa carpeta no se puede guardar en el archivo de configuración: {path}",
+        "Search path not added":
+            "Ruta de búsqueda no añadida",
+        "Choose a folder to search for emulators and hdfmonkey":
+            "Elija una carpeta donde buscar emuladores y hdfmonkey",
         " and ": " y ",
         "Mame: via Flatpak ({app})": "Mame: mediante Flatpak ({app})",
         "⚠ On Windows, CSpect needs <b>OpenAL 1.1</b> for sound. If you have no audio, install it from <a href=\"https://www.openal.org/\">openal.org</a>.":
             "⚠ En Windows, CSpect necesita <b>OpenAL 1.1</b> para el sonido. Si no tiene audio, instálelo desde <a href=\"https://www.openal.org/\">openal.org</a>.",
-        "Neither CSpect nor Mame were found. Add the emulator(s) to your operating system PATH environment variable so they can be launched from here. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing":
-            "No se encontraron ni CSpect ni Mame. Añada el/los emulador(es) a la variable de entorno PATH de su sistema operativo para poder lanzarlos desde aquí. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing",
+        "Neither CSpect nor Mame were found. Add the emulator(s) to your operating system PATH environment variable - or add their folder to the additional search paths in Settings (Advanced mode) - so they can be launched from here. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing":
+            "No se encontraron ni CSpect ni Mame. Añada el/los emulador(es) a la variable de entorno PATH de su sistema operativo - o añada su carpeta a las rutas de búsqueda adicionales en Ajustes (modo avanzado) - para poder lanzarlos desde aquí. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing",
         "hdfmonkey has been installed and is ready to use.": "hdfmonkey se ha instalado y está listo para usar.",
         "Location: {path}": "Ubicación: {path}",
         "The file was sent to the SD card image.": "El archivo se envió a la imagen de la tarjeta SD.",
@@ -10763,6 +10863,8 @@ _TOAST_CATALOGS = {
             "O Next desligou-se do Remote Explorer do NextSync.",
         "Cancelling — will stop once the current file has finished transferring, to avoid file corruption…":
             "A cancelar — vai parar quando o ficheiro atual acabar de ser transferido, para evitar a corrupção de ficheiros…",
+        "Cancelling — stopping the transfer in flight; a file cut short is removed, never left half written…":
+            "A cancelar — a transferência em curso é interrompida; um ficheiro incompleto é eliminado, nunca fica meio escrito…",
         "Cancelled: stopped waiting for the transfer in flight after {seconds}s. It was not aborted — if the Next is still answering it will finish on its own. Refresh the Next pane to check.":
             "Cancelado: deixou de esperar pela transferência em curso ao fim de {seconds} s. Não foi interrompida — se o Next ainda responder, terminará sozinha. Atualize o painel do Next para confirmar.",
         "NextSync server started": "Servidor NextSync iniciado",
@@ -10798,12 +10900,30 @@ _TOAST_CATALOGS = {
         "Remote zip": "Compressão remota",
         "Remote zip failed": "Falha na compressão remota",
         "Found: {emulators}.": "Encontrado: {emulators}.",
+        "\u26a0  Search path not valid":
+            "\u26a0  Caminho de pesquisa inválido",
+        "This search path does not exist any more and was skipped (Settings, Advanced mode):\n{paths}":
+            "Este caminho de pesquisa já não existe e foi ignorado (Definições, modo avançado):\n{paths}",
+        " (custom search path)":
+            " (caminho de pesquisa personalizado)",
+        "That folder does not exist: {path}":
+            "Essa pasta não existe: {path}",
+        "That folder is already in the list: {path}":
+            "Essa pasta já está na lista: {path}",
+        "The list holds {max} search paths at most.":
+            "A lista admite no máximo {max} caminhos de pesquisa.",
+        "That folder cannot be stored in the settings file: {path}":
+            "Essa pasta não pode ser guardada no ficheiro de configuração: {path}",
+        "Search path not added":
+            "Caminho de pesquisa não adicionado",
+        "Choose a folder to search for emulators and hdfmonkey":
+            "Escolha uma pasta onde procurar emuladores e hdfmonkey",
         " and ": " e ",
         "Mame: via Flatpak ({app})": "Mame: via Flatpak ({app})",
         "⚠ On Windows, CSpect needs <b>OpenAL 1.1</b> for sound. If you have no audio, install it from <a href=\"https://www.openal.org/\">openal.org</a>.":
             "⚠ No Windows, o CSpect precisa do <b>OpenAL 1.1</b> para o som. Se não tiver áudio, instale-o a partir de <a href=\"https://www.openal.org/\">openal.org</a>.",
-        "Neither CSpect nor Mame were found. Add the emulator(s) to your operating system PATH environment variable so they can be launched from here. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing":
-            "Não foram encontrados nem o CSpect nem o Mame. Adicione o(s) emulador(es) à variável de ambiente PATH do sistema operativo para poderem ser lançados a partir daqui. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing",
+        "Neither CSpect nor Mame were found. Add the emulator(s) to your operating system PATH environment variable - or add their folder to the additional search paths in Settings (Advanced mode) - so they can be launched from here. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing":
+            "Não foram encontrados nem o CSpect nem o Mame. Adicione o(s) emulador(es) à variável de ambiente PATH do sistema operativo - ou adicione a pasta deles aos caminhos de pesquisa adicionais nas Definições (modo avançado) - para poderem ser lançados a partir daqui. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing",
         "hdfmonkey has been installed and is ready to use.": "O hdfmonkey foi instalado e está pronto a usar.",
         "Location: {path}": "Localização: {path}",
         "The file was sent to the SD card image.": "O ficheiro foi enviado para a imagem do cartão SD.",
@@ -10911,6 +11031,8 @@ _TOAST_CATALOGS = {
             "Next rozłączył się z Remote Explorerem NextSync.",
         "Cancelling — will stop once the current file has finished transferring, to avoid file corruption…":
             "Anulowanie — zatrzyma się, gdy bieżący plik zakończy przesyłanie, aby uniknąć uszkodzenia plików…",
+        "Cancelling — stopping the transfer in flight; a file cut short is removed, never left half written…":
+            "Anulowanie — trwający transfer jest przerywany; niekompletny plik jest usuwany, nigdy nie zostaje zapisany w połowie…",
         "Cancelled: stopped waiting for the transfer in flight after {seconds}s. It was not aborted — if the Next is still answering it will finish on its own. Refresh the Next pane to check.":
             "Anulowano: zakończono oczekiwanie na trwający transfer po {seconds} s. Nie został przerwany — jeśli Next nadal odpowiada, dokończy się sam. Odśwież panel Nexta, aby sprawdzić.",
         "NextSync server started": "Serwer NextSync uruchomiony",
@@ -10946,12 +11068,30 @@ _TOAST_CATALOGS = {
         "Remote zip": "Zdalne pakowanie",
         "Remote zip failed": "Zdalne pakowanie nie powiodło się",
         "Found: {emulators}.": "Znaleziono: {emulators}.",
+        "\u26a0  Search path not valid":
+            "\u26a0  Nieprawidłowa ścieżka wyszukiwania",
+        "This search path does not exist any more and was skipped (Settings, Advanced mode):\n{paths}":
+            "Ta ścieżka wyszukiwania już nie istnieje i została pominięta (Ustawienia, tryb zaawansowany):\n{paths}",
+        " (custom search path)":
+            " (własna ścieżka wyszukiwania)",
+        "That folder does not exist: {path}":
+            "Ten folder nie istnieje: {path}",
+        "That folder is already in the list: {path}":
+            "Ten folder jest już na liście: {path}",
+        "The list holds {max} search paths at most.":
+            "Lista mieści najwyżej {max} ścieżek wyszukiwania.",
+        "That folder cannot be stored in the settings file: {path}":
+            "Tego folderu nie można zapisać w pliku ustawień: {path}",
+        "Search path not added":
+            "Nie dodano ścieżki wyszukiwania",
+        "Choose a folder to search for emulators and hdfmonkey":
+            "Wybierz folder do wyszukiwania emulatorów i hdfmonkey",
         " and ": " i ",
         "Mame: via Flatpak ({app})": "Mame: przez Flatpak ({app})",
         "⚠ On Windows, CSpect needs <b>OpenAL 1.1</b> for sound. If you have no audio, install it from <a href=\"https://www.openal.org/\">openal.org</a>.":
             "⚠ W systemie Windows CSpect wymaga <b>OpenAL 1.1</b> do dźwięku. Jeśli nie ma dźwięku, zainstaluj go ze strony <a href=\"https://www.openal.org/\">openal.org</a>.",
-        "Neither CSpect nor Mame were found. Add the emulator(s) to your operating system PATH environment variable so they can be launched from here. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing":
-            "Nie znaleziono ani CSpect, ani Mame. Dodaj emulator(y) do zmiennej środowiskowej PATH systemu, aby można je było stąd uruchamiać. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing",
+        "Neither CSpect nor Mame were found. Add the emulator(s) to your operating system PATH environment variable - or add their folder to the additional search paths in Settings (Advanced mode) - so they can be launched from here. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing":
+            "Nie znaleziono ani CSpect, ani Mame. Dodaj emulator(y) do zmiennej środowiskowej PATH systemu - albo dodaj ich folder do dodatkowych ścieżek wyszukiwania w Ustawieniach (tryb zaawansowany) - aby można je było stąd uruchamiać. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing",
         "hdfmonkey has been installed and is ready to use.": "hdfmonkey został zainstalowany i jest gotowy do użycia.",
         "Location: {path}": "Lokalizacja: {path}",
         "The file was sent to the SD card image.": "Plik został wysłany do obrazu karty SD.",
@@ -11059,6 +11199,8 @@ _TOAST_CATALOGS = {
             "Next отключился от Remote Explorer NextSync.",
         "Cancelling — will stop once the current file has finished transferring, to avoid file corruption…":
             "Отмена — остановится, когда завершится передача текущего файла, чтобы избежать повреждения файлов…",
+        "Cancelling — stopping the transfer in flight; a file cut short is removed, never left half written…":
+            "Отмена — текущая передача останавливается; неполный файл удаляется и не остаётся записанным наполовину…",
         "Cancelled: stopped waiting for the transfer in flight after {seconds}s. It was not aborted — if the Next is still answering it will finish on its own. Refresh the Next pane to check.":
             "Отменено: ожидание текущей передачи прекращено через {seconds} с. Она не была прервана — если Next ещё отвечает, передача завершится сама. Обновите панель Next, чтобы проверить.",
         "NextSync server started": "Сервер NextSync запущен",
@@ -11094,12 +11236,30 @@ _TOAST_CATALOGS = {
         "Remote zip": "Удалённое архивирование",
         "Remote zip failed": "Удалённое архивирование не удалось",
         "Found: {emulators}.": "Найдено: {emulators}.",
+        "\u26a0  Search path not valid":
+            "\u26a0  Недействительный путь поиска",
+        "This search path does not exist any more and was skipped (Settings, Advanced mode):\n{paths}":
+            "Этот путь поиска больше не существует и был пропущен (Настройки, расширенный режим):\n{paths}",
+        " (custom search path)":
+            " (пользовательский путь поиска)",
+        "That folder does not exist: {path}":
+            "Эта папка не существует: {path}",
+        "That folder is already in the list: {path}":
+            "Эта папка уже есть в списке: {path}",
+        "The list holds {max} search paths at most.":
+            "В списке может быть не более {max} путей поиска.",
+        "That folder cannot be stored in the settings file: {path}":
+            "Эту папку нельзя сохранить в файле настроек: {path}",
+        "Search path not added":
+            "Путь поиска не добавлен",
+        "Choose a folder to search for emulators and hdfmonkey":
+            "Выберите папку для поиска эмуляторов и hdfmonkey",
         " and ": " и ",
         "Mame: via Flatpak ({app})": "Mame: через Flatpak ({app})",
         "⚠ On Windows, CSpect needs <b>OpenAL 1.1</b> for sound. If you have no audio, install it from <a href=\"https://www.openal.org/\">openal.org</a>.":
             "⚠ В Windows для звука CSpect требуется <b>OpenAL 1.1</b>. Если звука нет, установите его с <a href=\"https://www.openal.org/\">openal.org</a>.",
-        "Neither CSpect nor Mame were found. Add the emulator(s) to your operating system PATH environment variable so they can be launched from here. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing":
-            "Не найдены ни CSpect, ни Mame. Добавьте эмулятор(ы) в переменную окружения PATH, чтобы их можно было запускать отсюда. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing",
+        "Neither CSpect nor Mame were found. Add the emulator(s) to your operating system PATH environment variable - or add their folder to the additional search paths in Settings (Advanced mode) - so they can be launched from here. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing":
+            "Не найдены ни CSpect, ни Mame. Добавьте эмулятор(ы) в переменную окружения PATH - или добавьте их папку в дополнительные пути поиска в Настройках (расширенный режим) - чтобы их можно было запускать отсюда. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing",
         "hdfmonkey has been installed and is ready to use.": "hdfmonkey установлен и готов к использованию.",
         "Location: {path}": "Расположение: {path}",
         "The file was sent to the SD card image.": "Файл отправлен в образ SD-карты.",
@@ -11207,6 +11367,8 @@ _TOAST_CATALOGS = {
             "Next se odpojil od Remote Exploreru NextSync.",
         "Cancelling — will stop once the current file has finished transferring, to avoid file corruption…":
             "Rušení — zastaví se, jakmile se dokončí přenos aktuálního souboru, aby nedošlo k poškození souborů…",
+        "Cancelling — stopping the transfer in flight; a file cut short is removed, never left half written…":
+            "Rušení — probíhající přenos se zastavuje; neúplný soubor se odstraní, nikdy nezůstane napůl zapsaný…",
         "Cancelled: stopped waiting for the transfer in flight after {seconds}s. It was not aborted — if the Next is still answering it will finish on its own. Refresh the Next pane to check.":
             "Zrušeno: čekání na probíhající přenos bylo po {seconds} s ukončeno. Přenos nebyl přerušen — pokud Next stále odpovídá, dokončí se sám. Obnovte panel Nextu a zkontrolujte to.",
         "NextSync server started": "Server NextSync spuštěn",
@@ -11242,12 +11404,30 @@ _TOAST_CATALOGS = {
         "Remote zip": "Vzdálené zabalení",
         "Remote zip failed": "Vzdálené zabalení selhalo",
         "Found: {emulators}.": "Nalezeno: {emulators}.",
+        "\u26a0  Search path not valid":
+            "\u26a0  Neplatná cesta hledání",
+        "This search path does not exist any more and was skipped (Settings, Advanced mode):\n{paths}":
+            "Tato cesta hledání už neexistuje a byla přeskočena (Nastavení, pokročilý režim):\n{paths}",
+        " (custom search path)":
+            " (vlastní cesta hledání)",
+        "That folder does not exist: {path}":
+            "Tato složka neexistuje: {path}",
+        "That folder is already in the list: {path}":
+            "Tato složka už v seznamu je: {path}",
+        "The list holds {max} search paths at most.":
+            "Seznam pojme nejvýše {max} cest hledání.",
+        "That folder cannot be stored in the settings file: {path}":
+            "Tuto složku nelze uložit do souboru nastavení: {path}",
+        "Search path not added":
+            "Cesta hledání nebyla přidána",
+        "Choose a folder to search for emulators and hdfmonkey":
+            "Vyberte složku pro hledání emulátorů a hdfmonkey",
         " and ": " a ",
         "Mame: via Flatpak ({app})": "Mame: přes Flatpak ({app})",
         "⚠ On Windows, CSpect needs <b>OpenAL 1.1</b> for sound. If you have no audio, install it from <a href=\"https://www.openal.org/\">openal.org</a>.":
             "⚠ Ve Windows potřebuje CSpect pro zvuk <b>OpenAL 1.1</b>. Pokud nemáte zvuk, nainstalujte jej z <a href=\"https://www.openal.org/\">openal.org</a>.",
-        "Neither CSpect nor Mame were found. Add the emulator(s) to your operating system PATH environment variable so they can be launched from here. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing":
-            "Nebyl nalezen CSpect ani Mame. Přidejte emulátor(y) do proměnné prostředí PATH, aby šly spouštět odtud. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing",
+        "Neither CSpect nor Mame were found. Add the emulator(s) to your operating system PATH environment variable - or add their folder to the additional search paths in Settings (Advanced mode) - so they can be launched from here. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing":
+            "Nebyl nalezen CSpect ani Mame. Přidejte emulátor(y) do proměnné prostředí PATH - nebo přidejte jejich složku mezi další cesty hledání v Nastavení (pokročilý režim) - aby šly spouštět odtud. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing",
         "hdfmonkey has been installed and is ready to use.": "hdfmonkey byl nainstalován a je připraven k použití.",
         "Location: {path}": "Umístění: {path}",
         "The file was sent to the SD card image.": "Soubor byl odeslán do obrazu SD karty.",

@@ -24,7 +24,7 @@ from PySide6.QtGui import (QColor, QFont, QPixmap, QPainter, QPen)
 from PySide6.QtWidgets import (QApplication, QWidget, QLabel, QPushButton, QCheckBox,
     QComboBox, QLineEdit, QGridLayout, QHBoxLayout, QVBoxLayout, QFrame,
     QScrollArea, QSlider, QSpinBox, QColorDialog, QAbstractButton, QGroupBox,
-    QLayout)
+    QLayout, QListWidget, QListWidgetItem, QAbstractItemView, QFileDialog)
 
 import espemu
 import zxnu_itchio
@@ -102,6 +102,7 @@ SETTINGS_TAB_ROWS = (
     "bg_image",
     "crash_log",
     "no_emulator_toast",
+    "emulator_search_paths",   # the extra folders the detection looks into (9.7.73) - Advanced
     # -- the "MAME" group box (9.7.63) --
     "mame_rom",
     "mame_params",
@@ -601,6 +602,184 @@ class SettingsModeSwitch(QAbstractButton):
                 QRectF(0.5, 0.5, self.TRACK_W + 1.0, self.TRACK_H + 1.0),
                 radius + 0.5, radius + 0.5)
         p.end()
+
+
+class SearchPathsEditor(QWidget):
+    """Settings (Advanced): the additional folders the emulator / hdfmonkey
+    detection looks into (9.7.73) - a list, with Add folder / Remove folder /
+    Move up / Move down beside it.
+
+    The widget owns the whole behaviour so it can be driven with real
+    clicks in a test; the pane hands in three callables:
+
+    * ``on_changed(paths, removed)`` after every change the USER made -
+      persist and detect again. *removed* is the folder just taken out, or
+      None (an add or a move).
+    * ``refused(text)`` when an add is turned down: the folder is not there,
+      is in the list already, cannot be stored, or the list is full.
+    * ``choose_folder()`` -> the folder to add or "" (the folder dialog).
+
+    A folder is verified to exist when it is ADDED. One that goes away
+    later stays in the list - its drive may simply not be plugged in today -
+    drawn in the warning colour, and the detection reports it each time it
+    runs. set_paths() (the cfg restore) never calls on_changed.
+    """
+
+    def __init__(self, parent=None, *, on_changed=None, refused=None,
+                 choose_folder=None):
+        super().__init__(parent)
+        self._on_changed = on_changed
+        self._refused = refused
+        self._choose_folder = choose_folder
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        self.list = QListWidget(self)
+        self.list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.list.setMinimumHeight(64)
+        self.list.setMaximumHeight(112)
+        self.list.setToolTip(
+            "Folders searched for CSpect, MAME and hdfmonkey in addition to\n"
+            "the app's own folders and the system PATH - for when you cannot,\n"
+            "or would rather not, add to PATH. They are tried in this order,\n"
+            "BEFORE the system PATH; each folder is checked itself and one\n"
+            "level down (its direct sub-folders).\n"
+            f"At most {MAX_EMULATOR_SEARCH_PATHS} folders. A folder shown in the\n"
+            "warning colour does not exist right now: it is skipped, and the\n"
+            "detection says so.\n"
+            f"Saved to hdfg.cfg ({SETTING_EMULATOR_SEARCH_PATHS}).")
+        row.addWidget(self.list, 1)
+        col = QVBoxLayout()
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(2)
+        self.btn_add = QPushButton("Add folder…", self)
+        self.btn_remove = QPushButton("Remove folder", self)
+        self.btn_up = QPushButton("Move up", self)
+        self.btn_down = QPushButton("Move down", self)
+        self.btn_add.setToolTip(
+            "Choose a folder to add to the list. It must exist.")
+        self.btn_remove.setToolTip("Take the selected folder off the list.")
+        self.btn_up.setToolTip("Search the selected folder earlier.")
+        self.btn_down.setToolTip("Search the selected folder later.")
+        for b in (self.btn_add, self.btn_remove, self.btn_up, self.btn_down):
+            col.addWidget(b)
+        col.addStretch(1)
+        row.addLayout(col)
+        self.btn_add.clicked.connect(self._add_clicked)
+        self.btn_remove.clicked.connect(self.remove_current)
+        self.btn_up.clicked.connect(lambda: self.move_current(-1))
+        self.btn_down.clicked.connect(lambda: self.move_current(1))
+        self.list.currentRowChanged.connect(lambda _r: self._sync_buttons())
+        self._sync_buttons()
+
+    # ---- reading and showing
+    def paths(self):
+        return [self.list.item(i).text() for i in range(self.list.count())]
+
+    def set_paths(self, paths):
+        """Show *paths* (the cfg restore): no on_changed, nothing persisted."""
+        keep = self.list.currentRow()
+        self.list.clear()
+        for p in parse_search_paths(list(paths or [])):
+            self.list.addItem(QListWidgetItem(p))
+        self.refresh_validity()
+        if self.list.count():
+            self.list.setCurrentRow(min(max(keep, 0), self.list.count() - 1))
+        self._sync_buttons()
+
+    def refresh_validity(self):
+        """Draw the folders that are not there in the warning colour."""
+        bad = set(invalid_search_paths(self.paths()))
+        for i in range(self.list.count()):
+            it = self.list.item(i)
+            if it.text() in bad:
+                it.setForeground(QColor("#ffb300"))
+                it.setToolTip("This folder does not exist right now - it is "
+                              "skipped by the detection.")
+            else:
+                it.setData(Qt.ItemDataRole.ForegroundRole, None)
+                it.setToolTip("")
+
+    def _sync_buttons(self):
+        row, n = self.list.currentRow(), self.list.count()
+        self.btn_add.setEnabled(n < MAX_EMULATOR_SEARCH_PATHS)
+        self.btn_remove.setEnabled(0 <= row < n)
+        self.btn_up.setEnabled(0 < row < n)
+        self.btn_down.setEnabled(0 <= row < n - 1)
+
+    def _say(self, text):
+        if self._refused is not None:
+            try:
+                self._refused(text)
+            except Exception:
+                logging.exception("search paths: the refusal hook failed")
+
+    def _changed(self, removed=None):
+        self.refresh_validity()
+        self._sync_buttons()
+        if self._on_changed is not None:
+            try:
+                self._on_changed(self.paths(), removed)
+            except Exception:
+                logging.exception("search paths: the change hook failed")
+
+    # ---- the four verbs
+    def _add_clicked(self):
+        if self._choose_folder is None:
+            return
+        try:
+            folder = self._choose_folder()
+        except Exception:
+            logging.exception("search paths: the folder dialog failed")
+            return
+        if folder:
+            self.add_path(folder)
+
+    def add_path(self, raw):
+        """Add one folder. True when it went in; a refusal says why."""
+        if self.list.count() >= MAX_EMULATOR_SEARCH_PATHS:
+            self._say(ui_tr_now("The list holds {max} search paths at most.")
+                      .format(max=MAX_EMULATOR_SEARCH_PATHS))
+            return False
+        shown = str(raw or "").strip()
+        path = normalize_history_folder(shown)
+        if not path:
+            self._say(ui_tr_now("That folder cannot be stored in the settings "
+                                "file: {path}").format(path=shown))
+            return False
+        try:
+            there = os.path.isdir(path)
+        except (OSError, ValueError):
+            there = False
+        if not there:
+            self._say(ui_tr_now("That folder does not exist: {path}")
+                      .format(path=path))
+            return False
+        if len(parse_search_paths(self.paths() + [path])) == self.list.count():
+            self._say(ui_tr_now("That folder is already in the list: {path}")
+                      .format(path=path))
+            return False
+        self.list.addItem(QListWidgetItem(path))
+        self.list.setCurrentRow(self.list.count() - 1)
+        self._changed()
+        return True
+
+    def remove_current(self):
+        row = self.list.currentRow()
+        if not 0 <= row < self.list.count():
+            return
+        gone = self.list.takeItem(row).text()
+        if self.list.count():
+            self.list.setCurrentRow(min(row, self.list.count() - 1))
+        self._changed(removed=gone)
+
+    def move_current(self, delta):
+        row = self.list.currentRow()
+        to = row + int(delta)
+        if not (0 <= row < self.list.count() and 0 <= to < self.list.count()):
+            return
+        self.list.insertItem(to, self.list.takeItem(row))
+        self.list.setCurrentRow(to)
+        self._changed()
 
 
 def build_settings_pane(
@@ -1695,8 +1874,8 @@ def build_settings_pane(
     # ---- Background image selector ----
     bg_image_lbl = QLabel("Background image:")
     bg_image_lbl.setToolTip(
-        "Choose a specific background image or 'Random' to cycle through\n"
-        "all images in the script folder every 5 seconds."
+        "Choose a specific background image, or 'Random' to have one\n"
+        "picked each time the app starts."
     )
     _place("bg_image", bg_image_lbl, 0)
 
@@ -1707,7 +1886,7 @@ def build_settings_pane(
 
     host.settings_bg_image_combo = QComboBox()
     host.settings_bg_image_combo.setToolTip(
-        "Select 'Random' to cycle through all available backgrounds,\n"
+        "Select 'Random' for one background picked at each start,\n"
         "or pick a specific image to lock it."
     )
     # Populate: first entry = Random (empty data = random mode)
@@ -1753,42 +1932,27 @@ def build_settings_pane(
                 )
                 return
         host.settings_bg_image_preview.clear()
-        host.settings_bg_image_preview.setText(ui_tr_now("(cycling)"))
 
     def _retranslate_bg_image_preview():
-        # A live language switch: the widget walk cannot re-translate a text
-        # the app wrote already translated (it adopts it as the new source),
-        # so _i18n_apply calls this to re-write the one runtime text here.
-        pm = host.settings_bg_image_preview.pixmap()
-        if pm is None or pm.isNull():
-            host.settings_bg_image_preview.setText(ui_tr_now("(cycling)"))
+        # Nothing to re-write since 9.7.73: the preview is always a picture
+        # (it said "(cycling)" while Random moved through the images). Kept
+        # because _i18n_apply calls it by name.
+        return
     host._retranslate_bg_image_preview = _retranslate_bg_image_preview
 
     def _on_bg_image_combo_changed(index: int):
         path = host.settings_bg_image_combo.itemData(index) or ""
         host._bg_widget.set_bg_image(path)
-        _update_bg_image_preview(path)
+        # Random: the preview shows the image picked for this run.
+        _update_bg_image_preview(path or host._bg_widget.random_bg_path())
         configuration_dictionary[SETTING_BG_IMAGE] = path if path.startswith(":/") else (os.path.basename(path) if path else "")
         save_configuration_file()
 
     host.settings_bg_image_combo.currentIndexChanged.connect(_on_bg_image_combo_changed)
 
-    # Initialise preview to match the current (Random) state — show first
-    # available image as a hint, or "(cycling)" if none found.
-    if _bg_candidates:
-        _hint_path = os.path.join(_bg_dir, _bg_candidates[0])
-        _update_bg_image_preview(_hint_path)
-    else:
-        _update_bg_image_preview("")
-
-    # Also keep the preview in sync when the background cycles (random mode)
-    def _on_bg_cycle_update():
-        if not host._bg_widget._bg_fixed:
-            _p = (host._bg_widget._bg_paths[host._bg_widget._bg_index]
-                  if host._bg_widget._bg_paths else "")
-            _update_bg_image_preview(_p)
-
-    host._bg_widget._cycle_timer.timeout.connect(_on_bg_cycle_update)
+    # The preview starts on the current (Random) state: the image picked for
+    # this run. load_configuration_file replaces it when a fixed one is saved.
+    _update_bg_image_preview(host._bg_widget.random_bg_path())
 
     # ── Crash log toggle (bottom of Settings list) ──────────────────
     def settings_crash_log_enabled_statechanged():
@@ -1829,6 +1993,44 @@ def build_settings_pane(
     )
     host.settings_disable_no_emulator_toast_checkbox.stateChanged.connect(settings_disable_no_emulator_toast_statechanged)
     _place("no_emulator_toast", host.settings_disable_no_emulator_toast_checkbox, 0, 1, 2)
+
+    # ── Additional search paths for the emulators and hdfmonkey (9.7.73) ──
+    # Advanced mode only (the name is not in SETTINGS_BASIC_ROWS). The list
+    # is the detection's own module state (zxnu_config.extra_search_paths);
+    # this row edits it, persists it and has the detection run again.
+    def _search_paths_changed(paths, removed):
+        configuration_dictionary[SETTING_EMULATOR_SEARCH_PATHS] = format_search_paths(paths)
+        set_extra_search_paths(paths)
+        save_configuration_file()
+        # Defined later in MainWindow.__init__ than this pane is built, so
+        # it is looked up when a change happens.
+        redetect = getattr(host, "_search_paths_redetect", None)
+        if redetect is not None:
+            try:
+                redetect(removed)
+            except Exception:
+                logging.exception("search paths: the re-detection failed")
+
+    def _search_paths_refused(text):
+        host._show_toast("Search path not added", text, variant="yellow",
+                         duration_ms=8000)
+
+    def _search_paths_choose():
+        return QFileDialog.getExistingDirectory(
+            host, ui_tr_now("Choose a folder to search for emulators and hdfmonkey"),
+            "", QFileDialog.Option.ShowDirsOnly)
+
+    search_paths_lbl = QLabel("Additional search paths for emulators and hdfmonkey:")
+    search_paths_lbl.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+    host.settings_search_paths_editor = SearchPathsEditor(
+        on_changed=_search_paths_changed, refused=_search_paths_refused,
+        choose_folder=_search_paths_choose)
+    search_paths_lbl.setToolTip(host.settings_search_paths_editor.list.toolTip())
+    host.settings_search_paths_editor.set_paths(extra_search_paths())
+    # the cfg restore (zxnu_config_io) shows the saved list through this
+    host._search_paths_show = host.settings_search_paths_editor.set_paths
+    _place("emulator_search_paths", search_paths_lbl, 0)
+    _place("emulator_search_paths", host.settings_search_paths_editor, 1)
 
     # ── NextSync HTTP bridge toggle + port ──────────────────────────
     def _http_port_widgets_set_enabled(on):

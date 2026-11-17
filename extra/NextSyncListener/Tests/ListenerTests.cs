@@ -350,6 +350,70 @@ namespace NextSync.Listener.Tests
         }
 
         [Fact]
+        public void A_transfer_that_does_not_finish_leaves_no_half_file()
+        {
+            string tmp = Path.Combine(Path.GetTempPath(), "nsl-cut-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                using (var h = new Harness())
+                {
+                    // The stream ends ('B') with the file's 'E' missing: a failed
+                    // get, the prefix deleted, the file out of Files.
+                    var cut = Wait.For(h.Listener.GetAsync("/a/cut.bin", tmp));
+                    Assert.Equal(NextSyncStatus.Failed, cut.Status);
+                    Assert.Empty(cut.Files);
+                    Assert.NotNull(cut.RemovedPartial);
+                    Assert.Equal(Path.Combine(tmp, "cut.bin"), cut.RemovedPartial.LocalPath);
+                    Assert.False(File.Exists(Path.Combine(tmp, "cut.bin")));
+                    Assert.Contains("partial file was removed", cut.Error);
+
+                    // ZX Next Remote 1.14.0: the Next's user aborted ('B'+BRK).
+                    var brk = Wait.For(h.Listener.GetAsync("/a/brk.bin", tmp));
+                    Assert.Equal(NextSyncStatus.Aborted, brk.Status);
+                    Assert.Empty(brk.Files);
+                    Assert.False(File.Exists(Path.Combine(tmp, "brk.bin")));
+
+                    // In memory too: no bytes are handed over as if they were the file.
+                    var mem = Wait.For(h.Listener.GetBytesAsync("/a/cut.bin"));
+                    Assert.Equal(NextSyncStatus.Failed, mem.Status);
+                    Assert.Null(mem.Data);
+                    Assert.NotNull(mem.RemovedPartial);
+
+                    // A whole file is untouched by any of this.
+                    var whole = Wait.For(h.Listener.GetAsync("boot.bas", tmp));
+                    Assert.True(whole.Ok, whole.Error);
+                    Assert.Null(whole.RemovedPartial);
+                    Assert.True(File.Exists(Path.Combine(tmp, "boot.bas")));
+
+                    // A put the Next's user aborted: 'F'+BRK.
+                    var put = Wait.For(h.Listener.PutAsync(PutBytes, "/brk/up.bin"));
+                    Assert.Equal(NextSyncStatus.Aborted, put.Status);
+
+                    var ls = Wait.For(h.Listener.ListAsync("/"));
+                    Assert.True(ls.Ok, "the session survived every one of them");
+                }
+                using (var h = new Harness())
+                {
+                    // The link dies under the file: its prefix goes as well.
+                    var drop = Wait.For(h.Listener.GetAsync("/a/drop.bin", tmp));
+                    Assert.Equal(NextSyncStatus.ConnectionDropped, drop.Status);
+                    Assert.Empty(drop.Files);
+                    Assert.NotNull(drop.RemovedPartial);
+                    Assert.False(File.Exists(Path.Combine(tmp, "drop.bin")));
+                }
+                Assert.True(TransferAbort.IsMark(Encoding.ASCII.GetBytes("FBRK")));
+                Assert.True(TransferAbort.IsMark(Encoding.ASCII.GetBytes("BBRK")));
+                Assert.False(TransferAbort.IsMark(Encoding.ASCII.GetBytes("B")));
+                Assert.False(TransferAbort.IsMark(Encoding.ASCII.GetBytes("FOSP")));
+                Assert.False(TransferAbort.IsMark(Encoding.ASCII.GetBytes("DBRK")));
+            }
+            finally
+            {
+                try { Directory.Delete(tmp, true); } catch (Exception) { }
+            }
+        }
+
+        [Fact]
         public void Put_refusals_are_told_apart()
         {
             using (var h = new Harness())
@@ -455,7 +519,7 @@ namespace NextSync.Listener.Tests
                 Assert.True(h.Next.WaitForFile("/ho/up.bin"), "the file lands under its own name");
                 Assert.Equal(sized, h.Next.LastPutCommand);
             }
-            foreach (var ident in new[] { "On2n\01.12.3", "Osync\09.9.9", "Oqlnextremote\01.7.0" })
+            foreach (var ident in new[] { "On2n\01.12.3", "Osync\05.9.16", "Oqlnextremote\01.7.0" })
             {
                 using (var h = new Harness(n => n.Ident = Encoding.ASCII.GetBytes(ident)))
                 {
@@ -467,6 +531,8 @@ namespace NextSync.Listener.Tests
                 }
             }
             Assert.True(PutSize.PeerReadsIt(" ZXNT ", "1.13.0"));
+            Assert.True(PutSize.PeerReadsIt("sync", "5.9.17"));
+            Assert.False(PutSize.PeerReadsIt("sync", "5.9.16"));
             Assert.True(PutSize.PeerReadsIt("httpbridge", "2.0.0"));
             Assert.False(PutSize.PeerReadsIt("n2n", "1.13"));
             Assert.False(PutSize.PeerReadsIt("n2n", "beta"));

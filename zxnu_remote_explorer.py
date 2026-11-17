@@ -31,8 +31,8 @@ from PySide6.QtCore import (
     QObject, QRect, QRunnable, QThreadPool, QUrl, QSize, QTimer, Signal,
 )
 from PySide6.QtGui import (
-    QBrush, QColor, QDrag, QFontMetrics, QKeySequence, QPainter, QPalette,
-    QPen, QStandardItem, QStandardItemModel,
+    QBrush, QColor, QDrag, QFontMetrics, QGuiApplication, QKeySequence,
+    QPainter, QPalette, QPen, QStandardItem, QStandardItemModel,
 )
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QColorDialog, QComboBox, QDialog,
@@ -63,8 +63,8 @@ from zxnu_workers import (
     RE_CANCEL_GRACE_MS, RE_MAX_REMOTE_PATH, RE_UPD_EXTRA_RETRIES,
     CompactButton, DotDotFirstProxyModel, HdfProgressDialog,
     as_emulator_launch, root_tree_at, tree_row_on_screen,
-    bind_select_all_except_updir, zip_create_with_dialog,
-    zip_extract_with_dialog, zip_unique_name,
+    bind_select_all_except_updir, os_clipboard_files, os_clipboard_is_cut,
+    zip_create_with_dialog, zip_extract_with_dialog, zip_unique_name,
 )
 
 # Roles carrying the remote entry's full posix path and its directory flag.
@@ -1273,8 +1273,15 @@ class RemoteExplorerWidget(QWidget):
                  on_update_prompt=None,
                  local_history=None, on_local_history_changed=None,
                  drop_silent=None, image_write_blocker=None,
-                 local_browse_dir=None, on_local_dir_changed=None):
+                 local_browse_dir=None, on_local_dir_changed=None,
+                 cancel_transfer=None):
         super().__init__(parent)
+        # host closure: cancel_transfer() -> bool (9.7.73). Cancel calls it
+        # after dropping what was queued: the worker's session then ends the
+        # put or get in flight instead of serving it to its last byte (see
+        # zxnu_workers.RE_PUT_ABORT_FRAME). Absent (None), Cancel waits for
+        # the file in flight as it always did.
+        self._cancel_transfer_raw = cancel_transfer
         self._enqueue_raw = enqueue          # host closure: put one command
         # host closure: enqueue_to(sid, cmd) -> bool, delivering ONE command
         # to a NAMED session's own queue instead of the shared one the baton
@@ -1524,6 +1531,16 @@ class RemoteExplorerWidget(QWidget):
         # (kind, items, mode) where kind is "local"/"next", mode is "copy"/"cut"
         # and items is [local_path, …] or [(remote_path, is_dir), …].
         self._clip = None
+        # FILES COPIED IN THE OPERATING SYSTEM PASTE TOO (9.7.73), as they
+        # always have on the SD Card tab. The system clipboard is the paste
+        # source whenever it holds files and has changed since the last Copy
+        # or Cut made in these panes (or nothing was copied here at all).
+        self._os_clip_newer = True
+        try:
+            QGuiApplication.clipboard().dataChanged.connect(
+                self._on_os_clipboard_changed)
+        except Exception:
+            logging.exception("could not watch the system clipboard")
         # WHICH machine a "next" clipboard was filled on (9.7.61): the paths
         # alone do not say whose SD card they are on, and with two Nexts
         # seated the pane can drive another one by the time Paste is
@@ -1567,6 +1584,8 @@ class RemoteExplorerWidget(QWidget):
         self._op_bytes_est = 0        # 64 KB per empty keepalive seen
         self._op_files_seen = 0       # named 'D' blocks seen
         self._op_last_name = ""       # last item name the Next reported
+        self._op_file = None          # (name, done, total) of the file moving
+        self._op_file_name = None
         # "Close this window and continue in the background": the label the
         # op's dialog button carries instead of "Cancel" (rcpy can't stop an
         # in-flight Next-side copy), and whether the user pressed it. While
@@ -1788,9 +1807,11 @@ class RemoteExplorerWidget(QWidget):
         local_box = QVBoxLayout()
         local_box.setContentsMargins(0, 0, 0, 0)
         local_box.setSpacing(2)
+        # 9.7.73: the path row is the pane's FIRST row, above Up / Refresh
+        # (it was the last, under the tree), on both panes.
+        local_box.addWidget(self.local_path_row_container)
         local_box.addLayout(local_bar)
         local_box.addLayout(local_tree_row)
-        local_box.addWidget(self.local_path_row_container)
         local_container = QWidget(self)
         local_container.setLayout(local_box)
 
@@ -2139,7 +2160,7 @@ class RemoteExplorerWidget(QWidget):
         next_box.addLayout(next_bar)
         next_box.addLayout(next_tree_row)
 
-        # Under the tree, mirroring the local pane's sync-root row: the Next
+        # Above the nav bar, mirroring the local pane's sync-root row: the Next
         # path box (type a folder, ENTER lists it) with the New Folder /
         # Rename / Delete toolbar to its right.
         self.next_path_edit = QLineEdit(self)
@@ -2166,7 +2187,7 @@ class RemoteExplorerWidget(QWidget):
         next_tools.addWidget(self.btn_new_folder)
         next_tools.addWidget(self.btn_rename)
         next_tools.addWidget(self.btn_delete)
-        next_box.addLayout(next_tools)
+        next_box.insertLayout(0, next_tools)       # the pane's first row (9.7.73)
         next_container = QWidget(self)
         next_container.setLayout(next_box)
         # Kept for the background-copy overlay: while an rcpy continues in the
@@ -2395,6 +2416,8 @@ class RemoteExplorerWidget(QWidget):
         self._op_bytes_est = 0
         self._op_files_seen = 0
         self._op_last_name = ""
+        self._op_file = None             # (name, done, total) of the file moving
+        self._op_file_name = None
         if not quiet_ui:
             # Any real operation may WRITE what a cached drag stage holds
             # pre-write copies of, so the reuse cache dies with the op start.
@@ -2479,12 +2502,64 @@ class RemoteExplorerWidget(QWidget):
             self._op_bytes_est += 65536
         self._update_op_progress()
 
+    def on_xfer_progress(self, kind, path, done, total):
+        """How far the file a put or get is moving has got (9.7.73, the
+        worker's xfer_progress): the progress dialog's per-file figure.
+
+        One command (one file): the dialog's ONE bar is this figure. More
+        than one: a second bar appears above the batch's own. A get whose
+        listener does not say the size (every one before .sync5 5.9.18)
+        takes it from the listing on show when the file is in it; failing
+        that the bar is busy and the bytes received are written out."""
+        if not self._op_active or getattr(self, "_op_quiet_ui", False):
+            return
+        try:
+            done, total = int(done or 0), int(total or 0)
+        except (TypeError, ValueError):
+            return
+        path = str(path or "").replace("\\", "/")
+        if total <= 0 and kind == "get":
+            total = self._listed_size(path)
+        name = posixpath.basename(path.rstrip("/")) or path
+        self._op_file = (name, done, total)
+        dlg = self._op_dialog
+        if dlg is not None and (name != self._op_file_name or total <= 0):
+            dlg.set_status(f"{self._op_title}\n{name}" if total > 0 else
+                           f"{self._op_title}\n{name}  —  {_human_size(done)}")
+        self._op_file_name = name
+        self._update_op_progress()
+
+    def _listed_size(self, path):
+        """The size the Next listing on show gives for the file at *path*,
+        or 0 when it is not a file of the folder on show."""
+        want = str(path or "").replace("\\", "/").rstrip("/").lower()
+        base = self._cwd_base().lower()
+        for is_dir, size, name in self._next_entries:
+            if not is_dir and (base + str(name).lower()) == want:
+                try:
+                    return max(0, int(size))
+                except (TypeError, ValueError):
+                    return 0
+        return 0
+
     def _update_op_progress(self):
         if self._op_background:
             self._update_next_overlay_text()
             return
         if self._op_dialog is None:
             return
+        if self._op_file is not None:
+            _name, done, total = self._op_file
+            fpct = min(100, int(100 * done / total)) if total > 0 else -1
+            ftext = (f"%p%   {_human_size(done)} / {_human_size(total)}"
+                     if total > 0 else None)
+            if self._op_total <= 1:
+                # One file: one bar, and it is the file's own progress.
+                self._op_dialog.set_file_progress(None)
+                self._op_dialog.set_progress(fpct)
+                self._op_dialog.set_bar_text(ftext)
+                return
+            self._op_dialog.set_file_progress(fpct, ftext)
         pct = self._op_hb_percent()
         if pct is not None:
             self._op_dialog.set_progress(pct)
@@ -2511,19 +2586,32 @@ class RemoteExplorerWidget(QWidget):
             return
         self._op_cancelled = True
         drained = self._drain_raw() if self._drain_raw else 0
+        # ...and the transfer in flight is ended, not waited for (9.7.73).
+        # After the drain, so nothing queued can start in its place.
+        stopping = self._cancel_transfer_in_flight()
         # Drained commands will never report back, so count them as done.
         # So are the gets a paste from another Next had not sent yet
         # (9.7.61): one is out at a time, the rest sit in no queue at all.
         self._op_completed += int(drained or 0) + self._xnext_drop_pending()
         self._cut_jobs.clear()
-        self._log("Cancelling remote operation after the current transfer…")
         # The dialog froze its status at a bare "Cancelling…" when the button
         # was pressed (set_status is muted once cancelled), so spell out WHAT
-        # the wait is for: the in-flight file must land whole on the Next.
-        if self._op_dialog is not None:
-            self._op_dialog.set_cancel_note(ui_tr_now(
+        # is happening. With the hook: the file in flight is stopped where it
+        # is and what was written of it removed. Without it (no server-side
+        # support wired): the old wait, so nothing lands half-written.
+        if stopping:
+            self._log("Cancelling remote operation — stopping the transfer "
+                      "in flight…")
+            note = ui_tr_now(
+                "Cancelling — stopping the transfer in flight; a file cut "
+                "short is removed, never left half written…")
+        else:
+            self._log("Cancelling remote operation after the current transfer…")
+            note = ui_tr_now(
                 "Cancelling — will stop once the current file has finished "
-                "transferring, to avoid file corruption…"))
+                "transferring, to avoid file corruption…")
+        if self._op_dialog is not None:
+            self._op_dialog.set_cancel_note(note)
         # If nothing was in flight, we're already finished.
         if self._op_completed >= self._op_total:
             self._end_operation()
@@ -3296,6 +3384,17 @@ class RemoteExplorerWidget(QWidget):
         # that polls collects the quit as before.
         self._drop_if_silent(sid if sid is not None else self._peer_active)
         self._log(ui_tr_now("Asked the Next to leave listen mode and exit."))
+
+    def _cancel_transfer_in_flight(self):
+        """Ask the host to end the put or get in flight (9.7.73). False when
+        no hook is wired or the server is not running; never raises."""
+        if self._cancel_transfer_raw is None:
+            return False
+        try:
+            return bool(self._cancel_transfer_raw())
+        except Exception:                       # noqa: BLE001
+            logging.exception("Remote explorer: cancel_transfer hook failed")
+            return False
 
     def _drop_if_silent(self, sid):
         """Hand Disconnect's target to the host's drop_silent hook (9.7.45).
@@ -5398,7 +5497,7 @@ class RemoteExplorerWidget(QWidget):
         # duplicated ON the Next itself via the dot's rcpy (v5.2+) - or,
         # when it was filled on ANOTHER seated Next, fetched from that
         # machine and uploaded here (9.7.61, _paste_other_next_into_next).
-        act_paste.setEnabled(bool(self._clip))
+        act_paste.setEnabled(bool(self._clip) or self._os_clip() is not None)
         chosen = menu.exec(self.next_view.viewport().mapToGlobal(pos))
         for act, entry in emu_next:
             if chosen == act:
@@ -5547,9 +5646,33 @@ class RemoteExplorerWidget(QWidget):
     # ==================================================================
     #  copy / cut / paste (internal buffer shared between the two panes)
     # ==================================================================
+    def _on_os_clipboard_changed(self):
+        self._os_clip_newer = True
+
+    def _os_clip(self):
+        """(paths, mode) when files copied in the operating system are what
+        a Paste should take, else None. They win over this widget's own
+        clipboard only when they are the more recent copy."""
+        if self._clip and not self._os_clip_newer:
+            return None
+        paths = [p for p in os_clipboard_files() if os.path.exists(p)]
+        if not paths:
+            return None
+        return paths, ("cut" if os_clipboard_is_cut() else "copy")
+
+    def _os_clip_taken(self, mode):
+        """A cut is consumed by its paste: empty the system clipboard so a
+        second Paste cannot move files that are no longer there."""
+        if mode == "cut":
+            try:
+                QGuiApplication.clipboard().clear()
+            except Exception:
+                pass
+
     def _copy_next(self, mode="copy"):
         entries = self._selected_next_entries()
         if entries:
+            self._os_clip_newer = False
             self._clip = ("next", entries, mode)
             # Remember the machine these paths are ON (9.7.61). Tied to
             # this very clip tuple, so a clipboard put there any other way
@@ -5572,6 +5695,7 @@ class RemoteExplorerWidget(QWidget):
     def _copy_local(self, mode="copy"):
         paths = [p for p in self._selected_local_paths() if os.path.exists(p)]
         if paths:
+            self._os_clip_newer = False
             self._clip = ("local", paths, mode)
             self._clip_origin = None
             verb = "Cut" if mode == "cut" else "Copied"
@@ -5586,9 +5710,26 @@ class RemoteExplorerWidget(QWidget):
         # NEXT clipboard (copy): duplicate the items ON the Next itself via
         # the dot's rcpy command (v5.2+) - no data crosses the wire, and it
         # works across partitions (paste under a different drive's cwd).
-        if not self._connected or not self._clip:
+        os_clip = self._os_clip()
+        if not self._connected or not (self._clip or os_clip):
             return
         if self._busy_refused():   # BEFORE any branch can consume a cut clip
+            return
+        if os_clip is not None:
+            # Files copied (or cut) in the operating system: an upload, or a
+            # move, exactly as for items copied in the local pane.
+            paths, mode = os_clip
+            self._log(f"Pasting {len(paths)} item(s) "
+                      f"{'cut' if mode == 'cut' else 'copied'} in the "
+                      "operating system into the Next folder.")
+            self._os_clip_taken(mode)
+            if mode == "cut":
+                self._run_op("Moving to the Next…",
+                             lambda: self._move_local_paths_to_next(paths),
+                             determinate=False)
+            else:
+                self._run_op("Uploading to the Next…",
+                             lambda: self._put_paths(paths))
             return
         if self._clip[0] == "next":
             _kind, entries, mode = self._clip
@@ -6061,6 +6202,18 @@ class RemoteExplorerWidget(QWidget):
         # Paste the clipboard into the current local directory. Next items:
         # copy = download, cut = download then delete the Next source once
         # confirmed. Local items: copy = duplicate here, cut = move here.
+        os_clip = self._os_clip()
+        if os_clip is not None:
+            # Files copied (or cut) in the operating system land in the
+            # folder this pane shows, like a drop.
+            paths, mode = os_clip
+            self._log(f"Pasting {len(paths)} item(s) "
+                      f"{'cut' if mode == 'cut' else 'copied'} in the "
+                      "operating system into the local folder.")
+            self._os_clip_taken(mode)
+            self._copy_paths_into_local(paths, self._local_dir(),
+                                        move=(mode == "cut"), dup_in_place=True)
+            return
         if not self._clip:
             return
         if self._clip[0] == "local":
@@ -7154,7 +7307,7 @@ class RemoteExplorerWidget(QWidget):
         act_zip.setVisible(has_sel)
         # Paste here downloads copied/cut Next items into this local folder, or
         # copies/moves copied/cut LOCAL items into it.
-        act_paste.setEnabled(bool(self._clip))
+        act_paste.setEnabled(bool(self._clip) or self._os_clip() is not None)
         chosen = menu.exec(self.local_view.viewport().mapToGlobal(pos))
         for act, entry in emu_local:
             if chosen == act:

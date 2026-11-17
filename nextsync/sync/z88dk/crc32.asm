@@ -1,19 +1,20 @@
 ; crc32.asm - CRC-32 (IEEE 802.3, reflected 0xEDB88320, init/final FFFFFFFF:
 ; zlib.crc32's value) for the 'K' listener op (v5.9.2).
 ;
-; Two homes, on purpose. The bit-serial core sits in the HEAD PAGE
-; (code_dot): 62 bytes there, where the page had 88 left, instead of in a
-; main bank whose every byte is stack headroom. No lookup table - the page
-; has no room for one - so it runs at roughly 30 KB/s at 28 MHz, enough for
-; a verification verb (ZX Next Remote's twin is table-driven and faster).
-; The hex formatter is MAIN BANK (code_compiler) because the page could not
-; take both. The accumulator is main-bank bss (_crc_acc in nextsync.c): the
+; MAIN BANK since 5.9.17. The bit-serial core lived in the head page
+; (code_dot, 62 bytes, put there at 5.9.2 when the main bank had none to
+; spare); 5.9.17 needed 13 bytes of that page for esx_f_fstat - the C
+; library's esxDOS calls live there and must - and had just handed the
+; main bank 1280 by moving scratch to the banked window, so the core came
+; here. Nothing about it cares where it runs. No lookup table, so roughly
+; 30 KB/s at 28 MHz, enough for a verification verb (ZX Next Remote's twin
+; is table-driven and faster). The hex formatter was always here. The accumulator is main-bank bss (_crc_acc in nextsync.c): the
 ; head page's data/bss top is the crt's exit-stack territory (5.7.3).
 ;
 ; crc_run() in nextsync.c resets the accumulator to FFFFFFFF before the
 ; first update; crc_hex complements it on the way out.
 
-SECTION code_dot
+SECTION code_compiler
 
 PUBLIC _crc_update
 EXTERN _crc_acc

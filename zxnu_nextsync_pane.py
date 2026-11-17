@@ -816,6 +816,15 @@ def build_nextsync_pane(
             return False
         return bool(fn(sid))
 
+    def _re_cancel_xfer():
+        # 9.7.73: Cancel's second half - the worker's session ends the pane
+        # put or get in flight (the queue has been drained by then). False
+        # when the server is not running: the widget then says it waits.
+        fn = host._re_control.get('cancel_xfer')
+        if fn is None or not host._re_running:
+            return False
+        return bool(fn())
+
     def _nextsync_http_bridge_start():
         if host._re_bridge is not None and host._re_bridge.running:
             return
@@ -1467,6 +1476,7 @@ def build_nextsync_pane(
             # that went silent (its core reset under a live ESP link) is
             # dropped instead of holding the seat until its silence limit.
             drop_silent=_re_drop_silent,
+            cancel_transfer=_re_cancel_xfer,
             emulator_launchers=_re_emulator_launchers,
             # Right-click on a strip tab also offers the remembered disk
             # images that are writable right now (9.6.2) - the same list
@@ -1968,6 +1978,7 @@ def build_nextsync_pane(
         host._re_sig.os_protected.connect(widget.on_os_protected)
         host._re_sig.invalid_drive.connect(widget.on_invalid_drive)
         host._re_sig.next_aborted.connect(widget.on_next_aborted)
+        host._re_sig.xfer_progress.connect(widget.on_xfer_progress)
         host._re_sig.drives.connect(widget.on_drives)
         host._re_sig.free_space.connect(widget.on_free_space)
         host._re_sig.ident.connect(widget.on_ident)

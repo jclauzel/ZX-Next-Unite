@@ -36,6 +36,16 @@ unsigned char sync_opendir(const char *path)
    return (h == 0xFF) ? 0 : h;
 }
 
+/* The size of an open file (5.9.17, the transfer display's percentage for a
+ * file the dot serves). 0 when esxDOS cannot say. */
+unsigned long sync_fsize(unsigned char handle)
+{
+   struct esx_stat st;
+   st.size = 0;
+   esx_f_fstat(handle, &st);
+   return st.size;
+}
+
 void sync_close(unsigned char handle)
 {
    esx_f_close(handle);

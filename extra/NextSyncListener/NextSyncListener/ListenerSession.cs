@@ -182,7 +182,10 @@ namespace NextSync.Listener
                         SendFrame("Ok", 0);
                         if (pendingPut != null)
                         {
-                            PutFinish(false, OsProtection.IsRefusal(failPayload), "put failed on the Next");
+                            if (TransferAbort.IsMark(failPayload))
+                                PutFinish(false, false, "put aborted on the Next (BREAK)", true);
+                            else
+                                PutFinish(false, OsProtection.IsRefusal(failPayload), "put failed on the Next");
                             ClearPut();
                         }
                         turnDone = Now();
@@ -401,7 +404,7 @@ namespace NextSync.Listener
         }
 
         /// <summary>Resolve the pending put: verified, failed, refused by the OS protection - or chained into the verify step.</summary>
-        private void PutFinish(bool ok, bool osp, string failure)
+        private void PutFinish(bool ok, bool osp, string failure, bool aborted = false)
         {
             var req = pendingPut;
             pendingPut = null;
@@ -422,7 +425,7 @@ namespace NextSync.Listener
             }
             else if (!ok)
             {
-                res.Status = NextSyncStatus.Failed;
+                res.Status = aborted ? NextSyncStatus.Aborted : NextSyncStatus.Failed;
                 res.Error = failure ?? "put failed on the Next";
                 Log("*** put " + req.Path + ": FAILED on the Next (" + res.Error + ") ***");
             }
@@ -554,10 +557,32 @@ namespace NextSync.Listener
             ReceivedFile curFile = null;
             long bytes = 0;
             bool osp = false;
+            bool fileOpen = false;      // an 'N' arrived and its 'E' has not
+            bool aborted = false;       // the Next's user stopped it ('B'+BRK)
+            ReceivedFile removed = null;
             Action closeCurrent = delegate
             {
                 if (cur != null) { try { cur.Close(); } catch (Exception) { } cur = null; }
                 if (mem != null && curFile != null) { curFile.Data = mem.ToArray(); mem = null; }
+            };
+            // NO HALF FILE: a file whose 'E' never came - the stream ended at
+            // its 'B', or the link went - is a prefix. It leaves the result's
+            // Files, and what was written of it on disk is deleted.
+            Action dropPartial = delegate
+            {
+                if (!fileOpen) return;
+                fileOpen = false;
+                if (cur != null) { try { cur.Close(); } catch (Exception) { } cur = null; }
+                mem = null;
+                if (curFile == null) return;
+                if (curFile.LocalPath != null)
+                {
+                    try { File.Delete(curFile.LocalPath); } catch (Exception) { }
+                }
+                files.Remove(curFile);
+                removed = curFile;
+                Log("Cleared partially transferred file: " + (curFile.LocalPath ?? curFile.RemoteName));
+                curFile = null;
             };
             SendFrame("G" + remote, 0);
             ReplyOutcome outcome;
@@ -588,6 +613,7 @@ namespace NextSync.Listener
                         string rel = RemotePaths.RelativeNameUnder(remote, name);
                         if (rel.Length == 0) rel = RemotePaths.BaseName(name);
                         closeCurrent();
+                        fileOpen = true;
                         curFile = new ReceivedFile { RemoteName = name };
                         if (destDir != null)
                         {
@@ -616,9 +642,12 @@ namespace NextSync.Listener
                     else if (o == (byte)'E')
                     {
                         closeCurrent();
+                        fileOpen = false;
                     }
                     else if (o == (byte)'B')
                     {
+                        if (TransferAbort.IsMark(payload)) aborted = true;
+                        dropPartial();
                         closeCurrent();
                         return true;
                     }
@@ -628,15 +657,29 @@ namespace NextSync.Listener
             finally
             {
                 // Closed on every path: a half-written file left open would
-                // refuse a retried get's own open on Windows.
+                // refuse a retried get's own open on Windows. And removed
+                // when the link went under it.
+                dropPartial();
                 closeCurrent();
             }
             res.Files = files;
             res.BytesReceived = bytes;
+            res.RemovedPartial = removed;
             if (osp)
             {
                 res.Status = NextSyncStatus.OsProtected;
                 res.Error = OsProtection.ErrorText;
+            }
+            else if (aborted)
+            {
+                res.Status = NextSyncStatus.Aborted;
+                res.Error = "get " + remote + ": aborted on the Next (BREAK)";
+            }
+            else if (outcome == ReplyOutcome.Completed && removed != null)
+            {
+                res.Status = NextSyncStatus.Failed;
+                res.Error = "get " + remote + ": the stream ended before " + removed.RemoteName +
+                            " did; the partial file was removed";
             }
             else if (outcome == ReplyOutcome.Completed)
             {

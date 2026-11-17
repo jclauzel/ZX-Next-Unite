@@ -28,7 +28,7 @@ from PySide6.QtGui import QColor
 from zxnu_mcp import MCP_DEFAULT_PORT  # noqa: F401  (re-exported by the star import)
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.72"
+ZX_NEXT_UNITE_VERSION = "9.7.73"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -36,7 +36,7 @@ ZX_NEXT_UNITE_VERSION = "9.7.72"
 # startup dotN-updated advisory compares this against the dotn_last_version
 # persisted in hdfg.cfg, so the user is told to refresh the copy on their
 # Next (which the app cannot deploy automatically).
-ZX_NEXT_UNITE_DOTN_VERSION = "5.9.16"
+ZX_NEXT_UNITE_DOTN_VERSION = "5.9.18"
 # Self-update check (Settings toggle, default on): the app's own releases.
 ZXNU_GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/jclauzel/ZX-Next-Unite/releases/latest"
 # Per-tag lookup: the remote .sync5 self-update fetches THIS app version's
@@ -419,6 +419,9 @@ SETTING_NEXTSYNC_EXPLORERPATH = "nextsync_explorerpath"
 # DISTINCT from it on purpose: the two panes browse for different reasons,
 # and one shared list would drop a sync root into the SD Card tab's box.
 SETTING_NEXTSYNC_EXPLORERPATH_HISTORY = "nextsync_explorerpath_history"
+# The additional folders the emulator / hdfmonkey detection looks into
+# (9.7.73), joined by "|" in priority order - see find_in_search_paths.
+SETTING_EMULATOR_SEARCH_PATHS = "emulator_search_paths"
 SETTING_NEXTSYNC_SYNCONCE = "nextsync_synconce"
 SETTING_NEXTSYNC_ALWAYSSYNC = "nextsync_alwayssync"
 SETTING_NEXTSYNC_SLOWTRANSFER = "nextsync_slowtransfer"
@@ -1672,7 +1675,7 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              ("Enjoy!"),
              ("")
             )
-CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_EXPLORERPATH_HISTORY, SETTING_IMAGE_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_MOUSE, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_EXPLORERPATH_HISTORY, SETTING_NEXTSYNC_SYNCONCE,
+CONFIG_FILE_SETTINGS = (SETTING_EMULATOR_SEARCH_PATHS, SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_EXPLORERPATH_HISTORY, SETTING_IMAGE_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_MOUSE, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_EXPLORERPATH_HISTORY, SETTING_NEXTSYNC_SYNCONCE,
 SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_TRANSFER_SUBTAB, SETTING_WARN_IMAGE_NEARLY_FULL, SETTING_NO_PROMPT_ON_DELETION, SETTING_COLOR_UP_DIRECTORY, SETTING_COLOR_DIR_NAME, SETTING_COLOR_DIR_TYPE, SETTING_COLOR_FILE_NAME,
 SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_COLOR_GENERAL_TEXT, SETTING_COLOR_RETRO_LOG, SETTING_COLOR_BACKGROUND, SETTING_DESKTOP_THEME, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY, SETTING_CONTENT_DISCLAIMER_AGREED, SETTING_BG_OPACITY, SETTING_AVAIL_CHECK, SETTING_MULTI_SEARCH, SETTING_SEARCH_AUTOCOMPLETE, SETTING_SEARCH_SORT_MODE, SETTING_GALLERY_ANIM_MODE,
 SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, SETTING_GALLERY_SLIDESHOW_SECS, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE,
@@ -2771,6 +2774,13 @@ def find_mame_executable():
     platform's executable extensions, but we check the explicit ``.exe`` name
     on Windows as a fallback for robustness.
     """
+    # The additional search paths first (9.7.73): a folder named on purpose
+    # outranks whatever is on PATH.
+    exe = (MAME_EXECUTABLE_NAME + ".exe" if platform.system() == "Windows"
+           else MAME_EXECUTABLE_NAME)
+    candidate = find_in_search_paths((exe,))
+    if candidate:
+        return candidate
     candidate = shutil.which(MAME_EXECUTABLE_NAME)
     if candidate is None and platform.system() == "Windows":
         candidate = shutil.which(MAME_EXECUTABLE_NAME + ".exe")
@@ -3142,6 +3152,11 @@ def find_cspect_executable():
         local_candidate = os.path.join(candidate_dir, exe_name)
         if os.path.isfile(local_candidate):
             return local_candidate
+    # The additional search paths (9.7.73), before the system PATH; of
+    # several builds side by side in one of them, the newest.
+    candidate = find_in_search_paths((exe_name,), rank=build_version_key)
+    if candidate:
+        return candidate
     candidate = shutil.which(CSPECT_EXECUTABLE_NAME)
     if candidate is None:
         candidate = shutil.which(exe_name)
@@ -5008,6 +5023,209 @@ def resolve_mame_executable(base_dir):
     if platform.system() == "Windows":
         return on_path or in_downloads
     return in_downloads or on_path
+
+
+# ── Additional search paths for the emulators and hdfmonkey (9.7.73) ───────
+# CSpect, MAME and hdfmonkey were looked for in the app's own folders, under
+# downloads/ and on the system PATH. Some users cannot add to PATH (no
+# rights) or will not: Settings (Advanced) holds a list of folders that are
+# searched as well - BEFORE the system PATH, in the list's own order, since
+# a folder somebody named on purpose outranks whatever happens to be on PATH.
+#
+# Each folder is checked itself and one level down (its direct sub-folders):
+# a tools folder holding "CSpect3_3_1_0/", "mame/" and "hdfmonkey/" side by
+# side is the layout people actually have. Never deeper - this runs on the
+# UI thread at startup, and a folder such as a drive root must stay cheap.
+#
+# The list lives in module state because the first lookups run long before
+# hdfg.cfg is loaded (the widgets are built from what they find): startup
+# reads the one key directly (read_search_paths_from_cfg), Settings rewrites
+# it. A folder that has gone away is skipped, never an error, and reported
+# through invalid_search_paths().
+MAX_EMULATOR_SEARCH_PATHS = 20
+#: How many sub-folders of one search path are looked into.
+SEARCH_PATH_SUBFOLDER_LIMIT = 200
+_EXTRA_SEARCH_PATHS = []
+
+
+def _search_path_key(path):
+    """What two spellings of one folder share: used to refuse a duplicate."""
+    try:
+        return os.path.normcase(os.path.abspath(str(path))).rstrip("\\/")
+    except (OSError, ValueError):
+        return str(path)
+
+
+def parse_search_paths(raw):
+    """The stored value (folders joined by ``|``) as a list: tidied the way
+    the folder histories are (normalize_history_folder - forward slashes, no
+    trailing slash, a path the cfg cannot hold dropped), duplicates removed,
+    at most MAX_EMULATOR_SEARCH_PATHS. Accepts a list too."""
+    parts = raw if isinstance(raw, (list, tuple)) else str(raw or "").split("|")
+    out, seen = [], set()
+    for part in parts:
+        p = normalize_history_folder(part)
+        if not p:
+            continue
+        k = _search_path_key(p)
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(p)
+        if len(out) >= MAX_EMULATOR_SEARCH_PATHS:
+            break
+    return out
+
+
+def format_search_paths(paths):
+    """The list as hdfg.cfg stores it."""
+    return "|".join(parse_search_paths(list(paths or [])))
+
+
+def set_extra_search_paths(paths):
+    """Replace the live list (Settings, the cfg restore, startup)."""
+    _EXTRA_SEARCH_PATHS[:] = parse_search_paths(list(paths or []))
+    return list(_EXTRA_SEARCH_PATHS)
+
+
+def extra_search_paths():
+    """The live list, in priority order (a copy)."""
+    return list(_EXTRA_SEARCH_PATHS)
+
+
+def read_search_paths_from_cfg(cfg_path=None):
+    """The saved list, read straight from hdfg.cfg - for the first lookups,
+    which run before the configuration is loaded. [] on any trouble."""
+    cfg_path = cfg_path or ZX_NEXT_UNITE_CONFIG_FILE_NAME
+    try:
+        if not os.path.isfile(cfg_path):
+            return []
+        with open(cfg_path, "r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if "=" not in line:
+                    continue
+                k, v = line.strip().split("=", 1)
+                if k.strip() == SETTING_EMULATOR_SEARCH_PATHS:
+                    return parse_search_paths(v.strip())
+    except Exception:
+        logging.exception("could not read the search paths from %s", cfg_path)
+    return []
+
+
+def invalid_search_paths(paths=None):
+    """The listed folders that are not there (any more): removed, renamed,
+    on a drive that is not plugged in, or out of a sandbox's sight."""
+    paths = extra_search_paths() if paths is None else list(paths)
+    bad = []
+    for p in paths:
+        try:
+            if not os.path.isdir(p):
+                bad.append(p)
+        except (OSError, ValueError):
+            bad.append(p)
+    return bad
+
+
+def _search_path_hit(folder, names):
+    """*folder*/<one of names> when it is a file this platform can run."""
+    try:
+        listed = os.listdir(folder)
+    except (OSError, ValueError):
+        return None
+    lowered = {n.lower(): n for n in listed}
+    for name in names:
+        real = lowered.get(name.lower())
+        if real is None:
+            continue
+        full = os.path.join(folder, real)
+        try:
+            if not os.path.isfile(full):
+                continue
+            # A native binary must be executable; an .exe (CSpect runs under
+            # mono off Windows) needs no bit.
+            if (platform.system() != "Windows"
+                    and not real.lower().endswith(".exe")
+                    and not os.access(full, os.X_OK)):
+                continue
+        except (OSError, ValueError):
+            continue
+        return os.path.normpath(full)
+    return None
+
+
+def find_in_search_paths(names, paths=None, rank=None, skip_dirs=()):
+    """The first of *names* found under the additional search paths, or None.
+
+    The folders are tried in order; each one itself first, then its direct
+    sub-folders (name order, the first SEARCH_PATH_SUBFOLDER_LIMIT). With
+    *rank* (a key over the sub-folder's name) the best-ranked sub-folder of
+    a search path wins instead of the first - the newest of several CSpect
+    builds. *skip_dirs*: sub-folder names never looked into (lower-case).
+    Never raises: a folder that is gone or unreadable is skipped."""
+    paths = extra_search_paths() if paths is None else list(paths)
+    names = tuple(names)
+    skip = {str(d).lower() for d in skip_dirs}
+    for root in paths:
+        try:
+            if not os.path.isdir(root):
+                continue
+            hit = _search_path_hit(root, names)
+            if hit:
+                return hit
+            subs = sorted(d for d in os.listdir(root)
+                          if d.lower() not in skip)[:SEARCH_PATH_SUBFOLDER_LIMIT]
+        except (OSError, ValueError):
+            continue
+        hits = []
+        for sub in subs:
+            folder = os.path.join(root, sub)
+            try:
+                if not os.path.isdir(folder):
+                    continue
+            except (OSError, ValueError):
+                continue
+            hit = _search_path_hit(folder, names)
+            if hit:
+                if rank is None:
+                    return hit
+                hits.append((sub, hit))
+        if hits:
+            try:
+                return max(hits, key=lambda h: rank(h[0]))[1]
+            except Exception:
+                return hits[0][1]
+    return None
+
+
+def search_path_of(path, paths=None):
+    """The additional search path *path* was found under ("" when none):
+    the file's own folder or that folder's parent is a listed one."""
+    if not path:
+        return ""
+    paths = extra_search_paths() if paths is None else list(paths)
+    try:
+        folder = os.path.dirname(os.path.abspath(str(path)))
+    except (OSError, ValueError):
+        return ""
+    cands = {_search_path_key(folder), _search_path_key(os.path.dirname(folder))}
+    for p in paths:
+        if _search_path_key(p) in cands:
+            return p
+    return ""
+
+
+def find_hdfmonkey_in_search_paths(paths=None):
+    """An hdfmonkey for THIS platform under the additional search paths.
+
+    The Linux and macOS builds share one file name, and the archives lay
+    them out in per-platform folders (hdfmonkey_platform_dirs): a sub-folder
+    named for another platform is never looked into."""
+    mine = [d for d, _exe in hdfmonkey_platform_dirs()]
+    others = [d for d in ("windows-64", "linux-musl", "macos-intel", "macos-mn")
+              if d not in mine]
+    exe = (HDFMONKEY_EXECUTABLE + ".exe" if platform.system() == "Windows"
+           else HDFMONKEY_EXECUTABLE)
+    return find_in_search_paths((exe,), paths, skip_dirs=others)
 
 
 def extract_hdfmonkey_from_jjjs_zip(outer_zip_path, dest_root,

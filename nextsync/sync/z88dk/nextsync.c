@@ -14,7 +14,7 @@
 // version a controller reads over the wire can never drift from the
 // one printed on screen. On a bump ALSO update ZX_NEXT_UNITE_DOTN_VERSION
 // in zxnu_config.py (the app's refresh-your-.sync5 advisory).
-#define SYNC_VERSION "5.9.16"
+#define SYNC_VERSION "5.9.18"
 
 #define TIMEOUT 20000
 #define TIMEOUT_FLUSHUART 10000
@@ -148,6 +148,19 @@ char g_dark = 1;      // retro green-on-black look + custom font; -nr disables
 extern void anim_begin(void);
 extern void anim_tick(void);
 extern void anim_end(void);
+// The transfer display (run.asm, main bank, v5.9.17): a man running along
+// a line, the percentage and the rate under it, and the saucer that takes
+// him when the transfer is interrupted. Every call returns at its first
+// test unless run_init() ran, and it runs only with the eye-candy.
+extern void run_init(void);
+extern void run_size(char *fn) __z88dk_fastcall;        // a put's size, if sent
+extern void run_add(unsigned short n) __z88dk_fastcall; // n more bytes moved
+extern void run_end(unsigned char ok) __z88dk_fastcall;
+extern void run_hide(void);
+// 5.9.18: a new -listen command clears the last transfer's display - every
+// one but the idle poll and a crc, which clients ask for right after a put.
+extern void run_cmd(unsigned char op) __z88dk_fastcall;
+extern unsigned long run_total;                         // the file's size, 0 = unknown
 // The -v busy cursor (also anim.c, head page): a | / - \ glyph drawn by
 // direct pixel writes into the screen cell at the ROM print position -
 // never through the print driver, so it is safe anywhere. spin(1) advances
@@ -178,6 +191,12 @@ const unsigned char spin_glyphs[30] = {
 #define anim_tick()
 #define anim_end()
 #define spin(go)
+#define run_init()
+#define run_size(fn)
+#define run_add(n)
+#define run_end(ok)
+#define run_hide()
+#define run_cmd(op)
 #endif
 
 // Liveness shim for head-page loops: rcpy_hb (rcpy.c) calls this on every
@@ -918,6 +937,11 @@ retry:
         {
             if (len == 5+3 && checksum(dp, len - 3) == 0 && memcmp(dp, "Error", 5) == 0)
             {
+                // 5.9.18: "Error" numbered packetno ^ 0x80 is the server
+                // CANCELLING this put (ZX-Next-Unite 9.7.73's Cancel, ZX
+                // Next Remote 1.14.0's BREAK). Six rounds of it ended here
+                // anyway; now the first one does.
+                if (dp[len - 1] == (packetno ^ 0x80)) goto failure;
                 goto doretry;
             }
             flush_uart_hard();
@@ -934,6 +958,7 @@ retry:
         {
             len -= 3;
             fwrite(filehandle, dp, len);
+            run_add(len);
             packetno++;
             failcount = 0;
             // (the sprite step + spinner pose moved up to retry:, 5.9.3, so
@@ -954,10 +979,21 @@ doretry:
 
     spin(0);
     fclose(filehandle);
+    run_end(1);
     return 0;
 failure:
     spin(0);
     fclose(filehandle);
+    // NO HALF FILE (5.9.17). BREAK, a link that died, a server that gave
+    // up: what was written is a prefix of the file, and until now it
+    // stayed on the card under the file's own name. It goes, and the
+    // screen says so - verbose or not, it is the one line a user who
+    // just lost a transfer needs. Two rows: the ROM prints 32 columns.
+    sync_unlink(fn);
+    print("Cleared partially transferred");
+    conprint("file: ");
+    print(fn);
+    run_end(0);
     return 1;
 }
 
@@ -1023,6 +1059,7 @@ char send_block(unsigned char *scratch, unsigned short payloadlen, unsigned char
     } while (timeout && received < expected);
 
     if (received < 5 || checksum((char*)inbuf + 2, received - 5) != 0) return 0;
+    if (inbuf[2] == 'A') return 2;  // "Abort" (5.9.18): the server is cancelling
     return inbuf[2] == 'O'; // "Ok"
 }
 
@@ -1030,10 +1067,12 @@ char send_block(unsigned char *scratch, unsigned short payloadlen, unsigned char
 // Returns 0 on success, 1 on give-up.
 char send_block_rt(unsigned char *scratch, unsigned short payloadlen, unsigned char *inbuf)
 {
-    unsigned char tries = 12;
+    unsigned char tries = 12, r;
     while (tries--)
     {
-        if (send_block(scratch, payloadlen, inbuf)) { g_packetno++; return 0; }
+        r = send_block(scratch, payloadlen, inbuf);
+        if (r == 1) { g_packetno++; return 0; }
+        if (r) break;       // 5.9.18: cancelled by the server - no retries
         flush_uart_hard();
     }
     return 1;
@@ -1049,12 +1088,16 @@ char send_file(char *fullpath, char *relname, unsigned char *inbuf, unsigned cha
 
     fh = fopen((unsigned char *)fullpath, 1);
     if (fh == 0) { print("Skip:"); print(relname); return 0; }
+    run_total = sync_fsize(fh);    // the transfer display's percentage
     print(relname);
     anim_tick();   // eye-candy step per file (no-op unless -anim); before I/O
 
     while (relname[namelen] && namelen < 200) namelen++;
     scratch[2] = 'N';
-    scratch[3] = 0; scratch[4] = 0; scratch[5] = 0; scratch[6] = 0; // length unknown
+    // 5.9.18: the file's size, little-endian like every other count a
+    // -listen reply carries (they were four zeros, "length unknown") - the
+    // PC's per-file progress bar. A reader that ignores them is unchanged.
+    memcpy((char*)scratch + 3, (char*)&run_total, 4);
     scratch[7] = namelen;
     memcpy((char*)scratch + 8, relname, namelen);
     if (send_block_rt(scratch, (unsigned short)(6 + namelen), inbuf)) { fclose(fh); return 1; }
@@ -1064,14 +1107,16 @@ char send_file(char *fullpath, char *relname, unsigned char *inbuf, unsigned cha
         if (n)
         {
             scratch[2] = 'D';
-            if (send_block_rt(scratch, (unsigned short)(n + 1), inbuf)) { fclose(fh); return 1; }
+            if (send_block_rt(scratch, (unsigned short)(n + 1), inbuf)) { fclose(fh); run_end(0); return 1; }
             anim_tick();   // between acked blocks: link idle, safe (1 step/frame)
+            run_add(n);
         }
     } while (n);
 
     scratch[2] = 'E';
     send_block_rt(scratch, 1, inbuf);
     fclose(fh);
+    run_end(1);
     return 0;
 }
 
@@ -1796,7 +1841,13 @@ static char fn[256];
 //     explicitly right after the map, to keep the old semantics exactly.
 extern void map_data_bank(void);   // uart.asm
 
-static char scratch[1280]; // outgoing block: 1024 file bytes + opcode + framing (~1030 max)
+// 5.9.17: scratch follows inbuf into the banked window - an absolute
+// address ($7000, uart.asm), 1280 bytes of main bank handed back to the C
+// stack and spent on run.asm. Everything said about inbuf above holds for
+// it: mapped before any use and for the whole run, read and written by
+// esxDOS, never zeroed by the crt. $6800-$6FFF stays dead space, so
+// receive()'s wall still ends in bytes nobody owns.
+extern char scratch[1280]; // outgoing block: 1024 file bytes + opcode + framing (~1030 max)
 static char sendpath[256]; // -send's path, and send_dir's walk extends it IN
                            // PLACE up to 254 chars (its guard) - so 256, not the
                            // 160 the command line alone would need (v5.9.2 tried)
@@ -1913,7 +1964,7 @@ int main(int arglen, char *rawcmd)
     // inbuf. Zero it because it is no longer bss and the crt therefore
     // does not.
     map_data_bank();
-    memset(inbuf, 0, 2048);
+    memset(inbuf, 0, 0x1500);      // inbuf, the dead space, and scratch
 
     // Strip speed/option switches into a private buffer (never write the OS
     // cmdline), then point cmdline at it so the normal parser sees the cleaned
@@ -2400,7 +2451,7 @@ connbreak:
     retrycount = 0;
 
     // Connected. Start the optional sprite eye-candy (no-op unless -anim/-a).
-    if (g_anim) anim_begin();
+    if (g_anim) { anim_begin(); run_init(); }
 
     if (listenmode)
     {
@@ -2485,6 +2536,9 @@ connbreak:
                 if (al > 254) al = 254;
                 memcpy(fn, dp + 1, al);
                 fn[al] = 0;
+                fn[al + 1] = 0;    // so a put WITHOUT a size after its path
+                                   // cannot read the last command's (run_size)
+                run_cmd(op);       // 5.9.18: the last transfer's display goes
 
                 // -v: echo the command NAME + path we received, e.g. "> put /ho/bj.txt".
                 // Using the full verb keeps the trace consistent with the result
@@ -2550,6 +2604,7 @@ connbreak:
                     // couldn't create the file (2) or the transfer gave up (1) -
                     // push an 'F' status so the server knows and can report it; on
                     // success the server already counted every byte, so send none.
+                    run_size(fn);      // 5.9.17: the size after the path's NUL
                     if (transfer(fn, inbuf)) { vprint(s_fail); listen_status(0, inbuf, scratch); }
                     else vprint(s_ok);
                 }
@@ -2768,6 +2823,7 @@ bailout:
     // runs on every run, so gating only our half is what leaves the two
     // ends disagreeing.
     FLOW_OFF();
+    run_hide();   // the running man's six sprites (attribute writes only)
     anim_end();   // hide sprites + restore the sprite/layers reg (no-op unless -anim)
     // HAND THE MODULE OVER IN ITS POWER-ON STATE (5.9.11). Until now this
     // was atcmd("AT+UART_CUR=115200,8,1,0,0", "", 0): a polite request

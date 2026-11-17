@@ -221,7 +221,10 @@ def make_widget(**kw):
         # The folder the local pane was browsing (9.7.62): handed in and
         # reported back like the history list.
         local_browse_dir=kw.get("local_browse_dir"),
-        on_local_dir_changed=calls["local_dir"].append)
+        on_local_dir_changed=calls["local_dir"].append,
+        # Cancel's "end the transfer in flight" hook (9.7.73); absent
+        # unless a test hands one in.
+        cancel_transfer=kw.get("cancel_transfer"))
     return w, calls
 
 
