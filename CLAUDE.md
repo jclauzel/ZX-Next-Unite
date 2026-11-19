@@ -122,7 +122,15 @@ shortcut show for the exe; regenerate it from `zx-next-unite.png` with
 `_zxnu_app_icon()` in `zxnu_main.py` reads the PNG from the embedded Qt
 resources, and a source run on Windows sets an explicit AppUserModelID
 (`_zxnu_claim_taskbar_identity`, never when frozen) so the taskbar shows that
-icon and not python.exe's.
+icon and not python.exe's. `_zxnu_set_window_class_icon(window)`, called
+between `MainWindow()` and `show()`, also copies the icon into the window
+CLASS: Qt registers the class with Windows' generic IDI_APPLICATION icon
+(no `IDI_ICON1` resource in python.exe), the taskbar asks the window for its
+icon with WM_GETICON, and the UI thread does not answer for ~1.7 s after
+`show()` (measured from outside), so most source runs got the generic
+class icon on the taskbar button. 9.7.77: the icon is a pixel-art saucer
+(it was a diagonal colour stripe); the two Flatpak icons are the same
+picture, x5 and x10 nearest-neighbour, centred on a transparent square.
 
 If the optional itch.io feature is in use, also fully bundle `itch-dl` and its
 dependencies so installs work in the frozen exe (its submodules are not pulled

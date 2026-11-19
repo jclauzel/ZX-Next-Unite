@@ -9,7 +9,7 @@ and painless updates.
 | `io.github.jclauzel.ZXNextUnite.yml` | flatpak-builder manifest (KDE 6.8 runtime + the PySide BaseApp; the app itself is installed as plain modules under `/app/lib/zx-next-unite` with a shell launcher) |
 | `io.github.jclauzel.ZXNextUnite.desktop` | desktop entry (menu name, icon, categories) |
 | `io.github.jclauzel.ZXNextUnite.metainfo.xml` | AppStream metadata — what software centers render (summary, description, screenshot, OARS rating, release list) |
-| `icons/` | 128/256 px app icons — chunky pixel-art "N" with bright confetti dots (deliberately NOT the Sinclair rainbow, see the project's trade-dress rule) |
+| `icons/` | 128/256 px app icons — the app's pixel-art saucer (`zx-next-unite.png`, 24x24) scaled x5 / x10 with nearest-neighbour and centred on a transparent square (deliberately NOT the Sinclair rainbow, see the project's trade-dress rule) |
 
 ## How the sandbox maps to the app
 

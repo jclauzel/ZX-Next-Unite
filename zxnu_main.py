@@ -5329,6 +5329,51 @@ def _zxnu_app_icon():
     return icon
 
 
+def _zxnu_set_window_class_icon(widget):
+    """Windows: make the app icon the window CLASS icon too.
+
+    Qt hands a window its icon per window (WM_SETICON) and registers the
+    window class with the icon resource named IDI_ICON1 of the executable,
+    else with IDI_APPLICATION, the generic Windows one (measured: under
+    python.exe the class icon IS that handle). The taskbar asks the window
+    for its icon with a message (WM_GETICON) and does not wait long for the
+    answer; this app's UI thread is busy right after show(), so most source
+    runs answered too late and the button was drawn with the class icon,
+    the generic one, for the rest of the run. The class icon is read
+    without a message, so with the app icon there the answer is the same
+    whether the thread is busy or not.
+
+    Must run after the native window exists and before show(). The handles
+    are copies: Qt destroys its own when the window icon changes.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.SendMessageW.restype = ctypes.c_void_p
+        user32.SendMessageW.argtypes = [wintypes.HWND, ctypes.c_uint,
+                                        ctypes.c_void_p, ctypes.c_void_p]
+        user32.CopyIcon.restype = ctypes.c_void_p
+        user32.CopyIcon.argtypes = [ctypes.c_void_p]
+        user32.SetClassLongPtrW.restype = ctypes.c_void_p
+        user32.SetClassLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int,
+                                            ctypes.c_void_p]
+        hwnd = int(widget.winId())
+        WM_GETICON, ICON_SMALL, ICON_BIG = 0x007F, 0, 1
+        GCLP_HICON, GCLP_HICONSM = -14, -34
+        for which, slot in ((ICON_BIG, GCLP_HICON), (ICON_SMALL, GCLP_HICONSM)):
+            hicon = user32.SendMessageW(hwnd, WM_GETICON, which, None)
+            if not hicon:
+                continue
+            copy = user32.CopyIcon(hicon)
+            if copy:
+                user32.SetClassLongPtrW(hwnd, slot, copy)
+    except Exception:
+        logging.exception("could not set the window class icon")
+
+
 _zxnu_claim_taskbar_identity()
 
 app = QApplication(sys.argv)
@@ -5405,6 +5450,7 @@ else:
 app.setFont(_app_font)
 
 window = MainWindow()
+_zxnu_set_window_class_icon(window)
 window.show()
 
 # On exit — window "X", Ctrl-C, or any other app.quit() — wind both NextSync
