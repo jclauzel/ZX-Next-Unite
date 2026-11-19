@@ -2114,7 +2114,102 @@ def build_nextsync_pane(
     # connected Next before the process dies. Safe/idempotent to call twice.
     host._nextsync_stop_listen_server_fn = _nextsync_stop_listen_server
 
+    _RE_SEND_SWITCH_WAIT_S = 20
+
+    def _re_pick_send_session(then):
+        """Ask WHICH connected Next a gallery "Send via NextSync" goes to,
+        then run *then()* with the Remote Explorer driving that machine.
+
+        The send lands in the folder the Next pane shows, i.e. on the DRIVEN
+        machine. With two or more Nexts seated the user is asked (the driven
+        one preselected, the session tabs' own labels). Picking another one
+        asks the worker for the baton - the same request the machine combo
+        and the session tabs make - and *then* runs once that machine's
+        listing has landed, so remote_cwd() is ITS folder. With fewer than
+        two Nexts, or no live widget, *then* runs at once. Cancel sends
+        nothing; so does a switch that gets no listing in time."""
+        widget = getattr(host, "_re_widget", None)
+        if (widget is None or not getattr(host, "_re_running", False)
+                or not getattr(widget, "_connected", False)):
+            then()
+            return
+        peers = list(getattr(widget, "_peer_map", []) or [])
+        if len(peers) < 2:
+            then()
+            return
+        if (getattr(widget, "_op_active", False)
+                or getattr(widget, "_precheck", None) is not None):
+            # A switch is refused mid-operation; let the send report "busy".
+            then()
+            return
+        labels = [widget._machine_label(sid, addr) for sid, addr in peers]
+        current = 0
+        for i, (sid, _addr) in enumerate(peers):
+            if sid == widget._peer_active:
+                current = i
+                break
+        picked, okd = QInputDialog.getItem(
+            host, ui_tr_now("Choose the Next"),
+            ui_tr_now("Several Nexts are connected to the Remote Explorer.\n"
+                      "Choose the one to send to\n"
+                      "(the one the Remote Explorer shows is selected by "
+                      "default):"),
+            labels, current, False)
+        if not okd or picked not in labels:
+            return
+        sid = peers[labels.index(picked)][0]
+        if sid == widget._peer_active:
+            then()
+            return
+        seq0 = widget._listing_seq
+        deadline = time.monotonic() + _RE_SEND_SWITCH_WAIT_S
+        add_nextsync_log_window(ui_tr_now(
+            "Send via NextSync: switching the Remote Explorer to "
+            "{machine} …").format(machine=picked))
+        widget._request_machine(sid)
+
+        def _wait():
+            w = getattr(host, "_re_widget", None)
+            if w is not widget:
+                return
+            try:
+                ready = (w._connected and w._peer_active == sid
+                         and w._listing_seq != seq0)
+            except RuntimeError:
+                return                  # widget torn down
+            if ready:
+                then()
+                return
+            if time.monotonic() > deadline:
+                host._show_toast(
+                    "Could not switch to that Next",
+                    ui_tr_now("The Remote Explorer got no listing from "
+                              "{machine} in time, so nothing was "
+                              "sent.").format(machine=picked),
+                    variant="yellow", duration_ms=10000)
+                return
+            QTimer.singleShot(150, _wait)
+
+        QTimer.singleShot(150, _wait)
+
+    host._re_pick_send_session = _re_pick_send_session
+
     def _re_try_send_folder(folder):
+        """The gallery panes' "Send via NextSync" door: with two or more
+        Nexts seated the user first picks the one to send to
+        (_re_pick_send_session), then _re_send_folder_now does the send.
+        Returns what _re_send_folder_now documents; a send waiting on the
+        picker counts as handled (True)."""
+        widget = getattr(host, "_re_widget", None)
+        if (getattr(host, "_re_running", False) and widget is not None
+                and getattr(widget, "_connected", False)
+                and folder and os.path.isdir(folder)
+                and len(getattr(widget, "_peer_map", []) or []) >= 2):
+            _re_pick_send_session(lambda: _re_send_folder_now(folder))
+            return True
+        return _re_send_folder_now(folder)
+
+    def _re_send_folder_now(folder):
         """Route a gallery-pane "Send via NextSync" through the live Remote
         Explorer '.sync5 -listen' session instead of the classic one-shot
         sync server.

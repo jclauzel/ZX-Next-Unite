@@ -555,17 +555,21 @@ def build_itchio_pane(
                 if not _right_disk_content() or not host.right_disk_image_path:
                     _itchio_set_status("Please load a disk image first (SD Card tab).")
                     return
-                target_dir = generate_disk_file_path()
-                _itchio_set_status(f"Sending “{title}” to the SD card image…")
-                def _done(ok_flag):
-                    if ok_flag:
-                        host._show_sd_notification(
-                            ui_tr_now("Sent to SD card image:\n{name}").format(
-                                name=os.path.basename(path)))
-                        _itchio_set_status(f"Sent “{title}” to the SD card image.")
-                # image_upload_external_paths shows its own progress dialog and
-                # uploads files/folders recursively.
-                image_upload_external_paths([path], target_dir, on_complete=_done)
+                def _go():
+                    # Read AFTER the picker: it may have loaded another image.
+                    target_dir = generate_disk_file_path()
+                    _itchio_set_status(f"Sending “{title}” to the SD card image…")
+                    def _done(ok_flag):
+                        if ok_flag:
+                            host._show_sd_notification(
+                                ui_tr_now("Sent to SD card image:\n{name}").format(
+                                    name=os.path.basename(path)))
+                            _itchio_set_status(f"Sent “{title}” to the SD card image.")
+                    # image_upload_external_paths shows its own progress dialog and
+                    # uploads files/folders recursively.
+                    image_upload_external_paths([path], target_dir, on_complete=_done)
+                # With several disk images to choose from, ask which one first.
+                host._pick_send_image(_go)
 
             _ZXNR_DLG = "Send ZX Next Remote"
 
@@ -678,7 +682,13 @@ def build_itchio_pane(
                 prompt, and, when the listener answering is ZX Next Remote
                 itself, that app's own self-update rather than a plain copy."""
                 if zxnu_itchio.is_zxnextremote_entry(_e):
-                    _itchio_send_zxnr()
+                    # Several Nexts seated: ask which one BEFORE the route is
+                    # classified - the classifier reads the driven session.
+                    _pick = getattr(host, "_re_pick_send_session", None)
+                    if _pick is not None:
+                        _pick(_itchio_send_zxnr)
+                    else:
+                        _itchio_send_zxnr()
                     return
                 path = zxnu_itchio.installed_path(_e, dest)
                 if not path or not os.path.isdir(path):

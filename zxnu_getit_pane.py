@@ -1387,6 +1387,11 @@ def build_getit_pane(
         return os.path.join(ZXNU_DATA_ROOT, DOWNLOADS_ROOT_DIRNAME)
 
     def _getit_send_to_image(eid: str, default_name: str, title: str):
+        # With several disk images to choose from, ask which one first
+        # (host._pick_send_image loads the pick, then runs the send).
+        host._pick_send_image(lambda: _getit_send_to_image_now(eid, default_name, title))
+
+    def _getit_send_to_image_now(eid: str, default_name: str, title: str):
         """Download the GetIt entry to a temp file then hdfmonkey-put it into the
         currently loaded disk image at the current browse path."""
         if not _right_disk_content():

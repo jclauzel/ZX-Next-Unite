@@ -1986,6 +1986,10 @@ class RemoteExplorerWidget(QWidget):
         # machine a modal confirm named from the one seated since; the
         # epoch can (see _disconnect_session).
         self._conn_epoch = 0
+        # Bumped by every listing that lands: how a caller that asked for
+        # a baton move (the gallery sends' Next picker) knows the pane now
+        # shows the NEW machine's folder.
+        self._listing_seq = 0
         self._peer_guard = False
         self.next_machine_combo = QComboBox(self)
         self.next_machine_combo.setToolTip(
@@ -4912,6 +4916,7 @@ class RemoteExplorerWidget(QWidget):
 
     def on_listing(self, path, entries):
         self._resume_try = None      # 9.7.69: the resumed folder answered
+        self._listing_seq += 1
         self._cwd = (path if (path.startswith("/") or _re_drive_of(path))
                      else "/" + path)
         self._update_next_path_label()

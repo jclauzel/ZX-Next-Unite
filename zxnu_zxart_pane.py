@@ -849,6 +849,11 @@ def build_zxart_pane(
             zxart_download_to_path(d.get("url", ""), save_path, _ok, _err)
 
     def _zxart_send_to_image(title: str, downloads: list):
+        # With several disk images to choose from, ask which one first
+        # (host._pick_send_image loads the pick, then runs the send).
+        host._pick_send_image(lambda: _zxart_send_to_image_now(title, downloads))
+
+    def _zxart_send_to_image_now(title: str, downloads: list):
         if not _right_disk_content():
             zxart_set_status("Please load a disk image first (SD Card tab).")
             return
