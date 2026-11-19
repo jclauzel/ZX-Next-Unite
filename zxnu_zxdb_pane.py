@@ -2323,6 +2323,11 @@ def build_zxdb_pane(
             zxdb_download_to_path(d.get("url", ""), save_path, _ok, _err)
 
     def _zxdb_send_to_image(title: str, downloads: list):
+        # With several disk images to choose from, ask which one first
+        # (host._pick_send_image loads the pick, then runs the send).
+        host._pick_send_image(lambda: _zxdb_send_to_image_now(title, downloads))
+
+    def _zxdb_send_to_image_now(title: str, downloads: list):
         """Download all ZXDB files to temp then hdfmonkey-put them into the loaded disk image."""
         if not _right_disk_content():
             zxdb_set_status("Please load a disk image first (SD Card tab).")

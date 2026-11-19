@@ -1046,6 +1046,64 @@ def build_emulator_ops(
 
     host.select_emulator_image = _select_emulator_image
 
+    def _pick_send_image(then):
+        """Ask WHICH disk image a gallery "Send to SD card" goes to, then
+        run *then()* with that image loaded.
+
+        The image box remembers several images, and the send used to go to
+        whichever one happened to be loaded. With two or more that can be
+        written to right now (writable_image_choices - the list the Launch
+        buttons' right-click menu offers) the user is asked, the loaded one
+        preselected; picking another LOADS it first (the same two steps as
+        the history dropdown) and *then* runs once its root listing has
+        landed, so the send's own checks and its target folder read the new
+        image. With fewer than two there is nothing to choose and *then*
+        runs at once - the send's own "load an image first" refusals are
+        unchanged. Cancel sends nothing.
+        """
+        choices = _writable_image_choices()
+        if len(choices) < 2:
+            then()
+            return
+        paths = [p for p, _cur in choices]
+        current = 0
+        for i, (_p, is_cur) in enumerate(choices):
+            if is_cur:
+                current = i
+                break
+        picked, ok = QInputDialog.getItem(
+            host, ui_tr_now("Choose the disk image"),
+            ui_tr_now("Several disk images can be written to.\n"
+                      "Choose the one to send to\n"
+                      "(the loaded image is selected by default):"),
+            paths, current, False)
+        if not ok or not picked:
+            return
+        if (_image_state_key(picked) == _image_state_key(
+                getattr(host, "right_disk_image_path", "") or "")
+                and choices[current][1]):
+            then()
+            return
+        combo = getattr(host, "imageinput", None)
+        loader = getattr(host, "load_image", None)
+        if combo is None or loader is None:
+            return
+
+        def _loaded(success, _path=picked):
+            if success:
+                then()
+                return
+            host._show_toast(
+                "Disk image not loaded",
+                ui_tr_now("{path} could not be loaded, so nothing was "
+                          "sent.").format(path=_path),
+                variant="red", duration_ms=10000)
+
+        combo.setCurrentText(picked)
+        loader(on_done=_loaded)
+
+    host._pick_send_image = _pick_send_image
+
     def _emulator_launch_blocker(emulator, autostart=False):
         """Why *emulator* cannot start right now, or "" when it can.
 

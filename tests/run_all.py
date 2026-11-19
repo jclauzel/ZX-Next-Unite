@@ -67,6 +67,8 @@ SUITES = [
     # real launch_mame on a fake host, plus a live run of the generated Lua
     # when a MAME is under downloads/ (skipped on CI).
     ("test_mame_nextzxos_start.py", 180, None),
+    # Gallery sends ask which disk image / which Next when there is a choice.
+    ("test_send_target_picker.py", 120, None),
     ("test_nextsync_autostart.py", 120, None),
     ("test_nextsync_verify_crc.py", 120, None),
     ("test_nextsync_sessions.py", 120, None),
