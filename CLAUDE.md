@@ -113,8 +113,16 @@ Create a standalone executable manually with PyInstaller:
 
 ```
 pip install pyinstaller
-pyinstaller --clean --onefile --windowed --noupx zx-next-unite.py
+pyinstaller --clean --onefile --windowed --noupx --icon zx-next-unite.ico zx-next-unite.py
 ```
+
+`--icon zx-next-unite.ico` (Windows) is the icon Explorer, the taskbar and a pinned
+shortcut show for the exe; regenerate it from `zx-next-unite.png` with
+`python extra/make_app_icon.py` (Pillow). The WINDOW icon is separate:
+`_zxnu_app_icon()` in `zxnu_main.py` reads the PNG from the embedded Qt
+resources, and a source run on Windows sets an explicit AppUserModelID
+(`_zxnu_claim_taskbar_identity`, never when frozen) so the taskbar shows that
+icon and not python.exe's.
 
 If the optional itch.io feature is in use, also fully bundle `itch-dl` and its
 dependencies so installs work in the frozen exe (its submodules are not pulled
@@ -122,7 +130,7 @@ in by a bare `import itch_dl`, and the in-process installer in `zxnu_itchio.py`
 imports `itch_dl.config` / `handlers` / `downloader` / `keys` / `api`):
 
 ```
-pyinstaller --clean --onefile --windowed --noupx --collect-all itch_dl --collect-all bs4 zx-next-unite.py
+pyinstaller --clean --onefile --windowed --noupx --icon zx-next-unite.ico --collect-all itch_dl --collect-all bs4 zx-next-unite.py
 ```
 
 Note: in a frozen build `sys.executable` is the GUI exe, not a Python

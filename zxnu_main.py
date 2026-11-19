@@ -2591,7 +2591,7 @@ class MainWindow(QMainWindow):
 
         # Init UI forms
 
-        self.setWindowIcon(QIcon(ZX_NEXT_UNITE_ICON_IMAGE_FILE))
+        self.setWindowIcon(_zxnu_app_icon())
 
 
         self.zx_next_unite_form = QFormLayout()
@@ -5273,7 +5273,70 @@ def _zxnu_parse_start_re_listener_arg():
 
 _zxnu_parse_start_re_listener_arg()
 
+
+def _zxnu_claim_taskbar_identity():
+    """Give a SOURCE run its own Windows taskbar button.
+
+    Windows groups a window under its process's executable and shows THAT
+    executable's icon on the taskbar, so `python zx-next-unite.py` wore the
+    Python icon whatever setWindowIcon said. An explicit AppUserModelID
+    makes the taskbar use the window's own icon instead. It must be set
+    before the first window exists.
+
+    Never in a frozen build: there the executable carries the icon itself
+    (PyInstaller --icon zx-next-unite.ico), and an ID that differs from a
+    pinned shortcut's would put the running app on a second button beside
+    the pin.
+    """
+    if sys.platform != "win32" or getattr(sys, "frozen", False):
+        return
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "jclauzel.zx-next-unite")
+    except Exception:
+        logging.exception("could not set the taskbar AppUserModelID")
+
+
+def _zxnu_app_icon():
+    """The application icon: zx-next-unite.png, at every size a shell asks.
+
+    Read from the embedded Qt resources (rc_backgrounds), never from a
+    relative file name: that only resolved when the working directory was
+    the source checkout, so the frozen executable and the PyPI install had
+    no window icon at all. The picture is 24x24 pixel art; the larger sizes
+    (taskbar at 125-200% scaling, Alt+Tab, a Linux dock) are added as
+    nearest-neighbour copies so no shell blurs it up itself.
+    """
+    base = QPixmap(":/" + ZX_NEXT_UNITE_ICON_IMAGE_FILE)
+    if base.isNull():
+        base = QPixmap(resource_path(ZX_NEXT_UNITE_ICON_IMAGE_FILE))
+    icon = QIcon()
+    if base.isNull():
+        return icon
+    icon.addPixmap(base)
+    big = base.scaled(base.width() * 10, base.height() * 10,
+                      Qt.KeepAspectRatio, Qt.FastTransformation)
+    for size in (16, 32, 48, 64, 96, 128, 256):
+        if size % base.width() == 0:
+            icon.addPixmap(base.scaled(size, size, Qt.KeepAspectRatio,
+                                       Qt.FastTransformation))
+        else:
+            # One smooth step DOWN from a x10 blocky copy keeps the pixels
+            # crisp; a smooth step up from 24 px is a blur.
+            icon.addPixmap(big.scaled(size, size, Qt.KeepAspectRatio,
+                                      Qt.SmoothTransformation))
+    return icon
+
+
+_zxnu_claim_taskbar_identity()
+
 app = QApplication(sys.argv)
+app.setWindowIcon(_zxnu_app_icon())
+# Wayland has no per-window icon: the compositor looks the window's app id
+# up among the installed .desktop files. Only the Flatpak installs one.
+if os.environ.get("FLATPAK_ID"):
+    app.setDesktopFileName(os.environ["FLATPAK_ID"])
 
 # The "Next" chrome: retro navy + magenta/cyan widget styling, applied
 # app-wide (see NEXT_CHROME_QSS in zxnu_config for the boundary rules —

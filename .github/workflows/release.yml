@@ -116,7 +116,11 @@ jobs:
         # Same command as the CLAUDE.md packaging notes: itch_dl/bs4 must be
         # collected wholesale because the in-process installer imports their
         # submodules lazily.
-        run: pyinstaller --clean --onefile --windowed --noupx --collect-all itch_dl --collect-all bs4 zx-next-unite.py
+        # --icon on Windows only: it is what Explorer, the taskbar and a
+        # pinned shortcut show for the .exe (regenerate the .ico from
+        # zx-next-unite.png with extra/make_app_icon.py). Linux executables
+        # carry no icon; macOS would need an .icns.
+        run: pyinstaller --clean --onefile --windowed --noupx --collect-all itch_dl --collect-all bs4 ${{ matrix.platform == 'windows' && '--icon zx-next-unite.ico' || '' }} zx-next-unite.py
       - name: Package (Windows)
         if: matrix.platform == 'windows'
         shell: bash
