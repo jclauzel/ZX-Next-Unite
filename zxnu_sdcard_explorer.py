@@ -83,7 +83,8 @@ from zxnu_i18n import ui_tr_now
 # nothing back, so there is no cycle and no new module to declare in
 # pyproject.
 from zxnu_remote_explorer import (ColoredFileSystemModel, EmulatorTab,
-                                  HostItemColors, emulator_color_menu)
+                                  HostItemColors, _ext_type_text,
+                                  emulator_color_menu)
 from zxnu_config import (MAX_PATH_HISTORY, SETTING_EXPLORERPATH,
                          SETTING_IMAGE_EXPLORERPATH,
                          SPLITTER_HANDLE_QSS_HORIZONTAL,
@@ -993,8 +994,7 @@ class SdCardExplorerPane(QWidget):
             name_item.setForeground(host.img_color_dir_name)
             type_item.setForeground(host.img_color_dir_type)
         else:
-            file_ext = str.split(name, ".")[1] if "." in name else ""
-            type_item = QStandardItem(file_ext)
+            type_item = QStandardItem(_ext_type_text(str(name)))
             size_item = QStandardItem()
             # Store the size as an int so the Size column sorts numerically.
             size_item.setData(int(size_value) if str(size_value).isdigit() else str(size_value), Qt.ItemDataRole.DisplayRole)

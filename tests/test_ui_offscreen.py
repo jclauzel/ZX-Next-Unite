@@ -1728,7 +1728,7 @@ def inspect_phase4():
     _p = os.path.join(CLASSIC_ZONE, "noext")
     check("Type: blank without an extension", _txt(_p, 2) == "", repr(_txt(_p, 2)))
     _p = os.path.join(CLASSIC_ZONE, "a.b.c")
-    check("Type: the first extension segment", _txt(_p, 2) == "b", repr(_txt(_p, 2)))
+    check("Type: what follows the LAST dot (9.7.78)", _txt(_p, 2) == "c", repr(_txt(_p, 2)))
     _want = time.strftime("%Y-%m-%d %H:%M", time.localtime(CLASSIC_MTIME))
     check("Modified: ISO stamp in local time", _txt(s512, 3) == _want,
           f"{_txt(s512, 3)!r} != {_want!r}")
