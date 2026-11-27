@@ -383,7 +383,7 @@ class ColoredFileSystemModel(QFileSystemModel):
 
     def _type_text(self, index, name=None):
         """The Type column's text: "DIR" for a folder or the ".." row, else
-        the first extension segment - what data() shows AND what sort_text
+        the extension after the last dot - what data() shows AND what sort_text
         sorts by, from this one place, so the two cannot drift apart. *name*
         is the row's file name when the caller already has it (the sort
         proxy reads it for its ".." test); None reads it here."""
@@ -448,10 +448,11 @@ def _human_size(n):
 def _ext_type_text(name):
     """Type text for a file entry, used by BOTH Remote Explorer panes and,
     through ColoredFileSystemModel, by the SD Card Utility's local pane
-    (9.7.37) and the NextSync Classic sync tree (9.7.39): the first
-    extension segment, exactly as the SD-card image tree shows it (guarded by
-    the '.' test, so [1] is always present)."""
-    return name.split(".")[1] if "." in name else ""
+    (9.7.37), the NextSync Classic sync tree (9.7.39) and the SD-card image
+    tree: what follows the LAST dot. Until 9.7.78 it was the FIRST dot's
+    segment, so "santamagicwagon-0.15.0-rc1.nex" showed "15" and
+    "a.tap.zip" showed "tap"."""
+    return name.rsplit(".", 1)[1] if "." in name else ""
 
 
 def _posix_join(base, name):
@@ -5311,8 +5312,8 @@ class RemoteExplorerWidget(QWidget):
     # ==================================================================
     @staticmethod
     def _next_type_text(name):
-        # Mirror the SD-card image tree: the "type" is the first extension
-        # segment (shared with the local pane's Type column).
+        # Mirror the SD-card image tree: the "type" is the extension after
+        # the last dot (shared with the local pane's Type column).
         return _ext_type_text(name)
 
     def _add_next_row(self, name, is_dir, size, is_updir=False):

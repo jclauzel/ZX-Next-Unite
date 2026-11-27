@@ -353,8 +353,13 @@ def test_pure_helpers():
     check("human size", [_human_size(None), _human_size(512), _human_size(7000),
                          _human_size(4 * 1024 * 1024)]
           == ["", "512 B", "6.8 K", "4.0 M"])
-    check("ext type", [_ext_type_text("a.tap"), _ext_type_text("a.tap.zip"),
-                       _ext_type_text("noext")] == ["tap", "tap", ""])
+    check("ext type: what follows the LAST dot",
+          [_ext_type_text("a.tap"), _ext_type_text("a.tap.zip"),
+           _ext_type_text("noext"),
+           _ext_type_text("santamagicwagon-0.15.0-rc1.nex"),
+           _ext_type_text("santamagicwagon-0.12.0-rc1-report.map"),
+           _ext_type_text("trailing.")]
+          == ["tap", "zip", "", "nex", "map", ""])
     check("posix join", _posix_join("/games/", "lev") == "/games/lev"
           and _posix_join("", "x") == "/x")
     check("drive of", [_re_drive_of("M:/x"), _re_drive_of("/x"),
